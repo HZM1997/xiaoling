@@ -62,4 +62,8 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
 
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+
+    // 动态形象:播放动态 WebP/GIF(用户放到 assets/ 即生效)
+    implementation 'io.coil-kt:coil-compose:2.6.0'
+    implementation 'io.coil-kt:coil-gif:2.6.0'
 }

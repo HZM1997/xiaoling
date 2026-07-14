@@ -24,8 +24,8 @@ object BrainClient {
             val c = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 doOutput = true
-                connectTimeout = 4000
-                readTimeout = 6000
+                connectTimeout = 2500
+                readTimeout = 3500
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
             }
             try {

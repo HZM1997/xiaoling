@@ -114,22 +114,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun restartSoon() {
         _state.update { it.copy(listening = false) }
         if (!autoOn) return
-        viewModelScope.launch { delay(900); if (autoOn && !speaking) listenOnce() }
+        viewModelScope.launch { delay(400); if (autoOn && !speaking) listenOnce() }
     }
 
-    // ---------- 处理:安全优先本地,其余走云端 ----------
+    // ---------- 处理:本地快通道优先(极致反应),其余走云端 ----------
     private fun process(text: String) {
-        _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = "小灵在想…", lastUser = text) }
+        _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = "好的…", lastUser = text) }
 
-        val local = LocalSafetyNet.handle(text)
+        // 安全 + 高频指令本地即时处理,不等网络
+        val local = LocalSafetyNet.handle(text) ?: LocalIntents.parse(text)
         if (local != null) { applyReply(local); return }
 
         viewModelScope.launch {
             val reply = try {
                 BrainClient.ask(app, text)
             } catch (e: Exception) {
-                LocalSafetyNet.handle(text)
-                    ?: Reply("网络好像不太好,我先陪您聊两句。您可以说『打电话给女儿』『导航到医院』。", null, "chat", 0.0)
+                Reply("我先陪您聊两句。您可以说『打电话给女儿』『导航到医院』。", null, "chat", 0.0)
             }
             applyReply(reply)
         }

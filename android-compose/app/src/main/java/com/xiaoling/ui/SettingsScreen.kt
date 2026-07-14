@@ -104,22 +104,23 @@ fun SettingsScreen(vm: AppState) {
                 }
             }
 
-            // 会员中心
+            // 模块二:会员权益中心
             SettingCard {
-                Text("小灵会员", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                listOf("无限畅聊", "明星/亲人语音包", "健康用药管家", "亲情守护看护", "专属人工客服")
-                    .forEach { Text("· $it", fontSize = 15.sp, color = DimColor,
-                        modifier = Modifier.padding(vertical = 3.dp)) }
+                Text("会员权益中心", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(10.dp))
-                Button(
-                    onClick = { },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) { Text("开通会员", fontSize = 18.sp) }
+                PlanCard(
+                    "基础会员", "¥29.9 / 月",
+                    listOf("无限畅聊陪伴", "健康用药提醒", "来电 + 短信防诈")
+                )
+                Spacer(Modifier.height(10.dp))
+                PlanCard(
+                    "高级会员", "¥299 / 年",
+                    listOf("基础会员全部权益", "明星 / 亲人语音包", "亲情守护 · 家人看护", "专属人工客服"),
+                    highlight = true
+                )
             }
 
-            // 家人看护
+            // 模块三:家人看护
             SettingCard {
                 Text("家人看护", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
@@ -132,31 +133,24 @@ fun SettingsScreen(vm: AppState) {
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("同步给家人") }
-            }
-
-            // 来电防诈
-            SettingCard {
-                Text("来电防诈", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("把小灵设为「来电识别/防骚扰」应用,可疑来电自动预警",
-                    fontSize = 13.sp, color = DimColor, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
-                Button(
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
                     onClick = { requestScreenRole() },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("设为来电防诈助手") }
             }
 
-            // 服务器地址(高级)
+            // 开发者:服务器地址(联调用,不属于三大模块)
             SettingCard {
-                Text("服务器地址(高级)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("联调用:填电脑局域网地址,如 http://192.168.1.20:8000",
-                    fontSize = 13.sp, color = DimColor, modifier = Modifier.padding(top = 2.dp, bottom = 6.dp))
+                Text("开发者 · 服务器地址", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = DimColor)
+                Spacer(Modifier.height(6.dp))
                 OutlinedTextField(value = url, onValueChange = { url = it },
                     singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(8.dp))
                 OutlinedButton(
                     onClick = { vm.setBrainUrl(url) },
-                    modifier = Modifier.fillMaxWidth().height(46.dp),
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
                     shape = RoundedCornerShape(14.dp)
                 ) { Text("保存地址") }
             }
@@ -189,6 +183,36 @@ private fun StatRow(title: String, value: String) {
     ) {
         Text(title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
         Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = AccentBlue)
+    }
+}
+
+@Composable
+private fun PlanCard(name: String, price: String, benefits: List<String>, highlight: Boolean = false) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (highlight) Color(0xFFFFF6E6) else Color(0xFFF1F6FF))
+            .padding(14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(price, fontSize = 18.sp, fontWeight = FontWeight.Bold,
+                color = if (highlight) Color(0xFFB8860B) else AccentBlue)
+        }
+        Spacer(Modifier.height(6.dp))
+        benefits.forEach {
+            Text("· $it", fontSize = 14.sp, color = DimColor, modifier = Modifier.padding(vertical = 2.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { },
+            modifier = Modifier.fillMaxWidth().height(44.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) { Text("立即开通", fontSize = 16.sp) }
     }
 }
 

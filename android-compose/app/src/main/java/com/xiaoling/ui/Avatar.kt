@@ -1,5 +1,6 @@
 package com.xiaoling.ui
 
+import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -29,31 +30,34 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.ImageLoader
+import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.request.ImageRequest
 import com.xiaoling.R
 import com.xiaoling.core.MascotState
 import com.xiaoling.ui.theme.AccentBlue
 import com.xiaoling.ui.theme.AlarmRed
 
 /**
- * 富动效角色:单张静态图也能有强反馈。
- * 支持可选分表情图(avatar_alarm/avatar_happy/avatar_listening/avatar_thinking/avatar_talking),
- * 缺失自动回退到基础 avatar。危险态:红光暴闪 + 抖动 + 红框 + 头顶⚠。
+ * 富动效角色:
+ *  - 若 assets/ 里放了对应动态图(webp/gif),播放**真动态**(眨眼/说话循环等);
+ *  - 否则用静态 avatar.png + 动效兜底。
+ *  按状态找:avatar_alarm / avatar_happy / avatar_listening / avatar_thinking / avatar_talking,缺失回退 avatar。
+ *  危险态:红光暴闪 + 抖动 + 红框 + 头顶⚠。
  */
 @Composable
 fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
     val ctx = LocalContext.current
-    val resId = remember(state) {
-        val name = when (state) {
-            MascotState.Alarm -> "avatar_alarm"
-            MascotState.Caring -> "avatar_happy"
-            MascotState.Listening -> "avatar_listening"
-            MascotState.Thinking -> "avatar_thinking"
-            MascotState.Talking -> "avatar_talking"
-            else -> "avatar"
-        }
-        val id = ctx.resources.getIdentifier(name, "drawable", ctx.packageName)
-        if (id != 0) id else R.drawable.avatar
+    val loader = remember {
+        ImageLoader.Builder(ctx).components {
+            if (Build.VERSION.SDK_INT >= 28) add(ImageDecoderDecoder.Factory())
+            else add(GifDecoder.Factory())
+        }.build()
     }
+    // 动态资源(assets),没有则 null → 用静态 drawable
+    val animModel = remember(state) { pickAnimAsset(ctx, baseName(state)) ?: pickAnimAsset(ctx, "avatar") }
 
     val inf = rememberInfiniteTransition(label = "av")
     val breathe by inf.animateFloat(0.99f, 1.02f, infiniteRepeatable(tween(2400), RepeatMode.Reverse), label = "b")
@@ -66,17 +70,31 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
     val aura by animateColorAsState(
         when (state) {
             MascotState.Alarm -> AlarmRed
-            MascotState.Listening, MascotState.Thinking -> AccentBlue
+            MascotState.Listening, MascotState.Thinking, MascotState.Talking -> AccentBlue
             MascotState.Caring -> Color(0xFFFF8FA3)
-            MascotState.Talking -> AccentBlue
             else -> Color(0xFF9BB6E8)
         }, label = "aura"
     )
     val shape = RoundedCornerShape(40.dp)
     val isAlarm = state == MascotState.Alarm
 
+    val figureModifier = Modifier
+        .fillMaxSize()
+        .graphicsLayer {
+            val s = when (state) {
+                MascotState.Talking -> bob
+                MascotState.Alarm -> 1.01f
+                else -> breathe
+            }
+            scaleX = s; scaleY = s
+            translationX = if (isAlarm) shake * 16f else 0f
+            rotationZ = if (state == MascotState.Caring) sway else 0f
+        }
+        .clip(shape)
+        .border(if (isAlarm) 6.dp else if (state == MascotState.Idle) 2.dp else 3.dp, aura, shape)
+
     Box(modifier, contentAlignment = Alignment.TopCenter) {
-        // 1) 背后光环 / 涟漪
+        // 背后光环 / 涟漪
         Canvas(Modifier.fillMaxSize()) {
             val c = Offset(size.width / 2f, size.height * 0.5f)
             val base = size.minDimension * 0.5f
@@ -85,40 +103,47 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
                 drawCircle(aura.copy(alpha = 0.25f * (1f - ripple)), base * (1f + 0.5f * ripple), c)
             }
         }
-        // 2) 角色图(呼吸/抖动/摆动/口型抖)
-        Image(
-            painter = painterResource(resId),
-            contentDescription = "小灵",
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopCenter,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    val s = when (state) {
-                        MascotState.Talking -> bob
-                        MascotState.Alarm -> 1.01f
-                        else -> breathe
-                    }
-                    scaleX = s; scaleY = s
-                    translationX = if (isAlarm) shake * 16f else 0f
-                    rotationZ = if (state == MascotState.Caring) sway else 0f
-                }
-                .clip(shape)
-                .border(
-                    if (isAlarm) 6.dp else if (state == MascotState.Idle) 2.dp else 3.dp,
-                    aura, shape
-                )
-        )
-        // 3) 危险:红光暴闪盖层
-        if (isAlarm) {
-            Box(
-                Modifier.fillMaxSize().clip(shape)
-                    .background(AlarmRed.copy(alpha = 0.10f + 0.22f * pulse))
+        // 角色:优先动态图,否则静态图
+        if (animModel != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(ctx).data(animModel).build(),
+                imageLoader = loader,
+                contentDescription = "小灵",
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = figureModifier
             )
-            Text(
-                "⚠", fontSize = 66.sp,
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp)
+        } else {
+            Image(
+                painter = painterResource(R.drawable.avatar),
+                contentDescription = "小灵",
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = figureModifier
             )
         }
+        // 危险:红光暴闪盖层 + ⚠
+        if (isAlarm) {
+            Box(Modifier.fillMaxSize().clip(shape).background(AlarmRed.copy(alpha = 0.10f + 0.22f * pulse)))
+            Text("⚠", fontSize = 66.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp))
+        }
     }
+}
+
+private fun baseName(state: MascotState): String = when (state) {
+    MascotState.Alarm -> "avatar_alarm"
+    MascotState.Caring -> "avatar_happy"
+    MascotState.Listening -> "avatar_listening"
+    MascotState.Thinking -> "avatar_thinking"
+    MascotState.Talking -> "avatar_talking"
+    else -> "avatar"
+}
+
+/** 在 assets/ 找 name.webp / name.gif,存在返回 file:///android_asset/... 否则 null */
+private fun pickAnimAsset(ctx: android.content.Context, name: String): String? {
+    for (ext in listOf("webp", "gif")) {
+        val f = "$name.$ext"
+        try { ctx.assets.open(f).close(); return "file:///android_asset/$f" } catch (e: Exception) { /* 不存在 */ }
+    }
+    return null
 }
