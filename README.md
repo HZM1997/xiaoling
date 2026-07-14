@@ -1,7 +1,13 @@
 # 小灵 · AI手机精灵(MVP 可运行工程)
 
 一个"张口就能用"的手机精灵。MVP 楔子:**老人防诈骗 + 一键呼救 + 情感陪伴**。
-架构:**瘦客户端(安卓,<15MB)+ 云端大脑(意图理解/技能路由)**,精灵是"语音遥控器",
+
+> **⭐ 原生 App(真正能交互的 APK)**:见 [android-compose/](android-compose/) —— Kotlin + Jetpack Compose 开发,
+> 点按说话 → 语音识别 → 云端大脑 → 语音回应 + 真实拨号/导航/呼救,断网时呼救与红线防诈本地兜底。
+> 出 APK:GitHub Actions → **Build Compose APK**。详见 [android-compose/NATIVE.md](android-compose/NATIVE.md)。
+> (`demo/player.html` 是纯网页**演示**;`android/`、`mobile/` 是早期骨架/WebView 封装。)
+
+架构:**客户端(原生 App 或瘦客户端)+ 云端大脑(意图理解/技能路由)**,精灵是"语音遥控器",
 调起已有 App(高德/微信/美团),不重造轮子。
 
 ## 目录结构

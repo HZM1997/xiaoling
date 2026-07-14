@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅开发期放行明文 HTTP,方便真机连电脑本地 server。上线换 HTTPS 后删掉 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

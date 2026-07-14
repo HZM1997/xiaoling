@@ -1,0 +1,8 @@
+<resources>
+    <!-- 平台主题:无需 AppCompat/Material Components 依赖;Compose 自绘 MaterialTheme -->
+    <style name="Theme.Xiaoling" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+    </style>
+</resources>
