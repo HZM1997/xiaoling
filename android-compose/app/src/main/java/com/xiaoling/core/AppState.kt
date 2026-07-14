@@ -7,6 +7,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -32,7 +34,7 @@ data class UiState(
 class AppState(application: Application) : AndroidViewModel(application) {
 
     private val app = application
-    private val _state = MutableStateFlow(UiState(brainUrl = Settings.brainUrl(app)))
+    private val _state = MutableStateFlow(UiState(brainUrl = Settings.brainUrl(app), fraudBlocked = FraudStore.count(app)))
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val speech = SpeechController(app)
@@ -40,6 +42,39 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     @Volatile private var autoOn = false     // 常听开关(跨主线程/ TTS 回调线程读写)
     @Volatile private var speaking = false   // TTS 播报中(此时不听,避免听到自己)
+    @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
+
+    init {
+        // 后台(短信/来电)检测到诈骗 → 形象即时警惕
+        AlarmBus.events.onEach { onExternalFraud(it) }.launchIn(viewModelScope)
+        // App 被诈骗事件冷启动 / 刚打开时,读取近 2 分钟内的待处理事件
+        FraudStore.takePendingIfRecent(app)?.let { onExternalFraud(it) }
+    }
+
+    /** 来自短信/来电的高危事件:把形象切到警惕态,并语音+震动强反馈 */
+    private fun onExternalFraud(reason: String) {
+        FraudStore.clearPending(app)
+        val say = "注意!$reason。千万不要转账、不要提供验证码、不要点链接。"
+        speaking = true
+        _state.update { it.copy(mascot = MascotState.Alarm, caption = say, busy = false, fraudBlocked = FraudStore.count(app)) }
+        try { ActionDispatcher.execute(app, JSONObject().put("type", "FRAUD_WARN")) } catch (e: Exception) {}
+        tts.speak(say)
+        scheduleAlarmReset()
+    }
+
+    private fun scheduleAlarmReset() {
+        val until = System.currentTimeMillis() + 6500L
+        alarmUntil = until
+        viewModelScope.launch {
+            delay(6600L)
+            // 只有当没有更晚的警报把 deadline 往后推时才复位,避免叠加事件被提前清掉
+            if (System.currentTimeMillis() >= alarmUntil) {
+                _state.update {
+                    if (it.mascot == MascotState.Alarm) it.copy(mascot = MascotState.Idle, caption = "小灵在这儿,想说什么直接说") else it
+                }
+            }
+        }
+    }
 
     // ---------- 常听式语音(免手动) ----------
     fun startAuto() {
@@ -104,17 +139,19 @@ class AppState(application: Application) : AndroidViewModel(application) {
         val type = reply.action?.optString("type")
         val hint = reply.action?.let { ActionDispatcher.execute(app, it) }
         val toSay = hint ?: reply.speech
+        if (type == "FRAUD_WARN") FraudStore.inc(app)
         speaking = true
         _state.update {
             it.copy(
                 busy = false,
                 caption = toSay,
                 mascot = stateFor(type, reply),
-                fraudBlocked = it.fraudBlocked + if (type == "FRAUD_WARN") 1 else 0,
+                fraudBlocked = FraudStore.count(app),
                 sosLabel = if (type == "SOS") "刚刚" else it.sosLabel
             )
         }
         tts.speak(toSay)
+        if (type == "FRAUD_WARN" || type == "SOS") scheduleAlarmReset()
     }
 
     private fun stateFor(type: String?, reply: Reply): MascotState = when {
@@ -126,7 +163,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onSpeakDone() {
         speaking = false
-        _state.update { if (it.listening) it else it.copy(mascot = MascotState.Idle) }
+        _state.update {
+            if (it.listening) it
+            else it.copy(mascot = if (it.mascot == MascotState.Alarm) MascotState.Alarm else MascotState.Idle)
+        }
         if (autoOn) restartSoon()
     }
 

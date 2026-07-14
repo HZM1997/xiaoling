@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
     <!-- Android 11+ 必须声明,否则 SpeechRecognizer.isRecognitionAvailable()==false / 调不起拨号地图 -->
     <queries>
@@ -52,5 +53,14 @@
                 <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
+
+        <!-- 短信防诈:接收进来的短信做端侧判定(仅读,不拦截) -->
+        <receiver
+            android:name=".service.SmsFraudReceiver"
+            android:exported="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

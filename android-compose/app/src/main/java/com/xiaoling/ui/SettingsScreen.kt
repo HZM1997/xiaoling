@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaoling.R
 import com.xiaoling.core.AppState
-import com.xiaoling.core.FraudStore
 import com.xiaoling.core.Screen
 import com.xiaoling.ui.theme.AccentBlue
 import com.xiaoling.ui.theme.BgBottom
@@ -58,7 +57,6 @@ fun SettingsScreen(vm: AppState) {
     val ui by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     var url by remember { mutableStateOf(ui.brainUrl) }
-    val callBlocked = remember { FraudStore.count(ctx) }
 
     val roleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -125,8 +123,7 @@ fun SettingsScreen(vm: AppState) {
             SettingCard {
                 Text("家人看护", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
-                StatRow("本周拦截诈骗", "${ui.fraudBlocked} 次")
-                StatRow("来电防诈拦截", "$callBlocked 次")
+                StatRow("累计拦截诈骗", "${ui.fraudBlocked} 次")
                 StatRow("紧急呼救记录", ui.sosLabel)
                 StatRow("同步状态", if (ui.familySynced) "已同步 ✓" else "未同步")
                 Spacer(Modifier.height(10.dp))
