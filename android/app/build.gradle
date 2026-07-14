@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.jingling'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.jingling"
+        minSdk 24            // 覆盖绝大多数在用老年机(Android 7+)
+        targetSdk 34
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    buildTypes {
+        release {
+            // 瘦身:开启代码/资源压缩,APK 目标 < 15MB
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro'
+        }
+    }
+    // 只打包必要 so,进一步减小体积(端侧唤醒库按需)
+    packagingOptions { resources { excludes += ['META-INF/*'] } }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = '17' }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    // 端侧离线唤醒(择一):Picovoice Porcupine —— 体积小、低功耗
+    // implementation 'ai.picovoice:porcupine-android:3.0.2'
+    // 方言流式ASR(择一,国内):讯飞/阿里/百度 SDK(aar 本地依赖)
+}

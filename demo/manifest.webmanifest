@@ -1,0 +1,15 @@
+{
+  "name": "小灵 · AI手机精灵",
+  "short_name": "小灵",
+  "description": "会说话就能用的手机精灵 · 防诈骗 · 紧急呼救 · 情感陪伴",
+  "start_url": "./player.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小灵 · AI手机精灵 — 投资人 Pitch Deck</title>
+<style>
+  :root{
+    --bg:#0d1117; --bg2:#161b22; --ink:#e6edf3; --dim:#9aa7b4; --line:#2b333d;
+    --accent:#3fb6a8;      /* 主青绿 */
+    --accent2:#f2a541;     /* 暖橙:警示/数据高亮 */
+    --danger:#e5534b;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--ink);
+    font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;overflow:hidden}
+  .deck{height:100vh;width:100vw}
+  .slide{height:100vh;width:100vw;display:none;flex-direction:column;
+    justify-content:center;padding:7vh 9vw;position:relative}
+  .slide.active{display:flex;animation:fade .4s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .kicker{color:var(--accent);font-weight:700;letter-spacing:.15em;
+    font-size:.85rem;text-transform:uppercase;margin-bottom:1.2rem}
+  h1{font-size:4.2rem;line-height:1.08;letter-spacing:-.01em}
+  h2{font-size:2.6rem;line-height:1.2;margin-bottom:1.8rem}
+  h2 .u{color:var(--accent)}
+  p,li{font-size:1.35rem;line-height:1.7;color:var(--dim)}
+  .lead{font-size:1.7rem;color:var(--ink);max-width:60ch}
+  strong{color:var(--ink)}
+  .grid{display:grid;gap:1.4rem;margin-top:1rem}
+  .g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+  .card{background:var(--bg2);border:1px solid var(--line);border-radius:16px;
+    padding:1.6rem 1.7rem}
+  .card h3{font-size:1.25rem;color:var(--ink);margin-bottom:.5rem}
+  .card p{font-size:1.05rem;line-height:1.6}
+  .big{font-size:3.2rem;font-weight:800;color:var(--accent);line-height:1}
+  .big.warn{color:var(--accent2)} .big.red{color:var(--danger)}
+  .stat{display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:1.5rem}
+  .stat .n{font-size:2.8rem;font-weight:800;color:var(--accent)}
+  .stat .l{font-size:1rem;color:var(--dim);margin-top:.2rem}
+  table{border-collapse:collapse;width:100%;margin-top:1rem;font-size:1.1rem}
+  th,td{border:1px solid var(--line);padding:.85rem 1rem;text-align:left}
+  th{background:var(--bg2);color:var(--ink)}
+  td{color:var(--dim)} td.y{color:var(--accent);font-weight:700}
+  td.n{color:#6b7580}
+  .bar{height:34px;border-radius:8px;background:linear-gradient(90deg,var(--accent),#2c8b80);
+    display:flex;align-items:center;padding-left:14px;color:#04110f;font-weight:800;margin:.4rem 0}
+  .barrow{display:grid;grid-template-columns:120px 1fr;align-items:center;gap:1rem;margin:.6rem 0}
+  .barrow .k{font-size:1.05rem;color:var(--dim)}
+  .demo{background:#04110f;border:1px solid var(--line);border-radius:14px;
+    padding:1.4rem 1.6rem;font-family:ui-monospace,Consolas,monospace;font-size:1.05rem;line-height:1.75}
+  .demo .u{color:#8fd3c9}.demo .s{color:var(--ink)}.demo .r{color:var(--danger);font-weight:700}
+  .foot{position:absolute;bottom:3.2vh;left:9vw;right:9vw;display:flex;
+    justify-content:space-between;font-size:.85rem;color:#5a6570}
+  .pill{display:inline-block;background:rgba(63,182,168,.12);color:var(--accent);
+    border:1px solid rgba(63,182,168,.35);border-radius:999px;padding:.3rem .9rem;
+    font-size:.95rem;margin:.25rem .3rem .25rem 0}
+  .nav{position:fixed;bottom:16px;right:20px;color:#5a6570;font-size:.85rem;z-index:9}
+  .cover-glow{position:absolute;inset:0;background:
+    radial-gradient(60% 60% at 70% 20%,rgba(63,182,168,.18),transparent 60%);z-index:-1}
+  @media print{
+    html,body{overflow:visible;height:auto}
+    .slide{display:flex!important;page-break-after:always;height:100vh}
+    .nav{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+  <!-- 1 封面 -->
+  <section class="slide active">
+    <div class="cover-glow"></div>
+    <div class="kicker">AI 手机精灵 · 种子轮</div>
+    <h1>小灵<br><span style="font-size:2.2rem;color:var(--dim);font-weight:600">会说话,就能用的手机管家</span></h1>
+    <p class="lead" style="margin-top:2rem">为不会打字、看不清、怕被骗的人而生。<br>一句"小灵小灵",防诈骗、能呼救、有陪伴。</p>
+    <div class="foot"><span>小灵 XIAOLING</span><span>2026 · 机密</span></div>
+  </section>
+
+  <!-- 2 问题 -->
+  <section class="slide">
+    <div class="kicker">问题</div>
+    <h2>3 亿老人,被智能时代<span class="u">抛下</span></h2>
+    <div class="grid g3">
+      <div class="card"><div class="big red">看不懂</div><p>密密麻麻的 App、小字、多层菜单,不会打字不会点</p></div>
+      <div class="card"><div class="big red">易被骗</div><p>电信诈骗重灾区,冒充公检法/客服/征信,一骗就是养老钱</p></div>
+      <div class="card"><div class="big red">没人知</div><p>独居老人突发疾病、摔倒,子女不在身边,错过黄金时间</p></div>
+    </div>
+    <p style="margin-top:2rem"><strong>巨头都在抢会用智能机的年轻人 —— 老人是被主动放弃的市场。</strong></p>
+    <div class="foot"><span>小灵</span><span>02</span></div>
+  </section>
+
+  <!-- 3 市场 -->
+  <section class="slide">
+    <div class="kicker">市场 · 时机</div>
+    <h2>确定性的<span class="u">老龄化</span>洪流,叠加 AI 语音拐点</h2>
+    <div class="stat">
+      <div><div class="n">≈3亿</div><div class="l">中国 60 岁以上人口(2025)</div></div>
+      <div><div class="n">4亿+</div><div class="l">2035 预计,深度老龄化</div></div>
+      <div><div class="n">2024–26</div><div class="l">端侧大模型+流式方言ASR 成熟拐点</div></div>
+    </div>
+    <p style="margin-top:2rem">技术刚好成熟到能"实时听懂方言、秒级反馈",而竞品还没为老人认真做 —— <strong>窗口期就在现在。</strong></p>
+    <div class="foot"><span>小灵</span><span>03</span></div>
+  </section>
+
+  <!-- 4 定位/楔子 -->
+  <section class="slide">
+    <div class="kicker">定位 · 楔子</div>
+    <h2>不做"贾维斯全集",先做<span class="u">离不开的三件事</span></h2>
+    <div class="grid g3">
+      <div class="card"><h3>🛡️ 防诈骗</h3><p>来电/短信实时研判,秒级拦截高频套路,可上报家人与反诈中心</p></div>
+      <div class="card"><h3>🆘 一键呼救</h3><p>"我不舒服"→自动拨120+通知家人+发定位,抢黄金时间</p></div>
+      <div class="card"><h3>💗 情感陪伴</h3><p>方言闲聊、记忆、提醒吃药,留存与 IP 换声商业化入口</p></div>
+    </div>
+    <p style="margin-top:2rem;font-size:1.5rem;color:var(--ink)">
+      获客靠 <strong>子女的孝心与恐惧</strong> —— 怕父母被骗、怕摔倒没人知道。这是最强付费与传播动机。</p>
+    <div class="foot"><span>小灵</span><span>04</span></div>
+  </section>
+
+  <!-- 5 产品 -->
+  <section class="slide">
+    <div class="kicker">产品</div>
+    <h2>一进来就是精灵,<span class="u">全程说话,零手动</span></h2>
+    <div class="grid g2">
+      <div>
+        <p style="font-size:1.5rem;color:var(--ink);line-height:2">
+          语音(普通话/方言)<br>
+          <span style="color:var(--accent)">↓ AI 理解</span><br>
+          意图路由 → 执行<br>
+          <span style="color:var(--accent)">↓ 急速反馈</span><br>
+          温暖播报 + 调起已有 App</p>
+      </div>
+      <div class="grid" style="gap:.8rem">
+        <span class="pill">端侧离线唤醒</span><span class="pill">流式方言识别</span>
+        <span class="pill">规则层 0 延迟</span><span class="pill">系统ASR/TTS降级</span>
+        <span class="pill">Intent/DeepLink 调起高德·微信·美团</span>
+        <span class="pill">APK &lt; 15MB,跑得动 Android 7 老年机</span>
+      </div>
+    </div>
+    <p style="margin-top:1.5rem"><strong>精灵是"语音遥控器",不重造地图/外卖/打车 —— 轻、快、能落地。</strong></p>
+    <div class="foot"><span>小灵</span><span>05</span></div>
+  </section>
+
+  <!-- 6 Demo 实录 -->
+  <section class="slide">
+    <div class="kicker">Demo · 真实运行输出</div>
+    <h2>一次<span class="u">防诈拦截</span>,一次<span class="u">呼救</span></h2>
+    <div class="demo">
+      <div class="u">👵 来电:"我是公检法,您涉嫌洗钱,把钱转到安全账户配合调查"</div>
+      <div class="r">🔊 小灵:注意!诈骗风险极高(疑似冒充公检法)。千万不要转账、不要提供验证码!要不要帮您挂断并打给子女核实?</div>
+      <div style="color:#5a6570">⚙ FRAUD_WARN · risk 0.96 · 已生成上报载荷 → 家人/反诈中心</div>
+      <br>
+      <div class="u">👵 老人:"我胸口疼,喘不上气,快不行了"</div>
+      <div class="s">🔊 小灵:别怕,我马上呼叫120,通知家人并发送位置,您坚持住。</div>
+      <div style="color:#5a6570">⚙ SOS · call 120 · notify_family · send_location</div>
+    </div>
+    <p style="margin-top:1.2rem;font-size:1rem">↑ 由本仓库 <strong>node xiaoling.js</strong> 真实跑出,现场可演示。</p>
+    <div class="foot"><span>小灵</span><span>06</span></div>
+  </section>
+
+  <!-- 7 技术 -->
+  <section class="slide">
+    <div class="kicker">技术架构</div>
+    <h2>瘦客户端 + 云端大脑,<span class="u">规则层扛住成本与延迟</span></h2>
+    <div class="grid g2">
+      <div class="card"><h3>端(老年机)</h3><p>离线唤醒 · 录音 · TTS 播报 · 调起 App。不含模型 → 小、省电、可降级。</p></div>
+      <div class="card"><h3>云(大脑)</h3><p>方言 ASR → 意图理解 → 技能路由。高频指令走规则 0 延迟,复杂语义才上大模型。</p></div>
+    </div>
+    <div class="grid g3" style="margin-top:1.2rem">
+      <div class="card"><div class="big">&lt;800ms</div><p>首字反馈目标</p></div>
+      <div class="card"><div class="big warn">-60%</div><p>规则前置省下的大模型调用成本</p></div>
+      <div class="card"><div class="big">越用越准</div><p>防诈规则库+号码信誉,数据飞轮</p></div>
+    </div>
+    <div class="foot"><span>小灵</span><span>07</span></div>
+  </section>
+
+  <!-- 8 竞争壁垒 -->
+  <section class="slide">
+    <div class="kicker">差异化 · 壁垒</div>
+    <h2>巨头懒得做,我们<span class="u">做到极致</span></h2>
+    <table>
+      <tr><th>能力</th><th>小爱/Siri</th><th>豆包/文小言</th><th>老年功能机</th><th>小灵</th></tr>
+      <tr><td>为老人/全语音设计</td><td class="n">✕</td><td class="n">✕</td><td class="n">仅大字</td><td class="y">✓</td></tr>
+      <tr><td>方言实时识别</td><td class="n">弱</td><td class="n">一般</td><td class="n">✕</td><td class="y">✓ 主打</td></tr>
+      <tr><td>防诈骗实时拦截</td><td class="n">✕</td><td class="n">✕</td><td class="n">✕</td><td class="y">✓ 核心</td></tr>
+      <tr><td>呼救+定位通知家人</td><td class="n">✕</td><td class="n">✕</td><td class="n">部分</td><td class="y">✓</td></tr>
+      <tr><td>情感陪伴+记忆</td><td class="n">弱</td><td class="n">一般</td><td class="n">✕</td><td class="y">✓</td></tr>
+    </table>
+    <p style="margin-top:1.5rem"><strong>护城河:</strong>防诈数据飞轮 · 老人+家人双向情感绑定(高留存) · 适老/方言工程 know-how。</p>
+    <div class="foot"><span>小灵</span><span>08</span></div>
+  </section>
+
+  <!-- 9 商业模式 -->
+  <section class="slide">
+    <div class="kicker">商业模式</div>
+    <h2>多条腿,<span class="u">C 端订阅 + B/G 采购</span>并进</h2>
+    <div class="grid g2">
+      <div class="card"><h3>C 端 · 亲情会员</h3><p>基础免费(防诈+呼救),会员 <strong>19.9/月 或 199/年</strong>:健康提醒、远程看护、陪伴角色。子女付费。</p></div>
+      <div class="card"><h3>硬件预装</h3><p>与老人机/千元机厂商合作预装,按台收授权费。</p></div>
+      <div class="card"><h3>B / G 采购</h3><p>社区民政、公安反诈、<strong>保险(防诈险捆绑)</strong>、银行适老服务。</p></div>
+      <div class="card"><h3>IP 商业化(后期)</h3><p>明星/亲人<strong>声音克隆陪伴</strong>分成;语音调起交易的导流佣金。</p></div>
+    </div>
+    <div class="foot"><span>小灵</span><span>09</span></div>
+  </section>
+
+  <!-- 10 路线图 -->
+  <section class="slide">
+    <div class="kicker">路线图</div>
+    <h2>从"老人管家"走向<span class="u">全场景 AI 助理</span></h2>
+    <div class="barrow"><div class="k">M0–3 MVP</div><div class="bar" style="width:32%">防诈·呼救·打电话·陪伴 / 1000 户内测</div></div>
+    <div class="barrow"><div class="k">M4–9 V1</div><div class="bar" style="width:52%">导航·挂号·听戏·健康 / 子女端App / 10万激活</div></div>
+    <div class="barrow"><div class="k">M10–18 V2</div><div class="bar" style="width:72%">技能市场·IP换声·方言15+·硬件预装</div></div>
+    <div class="barrow"><div class="k">Y2+ V3</div><div class="bar" style="width:92%">跨设备:手表·音箱·车机·家居 / 主动服务</div></div>
+    <div class="foot"><span>小灵</span><span>10</span></div>
+  </section>
+
+  <!-- 11 市场规模 -->
+  <section class="slide">
+    <div class="kicker">市场规模</div>
+    <h2>TAM / SAM / SOM</h2>
+    <div class="barrow"><div class="k">TAM</div><div class="bar" style="width:92%">全国 3 亿+ 老人 × 适老智能服务</div></div>
+    <div class="barrow"><div class="k">SAM</div><div class="bar" style="width:55%;background:linear-gradient(90deg,#f2a541,#c67d1f);color:#1a1200">城镇有子女付费意愿家庭 + B/G 采购</div></div>
+    <div class="barrow"><div class="k">SOM(3年)</div><div class="bar" style="width:24%;background:linear-gradient(90deg,#e5534b,#a83c35);color:#fff">种子城市 × 会员+预装+试点采购</div></div>
+    <p style="margin-top:1.6rem">先在 2–3 个种子城市跑通"激活→留存→付费",用可复制的单位经济模型放大。</p>
+    <div class="foot"><span>小灵</span><span>11</span></div>
+  </section>
+
+  <!-- 12 融资 -->
+  <section class="slide">
+    <div class="kicker">融资 · 里程碑</div>
+    <h2>种子轮:<span class="u">500–800 万</span></h2>
+    <div class="grid g2">
+      <div class="card"><h3>资金用途</h3><p>① MVP 打磨 + 方言/防诈能力<br>② 5000 户验证留存与付费率<br>③ 核心团队 6–8 人</p></div>
+      <div class="card"><h3>关键指标(拿 A 轮的证据)</h3><p>7 日留存 · 会员转化率 · 每一次"拦截诈骗/成功呼救"的可传播案例</p></div>
+    </div>
+    <p style="margin-top:1.4rem"><strong>成本优化:</strong>规则层拦住高频指令,省 60%+ 大模型调用费,单位经济更早转正。</p>
+    <div class="foot"><span>小灵</span><span>12</span></div>
+  </section>
+
+  <!-- 13 团队 -->
+  <section class="slide">
+    <div class="kicker">团队</div>
+    <h2>早期<span class="u">6–8 人</span>精干配置</h2>
+    <div class="grid g3">
+      <div class="card"><h3>CEO</h3><p>战略 / 融资 / B·G 资源</p></div>
+      <div class="card"><h3>CTO</h3><p>端云架构 · 语音 · 大模型</p></div>
+      <div class="card"><h3>算法</h3><p>ASR / NLP / 防诈风控</p></div>
+      <div class="card"><h3>产品</h3><p>适老交互专家</p></div>
+      <div class="card"><h3>BD</h3><p>硬件厂商 + 政府/保险</p></div>
+      <div class="card"><h3>运营</h3><p>子女社群 · 增长</p></div>
+    </div>
+    <p style="margin-top:1.6rem;color:#5a6570">* 按需替换为真实成员履历</p>
+    <div class="foot"><span>小灵</span><span>13</span></div>
+  </section>
+
+  <!-- 14 愿景 -->
+  <section class="slide">
+    <div class="cover-glow"></div>
+    <div class="kicker">愿景</div>
+    <h1 style="font-size:3.4rem">先守护每一位老人,<br><span style="color:var(--accent)">再成为每个人的 AI 管家。</span></h1>
+    <p class="lead" style="margin-top:2rem">"张口就用 + 防诈 + 呼救"一旦做到极致,用户就离不开你 ——<br>这才是通往贾维斯的正确起点。</p>
+    <p style="margin-top:2.4rem;font-size:1.2rem;color:var(--dim)">小灵 · XIAOLING　|　联系人 / 邮箱 / 电话</p>
+    <div class="foot"><span>小灵</span><span>14</span></div>
+  </section>
+
+</div>
+<div class="nav">← → 翻页 · F 全屏 · P 打印/导出PDF</div>
+<script>
+  const slides=[...document.querySelectorAll('.slide')];let i=0;
+  const show=n=>{slides[i].classList.remove('active');i=(n+slides.length)%slides.length;
+    slides[i].classList.add('active')};
+  document.addEventListener('keydown',e=>{
+    if(['ArrowRight','ArrowDown',' ','PageDown'].includes(e.key))show(i+1);
+    else if(['ArrowLeft','ArrowUp','PageUp'].includes(e.key))show(i-1);
+    else if(e.key==='Home')show(0);else if(e.key==='End')show(slides.length-1);
+    else if(e.key.toLowerCase()==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+    else if(e.key.toLowerCase()==='p')window.print();
+  });
+  document.addEventListener('click',e=>{if(e.clientX>innerWidth*0.5)show(i+1);else show(i-1)});
+</script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+# 可选:接入大模型时安装(不装也能只跑规则层,开箱即用)
+# anthropic>=0.40

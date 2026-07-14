@@ -1,0 +1,9 @@
+# 依赖与生成物(不进仓库,CI/本地会重新生成)
+**/node_modules/
+demo/out/
+mobile/www/
+mobile/android/
+mobile/ios/
+*.log
+.DS_Store
+Thumbs.db

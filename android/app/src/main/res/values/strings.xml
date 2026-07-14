@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">小灵</string>
+    <string name="wake_hint">对我说:"小灵小灵"</string>
+    <string name="press_to_talk">按住说话</string>
+</resources>

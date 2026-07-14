@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#12303a"/><stop offset="1" stop-color="#0b0f14"/></linearGradient>
+    <linearGradient id="bee" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffdb3d"/><stop offset="1" stop-color="#f4b400"/></linearGradient>
+    <radialGradient id="hood" cx="50%" cy="40%" r="65%"><stop offset="0" stop-color="#ffe066"/><stop offset="1" stop-color="#f2b705"/></radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- 触角 -->
+  <g stroke="#5a3b1a" stroke-width="12" fill="none" stroke-linecap="round">
+    <path d="M214 150 Q196 96 200 74"/><path d="M298 146 Q320 92 316 70"/>
+  </g>
+  <circle cx="198" cy="64" r="26" fill="url(#bee)"/><circle cx="318" cy="60" r="26" fill="url(#bee)"/>
+  <!-- 帽兜 -->
+  <ellipse cx="256" cy="238" rx="150" ry="142" fill="url(#hood)"/>
+  <!-- 脸 -->
+  <ellipse cx="256" cy="262" rx="100" ry="96" fill="#ffd9b8"/>
+  <!-- 腮红 -->
+  <circle cx="196" cy="292" r="19" fill="#ff8fa3" opacity=".7"/><circle cx="316" cy="292" r="19" fill="#ff8fa3" opacity=".7"/>
+  <!-- 眼 -->
+  <ellipse cx="222" cy="258" rx="24" ry="30" fill="#3a2412"/><ellipse cx="290" cy="258" rx="24" ry="30" fill="#3a2412"/>
+  <circle cx="228" cy="248" r="8" fill="#fff"/><circle cx="296" cy="248" r="8" fill="#fff"/>
+  <!-- 笑嘴 -->
+  <path d="M224 300 Q256 336 288 300" stroke="#7a2230" stroke-width="12" fill="none" stroke-linecap="round"/>
+  <!-- 条纹身体一角 -->
+  <path d="M150 402 Q256 372 362 402 L362 470 Q256 500 150 470 Z" fill="url(#bee)"/>
+  <rect x="150" y="424" width="212" height="18" fill="#5a3b1a"/>
+</svg>

@@ -1,0 +1,21 @@
+{
+  "name": "xiaoling-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "description": "小灵 演示的移动端封装(Capacitor → 安卓 APK / iOS 工程)",
+  "scripts": {
+    "prep": "node prepare-www.js",
+    "add:android": "cap add android",
+    "add:ios": "cap add ios",
+    "sync": "cap sync",
+    "apk": "npm run prep && npx cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.0",
+    "@capacitor/core": "^6.1.0",
+    "@capacitor/ios": "^6.1.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.0"
+  }
+}

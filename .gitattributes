@@ -1,0 +1,7 @@
+# 统一用 LF 行尾(CI 在 Linux 上构建,避免 CRLF 引发的脚本/gradle 问题)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.webp binary

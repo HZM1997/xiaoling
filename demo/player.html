@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="小灵">
+<meta name="mobile-web-app-capable" content="yes">
+<title>小灵 · 产品演示(小蜜蜂形象)</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--ink:#e6edf3;--dim:#9aa7b4;--line:#2b333d;
+    --accent:#f2b705;--amber:#f2a541;--danger:#e5534b;--ok:#2ea043;--pink:#ff8fa3;
+    --beeY:#ffd21a;--beeY2:#f4b400;--beeD:#5a3b1a;--skin:#ffd9b8;--screen:#0b0f14}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{background:radial-gradient(80% 60% at 70% 8%,rgba(242,183,5,.10),transparent 60%),var(--bg);
+    color:var(--ink);font-family:"PingFang SC","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+    display:flex;flex-direction:column;align-items:center;min-height:100%}
+  header{width:100%;max-width:960px;padding:16px 20px 2px;display:flex;justify-content:space-between;align-items:center}
+  header .brand{font-weight:800;font-size:1.1rem}header .brand span{color:var(--accent)}
+  header .tag{color:var(--dim);font-size:.8rem}
+  .stage-wrap{flex:1;display:flex;flex-direction:column;align-items:center;padding:12px;gap:14px}
+
+  .phone{position:relative;width:340px;max-width:92vw;aspect-ratio:9/19.2;background:#000;border-radius:44px;padding:12px;
+    box-shadow:0 30px 80px rgba(0,0,0,.6),0 0 0 2px #23292f,inset 0 0 0 6px #05070a}
+  @supports not (aspect-ratio:1/1){.phone{height:calc(min(340px,92vw) * 19.2 / 9)}}
+  .notch{position:absolute;top:12px;left:50%;transform:translateX(-50%);width:120px;height:26px;background:#000;border-radius:0 0 18px 18px;z-index:20}
+  .screen{position:relative;width:100%;height:100%;border-radius:34px;overflow:hidden;display:flex;flex-direction:column;
+    background:radial-gradient(120% 90% at 50% 12%,#20344a,#0b0f14 62%)}
+  .statusbar{height:34px;display:flex;align-items:center;justify-content:space-between;padding:6px 18px 0;font-size:.72rem;color:var(--dim);flex:0 0 auto}
+  .statusbar .r{display:flex;gap:6px}
+
+  /* ---------- 形象舞台(常驻) ---------- */
+  #stage{position:relative;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
+  .aura{position:absolute;top:52%;left:50%;width:250px;height:250px;border-radius:50%;transform:translate(-50%,-50%);
+    background:radial-gradient(circle,var(--auraC,rgba(242,183,5,.5)),transparent 68%);filter:blur(6px);animation:auraPulse 3.4s ease-in-out infinite}
+  @keyframes auraPulse{0%,100%{opacity:.5;transform:translate(-50%,-50%) scale(1)}50%{opacity:.8;transform:translate(-50%,-50%) scale(1.08)}}
+  #stage[data-state="alarm"] .aura{animation:auraAlarm .5s ease-in-out infinite}
+  @keyframes auraAlarm{0%,100%{opacity:.5;transform:translate(-50%,-50%) scale(1)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.16)}}
+  #stage[data-state="alarm"]{--auraC:rgba(229,83,75,.8)}
+  #stage[data-state="help"]{--auraC:rgba(46,160,67,.72)}
+  #stage[data-state="caring"]{--auraC:rgba(255,143,163,.66)}
+  #stage[data-state="happy"]{--auraC:rgba(242,183,5,.62)}
+
+  .char{position:relative;width:210px;height:290px;z-index:2;transition:transform .3s}
+  .char.pop{animation:popin .6s cubic-bezier(.2,1.4,.4,1)}
+  @keyframes popin{0%{transform:scale(.2);opacity:0}60%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
+  #stage[data-state="listen"] .char{transform:translateY(3px) scale(1.03)}
+  #stage[data-state="alarm"] .char{animation:shake .5s ease-in-out infinite}
+  #stage[data-state="caring"] .char{animation:sway 3.6s ease-in-out infinite}
+  @keyframes shake{0%,100%{transform:translateX(0) rotate(0)}20%{transform:translateX(-7px) rotate(-3deg)}40%{transform:translateX(7px) rotate(3deg)}60%{transform:translateX(-5px) rotate(-2deg)}80%{transform:translateX(5px) rotate(2deg)}}
+  @keyframes sway{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+  .bob{animation:breathe 3.6s ease-in-out infinite;transform-origin:center;position:relative}
+  @keyframes breathe{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+  svg{width:100%;height:100%;overflow:visible}
+  svg *{transform-box:fill-box;transform-origin:center}
+
+  /* 触角 / 翅膀 微动 */
+  .antenna{transform-origin:bottom center;animation:antwig 3s ease-in-out infinite}
+  .antenna.r{animation-delay:.4s}
+  @keyframes antwig{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+  .wing{opacity:.55;animation:flutter 1.2s ease-in-out infinite}
+  .wing.r{animation-delay:.15s}
+  @keyframes flutter{0%,100%{transform:rotate(0)}50%{transform:rotate(6deg)}}
+  #stage[data-state="alarm"] .wing{animation-duration:.4s}
+
+  /* 手臂:抬手作“停”/挥手 */
+  .arm{transform-origin:50% 6%;transition:transform .35s cubic-bezier(.3,1.3,.5,1)}
+  #stage[data-state="alarm"] .armL{transform:rotate(52deg)}
+  #stage[data-state="alarm"] .armR{transform:rotate(-52deg)}
+  #stage[data-state="happy"] .armL{animation:waveA .5s ease-in-out infinite}
+  #stage[data-state="idle"] .armL{transform:rotate(28deg)}      /* 默认微微挥手位 */
+  #stage[data-state="help"] .armL{transform:rotate(20deg)}#stage[data-state="help"] .armR{transform:rotate(-20deg)}
+  @keyframes waveA{0%,100%{transform:rotate(40deg)}50%{transform:rotate(62deg)}}
+
+  /* 眼睛 / 表情 */
+  .eyeW{fill:#3a2412}.eyes{animation:blink 5s infinite}
+  @keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.12)}}
+  #stage[data-state="alarm"] .eyes,#stage[data-state="listen"] .eyes{animation:none;transform:scale(1.12)}
+  .pupil{fill:#fff}
+  #stage[data-state="think"] .eyes{transform:translateY(-3px)}
+  .eyeArc{stroke:#3a2412;stroke-width:6;fill:none;stroke-linecap:round;opacity:0;transition:opacity .25s}
+  #stage[data-state="happy"] .eyeArc,#stage[data-state="caring"] .eyeArc{opacity:1}
+  #stage[data-state="happy"] .eyes,#stage[data-state="caring"] .eyes{opacity:0}
+  .brow{fill:#3a2412;opacity:0;transition:opacity .2s,transform .2s}
+  #stage[data-state="alarm"] .brow{opacity:1;transform:translateY(-7px)}
+  #stage[data-state="help"] .brow{opacity:1}
+
+  .mouth{opacity:0;transition:opacity .2s}
+  .mSmile{stroke:#7a2230;stroke-width:5;fill:none;stroke-linecap:round}
+  .mBig{fill:#8c2a38}.mO{fill:#8c2a38}.mOpen{fill:#8c2a38}.mFlat{stroke:#7a2230;stroke-width:5;fill:none;stroke-linecap:round}
+  .tongue{fill:#ff7d8a}
+  #stage[data-state="idle"] .mBig{opacity:1}
+  #stage[data-state="happy"] .mBig{opacity:1}
+  #stage[data-state="caring"] .mSmile{opacity:1}
+  #stage[data-state="listen"] .mO{opacity:1}
+  #stage[data-state="think"] .mFlat{opacity:1}
+  #stage[data-state="alarm"] .mOpen{opacity:1}
+  #stage[data-state="help"] .mOpen{opacity:1}
+  #stage.talking .mouth{opacity:0}
+  #stage.talking .mOpen{opacity:1;animation:talk .32s ease-in-out infinite}
+  @keyframes talk{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+  .cheek{fill:var(--pink);opacity:.6;transition:opacity .3s}
+  #stage[data-state="alarm"] .cheek{opacity:0}
+
+  /* 头顶徽标 */
+  #badge{position:absolute;top:-6px;left:50%;transform:translateX(-50%) scale(0);z-index:7;font-size:40px;
+    transition:transform .3s cubic-bezier(.3,1.5,.5,1);filter:drop-shadow(0 4px 8px rgba(0,0,0,.5));pointer-events:none}
+  #badge.show{transform:translateX(-50%) scale(1)}
+  #stage[data-state="alarm"] #badge{animation:badgeBounce .5s ease-in-out infinite}
+  @keyframes badgeBounce{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.2)}}
+  .deco{position:absolute;z-index:1;font-size:20px;opacity:0;transition:opacity .4s;pointer-events:none}
+  #stage[data-state="happy"] .spark,#stage[data-state="caring"] .heart{opacity:1}
+  .heart{animation:float 2.6s ease-in-out infinite}.spark{animation:tw 1.6s ease-in-out infinite}
+  @keyframes float{0%{transform:translateY(0);opacity:.2}50%{opacity:1}100%{transform:translateY(-40px);opacity:0}}
+  @keyframes tw{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
+
+  /* ---------- 手机主屏(语音呼出前) ---------- */
+  #home{position:absolute;inset:0;z-index:8;background:linear-gradient(180deg,#3a4a63,#1a2436);
+    display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .45s}
+  #home.show{opacity:1}
+  #home .hs-top{color:#fff;text-align:center;margin-top:14px;font-size:.8rem;opacity:.8}
+  #home .grid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:16px 6px;padding:22px 16px;align-content:start}
+  #home .app{display:flex;flex-direction:column;align-items:center;gap:5px}
+  #home .ic{width:46px;height:46px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:24px;
+    background:rgba(255,255,255,.14);box-shadow:0 2px 6px rgba(0,0,0,.25)}
+  #home .lb{font-size:.62rem;color:#e9eef5}
+  #home .dock{margin:0 14px 16px;background:rgba(255,255,255,.14);border-radius:22px;padding:10px;display:flex;justify-content:space-around}
+  #home .assistant{position:absolute;left:50%;bottom:78px;transform:translateX(-50%);width:60px;height:60px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%,#ffe07a,#f2b705);display:flex;align-items:center;justify-content:center;font-size:30px;
+    box-shadow:0 8px 24px rgba(242,183,5,.55);animation:orb 2.2s ease-in-out infinite}
+  @keyframes orb{0%,100%{transform:translateX(-50%) scale(1)}50%{transform:translateX(-50%) scale(1.07)}}
+
+  /* ---------- 子女端 · 家人看护(女儿的手机) ---------- */
+  #guardian{position:absolute;inset:0;z-index:5;background:linear-gradient(180deg,#12233a,#0b1220);
+    display:flex;flex-direction:column;opacity:0;pointer-events:none;transition:opacity .4s;overflow:hidden}
+  #guardian.show{opacity:1}
+  .gd-head{display:flex;align-items:center;gap:10px;padding:12px 14px 8px;color:#fff}
+  .gd-head .gd-back{font-size:22px;color:var(--dim)}
+  .gd-title{font-weight:800}.gd-sub{font-size:.72rem;color:var(--dim)}
+  .gd-head .gd-bee{margin-left:auto;font-size:24px}
+  .gd-toast{margin:0 12px;background:rgba(242,183,5,.16);border:1px solid rgba(242,183,5,.5);color:#ffe08a;
+    border-radius:12px;padding:8px 12px;font-size:.82rem;animation:gdslide .5s ease}
+  @keyframes gdslide{from{transform:translateY(-10px);opacity:0}to{transform:none;opacity:1}}
+  .gd-body{flex:1;padding:12px;display:flex;flex-direction:column;gap:9px;overflow:auto}
+  .gd-card{background:rgba(255,255,255,.06);border:1px solid var(--line);border-radius:14px;padding:11px 13px}
+  .gd-card.gd-ok{border-color:rgba(46,160,67,.5)}
+  .gd-row{display:flex;align-items:center;gap:8px;font-size:.92rem;color:var(--ink)}
+  .gd-row b{margin-left:auto;color:#fff}
+  .gd-mini{font-size:.72rem;color:var(--dim);margin-top:4px}
+  .gd-tag{margin-left:auto;font-size:.74rem;font-weight:800;padding:3px 9px;border-radius:999px}
+  .gd-tag.ok{background:rgba(46,160,67,.22);color:#7ee0a0}.gd-tag.warn{background:rgba(242,165,65,.2);color:#ffce8a}
+  .gd-btns{display:flex;gap:8px;margin-top:2px}
+  .gd-btn{flex:1;text-align:center;background:var(--accent);color:#3a2412;font-weight:800;border-radius:12px;padding:10px;font-size:.84rem}
+
+  /* ---------- 短视频界面 · 语音操作(换台/点赞/静音) ---------- */
+  #shorts{position:absolute;inset:0;z-index:6;background:#000;opacity:0;pointer-events:none;transition:opacity .35s;overflow:hidden}
+  #shorts.show{opacity:1}
+  #shorts .reel{position:absolute;inset:0;transition:transform .55s cubic-bezier(.45,0,.15,1)}
+  .vid{position:absolute;left:0;right:0;height:100%;overflow:hidden}
+  .vid .subj{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:104px;filter:drop-shadow(0 12px 34px rgba(0,0,0,.45))}
+  .vid .grad{position:absolute;inset:0;background:linear-gradient(180deg,transparent 52%,rgba(0,0,0,.55))}
+  .vid .meta{position:absolute;left:16px;right:66px;bottom:66px;color:#fff}
+  .vid .acct{font-weight:800;letter-spacing:.02em;font-size:1rem}
+  .vid .cap{font-size:.85rem;opacity:.92;margin-top:5px;line-height:1.45}
+  .vid .music{font-size:.74rem;opacity:.8;margin-top:9px}
+  .sh-rail{position:absolute;right:12px;bottom:78px;z-index:3;display:flex;flex-direction:column;gap:15px;align-items:center;color:#fff}
+  .sh-rail .it{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.66rem;opacity:.96}
+  .sh-rail .ic{font-size:26px;line-height:1}
+  .sh-rail .heart.burst,.sh-rail .burst{animation:hburst .6s ease}
+  @keyframes hburst{0%{transform:scale(1)}40%{transform:scale(1.5)}100%{transform:scale(1)}}
+  .sh-disc{width:40px;height:40px;border-radius:50%;background:radial-gradient(circle,#3a3a3a 30%,#111 33%,#000);border:3px solid #4a4a4a;animation:spin 3.5s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .sh-prog{position:absolute;left:0;right:0;bottom:62px;height:2px;background:rgba(255,255,255,.2);z-index:3}
+  .sh-prog i{display:block;height:100%;width:24%;background:#fff}
+  .sh-mute{position:absolute;top:52px;left:50%;transform:translateX(-50%) scale(.7);z-index:4;background:rgba(0,0,0,.6);color:#fff;border-radius:999px;padding:6px 15px;font-size:.8rem;opacity:0;transition:.25s}
+  .sh-mute.show{opacity:1;transform:translateX(-50%) scale(1)}
+  .sh-bee{position:absolute;left:12px;bottom:150px;z-index:4;width:40px;height:40px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#ffe07a,#f2b705);display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 6px 18px rgba(242,183,5,.5)}
+  .sh-bee.ping{animation:beeping .5s ease}
+  @keyframes beeping{0%,100%{transform:scale(1)}45%{transform:scale(1.28)}}
+
+  /* 毫秒延迟读数 HUD */
+  #lat{position:absolute;top:104px;left:50%;transform:translateX(-50%) translateY(-8px);z-index:11;opacity:0;transition:.16s;
+    display:flex;align-items:center;gap:8px;background:rgba(14,18,24,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.12);border-radius:999px;padding:6px 13px;font-size:.8rem;font-weight:700;letter-spacing:.02em;
+    box-shadow:0 8px 22px rgba(0,0,0,.35);color:#fff}
+  #lat.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #lat.done{border-color:rgba(242,183,5,.6)}
+  #lat .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:latdot .7s ease-in-out infinite}
+  #lat.done .dot{animation:none;opacity:0;width:0}
+  @keyframes latdot{0%,100%{opacity:.3}50%{opacity:1}}
+  #lat .ms{color:var(--accent);font-variant-numeric:tabular-nums}
+  .sh-seek{position:absolute;top:52px;left:50%;transform:translateX(-50%) scale(.7);z-index:4;background:rgba(0,0,0,.6);color:#fff;border-radius:999px;padding:6px 15px;font-size:.8rem;opacity:0;transition:.25s}
+  .sh-seek.show{opacity:1;transform:translateX(-50%) scale(1)}
+  .sh-toast{position:absolute;top:52px;left:50%;transform:translateX(-50%) scale(.7);z-index:5;background:rgba(0,0,0,.62);color:#fff;border-radius:999px;padding:6px 15px;font-size:.8rem;opacity:0;transition:.25s}
+  .sh-toast.show{opacity:1;transform:translateX(-50%) scale(1)}
+  .sh-comments{position:absolute;left:0;right:0;bottom:0;height:44%;z-index:5;background:rgba(14,16,20,.97);border-radius:18px 18px 0 0;padding:14px 16px;color:#fff;transform:translateY(101%);transition:transform .35s cubic-bezier(.3,1.1,.4,1)}
+  .sh-comments.show{transform:translateY(0)}
+  .sh-comments .hd{font-weight:800;margin-bottom:8px}
+  .sh-comments .c{font-size:.86rem;opacity:.92;padding:8px 0;border-top:1px solid rgba(255,255,255,.08)}
+
+  /* 语音聆听条(强调:靠语音操作) */
+  #mic{position:absolute;top:46px;left:50%;transform:translateX(-50%) translateY(-14px);z-index:9;opacity:0;transition:.3s;
+    display:flex;align-items:center;gap:9px;background:rgba(10,14,20,.86);border:1px solid var(--accent);border-radius:999px;padding:8px 15px}
+  #mic.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  #mic .m{font-size:18px}#mic .t{font-size:.86rem;color:#fff}#mic .t b{color:var(--accent)}
+  #mic .wv{display:flex;gap:3px;align-items:center;height:18px}
+  #mic .wv i{width:3px;background:var(--accent);border-radius:2px;animation:wv 1s ease-in-out infinite}
+  #mic .wv i:nth-child(2){animation-delay:.15s}#mic .wv i:nth-child(3){animation-delay:.3s}#mic .wv i:nth-child(4){animation-delay:.45s}
+  @keyframes wv{0%,100%{height:5px}50%{height:16px}}
+
+  /* ---------- 常驻横幅:来电/短信 ---------- */
+  #banner{position:absolute;top:44px;left:12px;right:12px;z-index:5;transform:translateY(-140%);transition:transform .35s cubic-bezier(.3,1.2,.4,1)}
+  #banner.show{transform:translateY(0)}
+  .bcard{background:rgba(20,26,33,.94);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:16px;padding:12px 14px;display:flex;align-items:center;gap:12px}
+  .bcard .ico{font-size:30px}.bcard .col{flex:1;min-width:0}.bcard .who{font-weight:800;font-size:1.05rem}.bcard .sub{font-size:.82rem;color:var(--dim)}
+  .bcard.danger{border-color:var(--danger);background:rgba(60,16,16,.94)}.bcard.danger .who{color:#ff8a82}
+  .bcard .risk{font-size:.78rem;font-weight:800;padding:3px 8px;border-radius:999px}.bcard.danger .risk{background:var(--danger);color:#fff}
+
+  /* ---------- 底部停靠区:动作卡+字幕,永不遮挡 ---------- */
+  #dock{position:absolute;left:10px;right:10px;bottom:12px;z-index:10;display:flex;flex-direction:column;justify-content:flex-end;gap:8px;pointer-events:none;max-height:52%}
+  #action{display:none}#action.show{display:block;animation:dockUp .35s cubic-bezier(.3,1.2,.4,1)}
+  @keyframes dockUp{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}
+  .acard{background:rgba(16,20,26,.9);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.08);border-radius:18px;padding:13px 15px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+  .acard .hd{display:flex;align-items:center;gap:10px;font-weight:800}.acard .hd .ico{font-size:22px}
+  .steps{margin-top:8px;display:flex;flex-direction:column;gap:7px}
+  .stp{display:flex;align-items:center;gap:9px;color:var(--dim);opacity:.45;transition:.3s;font-size:.92rem}
+  .stp.on{opacity:1;color:var(--ink)}
+  .stp .dot{width:22px;height:22px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px;flex:0 0 auto}
+  .stp.on .dot{border-color:var(--ok);background:var(--ok);color:#04110f}
+  #caption{display:none;background:rgba(12,15,20,.62);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:10px 15px;font-size:.9rem;line-height:1.5;letter-spacing:.01em;color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.28)}
+  #caption.show{display:block;animation:dockUp .25s ease}#caption b{color:var(--accent)}
+
+  .start{position:absolute;inset:0;z-index:40;background:rgba(5,7,10,.82);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);border-radius:34px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px}
+  .start.hide{display:none}
+  .playbtn{width:78px;height:78px;border-radius:50%;background:var(--accent);color:#3a2412;font-size:34px;border:none;cursor:pointer;box-shadow:0 10px 30px rgba(242,183,5,.5)}
+  .playbtn:active{transform:scale(.92)}.start .st{font-weight:800;font-size:1.1rem}.start .ss{color:var(--dim);font-size:.84rem;max-width:250px}
+
+  .controls{width:340px;max-width:92vw;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+  .progress{display:flex;gap:3px}
+  .chap{flex:1;height:6px;background:#28313a;border-radius:4px;overflow:hidden;cursor:pointer;position:relative}
+  .chap i{position:absolute;inset:0;width:0;background:var(--accent);border-radius:4px}.chap.done i{width:100%}
+  .ctrlrow{display:flex;align-items:center;justify-content:space-between;gap:6px}.ctrlrow .g{display:flex;gap:6px}
+  button.ic{background:#222b33;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:7px 11px;font-size:.9rem;cursor:pointer}
+  button.ic:hover{border-color:var(--accent)}button.ic.on{color:var(--accent);border-color:var(--accent)}
+  .nowtitle{font-size:.82rem;color:var(--dim);text-align:center;min-height:1em}
+  footer{color:#5a6570;font-size:.78rem;padding:6px 16px 22px;text-align:center;max-width:640px}footer b{color:var(--accent)}
+  /* 录制模式:隐藏页面外壳,只留手机居中,供无头浏览器录 MP4 */
+  body.rec{justify-content:center;background:#0a0d12}
+  body.rec header,body.rec footer,body.rec .controls{display:none}
+  body.rec .stage-wrap{padding:0;justify-content:center}
+</style>
+</head>
+<body>
+<header><div class="brand">小灵 <span>· AI手机精灵</span></div><div class="tag">小蜜蜂形象 · 语音呼出演示</div></header>
+
+<div class="stage-wrap">
+  <div class="phone"><div class="notch"></div>
+    <div class="screen">
+      <div class="statusbar"><span id="clock">9:41</span><span class="r"><span>5G</span><span>📶</span><span>🔋86%</span></span></div>
+
+      <div id="stage" data-state="idle">
+        <div class="aura"></div>
+        <div class="deco heart" style="left:24%;top:36%">❤️</div>
+        <div class="deco heart" style="left:66%;top:42%;animation-delay:1s">💗</div>
+        <div class="deco spark" style="left:22%;top:26%">✨</div>
+        <div class="deco spark" style="left:72%;top:30%;animation-delay:.8s">⭐</div>
+
+        <div class="char"><div class="bob"><div id="badge"></div>
+          <svg viewBox="0 0 200 300" aria-label="小灵 小蜜蜂">
+            <defs>
+              <linearGradient id="bee" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffdb3d"/><stop offset="1" stop-color="#f4b400"/></linearGradient>
+              <radialGradient id="hood" cx="50%" cy="40%" r="65%"><stop offset="0" stop-color="#ffe066"/><stop offset="1" stop-color="#f2b705"/></radialGradient>
+              <clipPath id="bodyClip"><ellipse cx="100" cy="212" rx="60" ry="64"/></clipPath>
+            </defs>
+
+            <!-- 翅膀 -->
+            <ellipse class="wing" cx="46" cy="176" rx="30" ry="17" fill="#eaf6ff" stroke="#bcd6e6" transform="rotate(-22 46 176)"/>
+            <ellipse class="wing r" cx="154" cy="176" rx="30" ry="17" fill="#eaf6ff" stroke="#bcd6e6" transform="rotate(22 154 176)"/>
+
+            <!-- 触角 -->
+            <g class="antenna"><path d="M88 74 Q78 50 80 40" stroke="#5a3b1a" stroke-width="5" fill="none" stroke-linecap="round"/><circle cx="79" cy="33" r="12" fill="url(#bee)"/><circle cx="75" cy="29" r="3.5" fill="#fff" opacity=".6"/></g>
+            <g class="antenna r"><path d="M114 72 Q124 48 122 38" stroke="#5a3b1a" stroke-width="5" fill="none" stroke-linecap="round"/><circle cx="123" cy="31" r="12" fill="url(#bee)"/><circle cx="119" cy="27" r="3.5" fill="#fff" opacity=".6"/></g>
+
+            <!-- 身体:蜜蜂连体衣 -->
+            <ellipse cx="100" cy="212" rx="60" ry="64" fill="url(#bee)"/>
+            <g clip-path="url(#bodyClip)">
+              <rect x="30" y="188" width="140" height="20" fill="#5a3b1a"/>
+              <rect x="30" y="226" width="140" height="20" fill="#5a3b1a"/>
+              <rect x="30" y="262" width="140" height="20" fill="#5a3b1a"/>
+            </g>
+            <!-- 背带 + 结 -->
+            <path d="M78 166 L92 196" stroke="#5a3b1a" stroke-width="6" stroke-linecap="round"/>
+            <path d="M122 166 L108 196" stroke="#5a3b1a" stroke-width="6" stroke-linecap="round"/>
+            <circle cx="93" cy="198" r="5.5" fill="#5a3b1a"/><circle cx="107" cy="198" r="5.5" fill="#5a3b1a"/>
+
+            <!-- 腿脚(小靴子) -->
+            <ellipse cx="83" cy="288" rx="17" ry="14" fill="url(#bee)"/><ellipse cx="117" cy="288" rx="17" ry="14" fill="url(#bee)"/>
+            <path d="M68 292 Q83 300 98 292" stroke="#5a3b1a" stroke-width="4" fill="none"/><path d="M102 292 Q117 300 132 292" stroke="#5a3b1a" stroke-width="4" fill="none"/>
+
+            <!-- 手臂 -->
+            <g class="arm armR"><rect x="140" y="176" width="20" height="52" rx="10" fill="url(#bee)"/><circle cx="150" cy="232" r="12" fill="var(--skin)"/></g>
+            <g class="arm armL"><rect x="40" y="176" width="20" height="52" rx="10" fill="url(#bee)"/><circle cx="50" cy="232" r="12" fill="var(--skin)"/></g>
+
+            <!-- 帽兜 -->
+            <ellipse cx="100" cy="96" rx="70" ry="66" fill="url(#hood)"/>
+            <!-- 脸 -->
+            <ellipse cx="100" cy="112" rx="47" ry="45" fill="var(--skin)"/>
+            <!-- 刘海 -->
+            <path d="M60 92 Q66 70 84 74 Q92 62 108 70 Q124 64 132 80 Q142 76 140 94 Q120 82 100 84 Q80 82 60 92 Z" fill="#5a3b1a"/>
+            <!-- 腮红 -->
+            <circle class="cheek" cx="74" cy="126" r="9"/><circle class="cheek" cx="126" cy="126" r="9"/>
+            <!-- 眉 -->
+            <rect class="brow browL" x="68" y="92" width="20" height="6" rx="3"/><rect class="brow browR" x="112" y="92" width="20" height="6" rx="3"/>
+            <!-- 眼 -->
+            <g class="eyes">
+              <ellipse class="eyeW" cx="84" cy="112" rx="12" ry="15"/><ellipse class="eyeW" cx="116" cy="112" rx="12" ry="15"/>
+              <circle class="pupil" cx="87" cy="108" r="4"/><circle class="pupil" cx="119" cy="108" r="4"/>
+            </g>
+            <path class="eyeArc" d="M72 112 Q84 100 96 112"/><path class="eyeArc" d="M104 112 Q116 100 128 112"/>
+            <!-- 鼻 -->
+            <ellipse cx="100" cy="122" rx="4" ry="3" fill="#e8a07a"/>
+            <!-- 嘴 -->
+            <path class="mouth mSmile" d="M86 134 Q100 146 114 134"/>
+            <g class="mouth mBig"><path d="M84 132 Q100 158 116 132 Z"/><path class="tongue" d="M92 146 Q100 156 108 146 Q100 150 92 146 Z"/></g>
+            <circle class="mouth mO" cx="100" cy="138" r="7"/>
+            <ellipse class="mouth mOpen" cx="100" cy="138" rx="11" ry="12"/>
+            <path class="mouth mFlat" d="M88 140 Q100 133 112 140"/>
+          </svg>
+        </div></div>
+      </div>
+
+      <!-- 手机主屏(语音呼出前) -->
+      <div id="home">
+        <div class="hs-top">上午好 · 轻触或说“小灵小灵”</div>
+        <div class="grid">
+          <div class="app"><div class="ic">📞</div><div class="lb">电话</div></div>
+          <div class="app"><div class="ic">💬</div><div class="lb">微信</div></div>
+          <div class="app"><div class="ic">📷</div><div class="lb">相机</div></div>
+          <div class="app"><div class="ic">🗺️</div><div class="lb">地图</div></div>
+          <div class="app"><div class="ic">🛒</div><div class="lb">购物</div></div>
+          <div class="app"><div class="ic">🎵</div><div class="lb">音乐</div></div>
+          <div class="app"><div class="ic">🏥</div><div class="lb">挂号</div></div>
+          <div class="app"><div class="ic">⚙️</div><div class="lb">设置</div></div>
+        </div>
+        <div class="assistant">🐝</div>
+        <div class="dock">
+          <div class="app"><div class="ic">📞</div></div><div class="app"><div class="ic">💬</div></div>
+          <div class="app"><div class="ic">📷</div></div><div class="app"><div class="ic">🖼️</div></div>
+        </div>
+      </div>
+
+      <div id="guardian"></div>
+      <div id="shorts"></div>      <div id="lat"><span class="dot"></span><span id="latTxt">识别中</span><span class="ms" id="latMs">0.00s</span></div>
+      <div id="mic"><span class="m">🎙️</span><span class="wv"><i></i><i></i><i></i><i></i></span><span class="t" id="micT">在听…</span></div>
+      <div id="banner"></div>
+      <div id="dock"><div id="action"></div><div id="caption"></div></div>
+
+      <div class="start" id="start">
+        <button class="playbtn" id="playbtn" aria-label="播放">▶</button>
+        <div class="st">播放产品演示</div>
+        <div class="ss">约 100 秒 · 建议开声音。看用户如何“说一句话”就让小蜜蜂帮忙做事</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="progress" id="progress"></div>
+    <div class="nowtitle" id="nowtitle">准备就绪</div>
+    <div class="ctrlrow">
+      <div class="g"><button class="ic" id="btnPlay">▶ 播放</button><button class="ic" id="btnReplay">↻ 重播</button></div>
+      <div class="g"><button class="ic on" id="btnSound">🔊 语音</button><button class="ic" id="btnSpeed">1x</button></div>
+    </div>
+  </div>
+</div>
+
+<footer>纯网页演示。<b>全程语音操作</b>:用户对着手机说“小灵小灵”,小蜜蜂就被呼出接管 —— 表情即语言,高危来电它<b>变红、举手作“停”、头顶⚠抖动</b>,不识字也一眼看懂。
+来电/短信时形象常驻不遮挡;视频通话走微信/Instagram,导航直接调手机自带地图。想换成你自己的美术形象:把待机图放进来替换 SVG 即可(状态机保留)。</footer>
+
+<script>
+/* ===== 小灵大脑(内联,逻辑同 demo/xiaoling.js) ===== */
+const FRAUD_CATS={
+  impersonate_gov:{label:'冒充公检法',weight:.55,words:['公检法','涉嫌洗钱','通缉令','安全账户','配合调查','银保监']},
+  impersonate_service:{label:'冒充客服/退款',weight:.4,words:['快递丢了','理赔','退款','会员到期自动扣费','关闭百万保障']},
+  loan_credit:{label:'征信/贷款',weight:.4,words:['注销校园贷','征信有问题','解除分期','影响征信']},
+  medical_social:{label:'冒充医保社保',weight:.45,words:['医保卡异常','社保卡冻结','账户被停用','补贴发放']},
+};
+const REDLINE={label:'红线操作',words:['屏幕共享','远程控制','念一下收到的验证码','转到安全账户','把钱转到','输入银行卡密码','扫这个码']};
+const TH={high:.85,medium:.55};
+function suspiciousNumber(c=''){c=c.replace(/[-\s]/g,'');if(!c)return false;
+  if(['00','+','95','96','170','171'].some(p=>c.startsWith(p)&&!c.startsWith('+86')))return true;
+  const n=c.replace(/^\+/,'').length;return n<7||n>12;}
+function analyzeFraud(caller,text='',scene='incoming_call'){
+  const red=REDLINE.words.filter(w=>text.includes(w));
+  if(red.length)return fin(.96,REDLINE.label,red,`对方要求「${red[0]}」,这是诈骗分子最典型的手法`);
+  const base=suspiciousNumber(caller)?.15:0;let best={c:'',s:0};const hits=[];
+  for(const c of Object.values(FRAUD_CATS)){const h=c.words.filter(w=>text.includes(w));if(!h.length)continue;
+    hits.push(...h);const s=c.weight+.12*(h.length-1);if(s>best.s)best={c:c.label,s};}
+  if(!hits.length)return fin(base,'',[],'');
+  return fin(Math.min(base+best.s,.99),best.c,hits,'对方提到「'+hits.slice(0,3).join('、')+'」,是典型诈骗话术');
+}
+function fin(risk,category,hits,reason){const level=risk>=TH.high?'high':risk>=TH.medium?'medium':'safe';return{risk:+risk.toFixed(2),level,category,hits,reason};}
+function brainReply(text,ctx){ctx=ctx||{};
+  if(['incoming_call','sms'].includes(ctx.scene)){const r=analyzeFraud(ctx.caller||'',text,ctx.scene);
+    if(r.level!=='safe'){const lv=r.level==='high'?'极高':'较高';
+      return{skill:'防诈骗预警',risk:r.risk,fraud:r,speech:`注意!这通${ctx.scene==='sms'?'短信':'电话'}诈骗风险${lv}(疑似${r.category})。千万不要转账、不要提供验证码、不要点链接。要不要我帮您拦掉,并打给子女核实?`};}}
+  if(/(救命|摔倒|喘不上气|胸口疼|不行了|急救)/.test(text))return{skill:'紧急呼救',speech:'别怕,我马上帮您呼叫120,同时通知家人并发送位置,您坚持住。'};
+  let m;
+  if(/视频/.test(text)&&(m=text.match(/(?:跟|给|和)?\s*([^\s,，跟给和的]+?)\s*(?:视频)/)))return{skill:'视频通话',target:m[1],speech:`好的,正在用微信帮您和${m[1]}发起视频通话。`};
+  if((m=text.match(/(?:打(?:个)?电话给?|呼叫)\s*(.+)/)))return{skill:'打电话',target:m[1].replace(/[的吧,。!]+$/,''),speech:`好的,正在帮您给${m[1].replace(/[的吧,。!]+$/,'')}打电话。`};
+  if((m=text.match(/(?:导航到?|去|怎么走到?)\s*(.+)/)))return{skill:'导航',dest:m[1].replace(/[的吧,。!]+$/,''),speech:`好的,这就打开手机地图,导航到${m[1].replace(/[的吧,。!]+$/,'')}。`};
+  if(/提醒我?.*(吃药|量血压|喝水)/.test(text))return{skill:'用药提醒',speech:'好的,我会每天早上八点提醒您吃药,放心。'};
+  return{skill:'chat',speech:'听您这么说,我也想多陪陪您。天气好就出去走走,想老伴了咱就给孩子打个电话,好不好?'};
+}
+
+/* ===== 演示剧本 ===== */
+const SCRIPT=[
+  {id:'summon',title:'语音呼出',steps:[
+    {t:'mascot',s:'idle'},{t:'homescreen'},{t:'wait',ms:800},
+    {t:'voiceWake'},                        // 用户对手机说“小灵小灵”
+    {t:'summon'},                           // 小蜜蜂被呼出、弹入
+    {t:'say',s:'happy',text:'我在,您说。'},{t:'mascot',s:'idle'}]},
+
+  {id:'fraud',title:'防诈·来电',steps:[
+    {t:'banner',kind:'danger',ico:'📞',who:'未知境外号码',sub:'+81 90-1234-xxxx',risk:'高风险'},
+    {t:'mascot',s:'alarm',badge:'⚠️'},{t:'wait',ms:900},
+    {t:'user',asCaller:true,text:'我是公检法的,涉嫌洗钱,把钱转到安全账户配合调查'},
+    {t:'mascot',s:'think',badge:'🔎'},{t:'caption',text:'🛡️ 小灵正在识别这通电话…',ms:1200},
+    {t:'fraudAlert',caller:'+81 90-1234-xxxx',content:'我是公检法的,涉嫌洗钱,把钱转到安全账户配合调查',scene:'incoming_call'},
+    {t:'clearBanner'},{t:'mascot',s:'idle'}]},
+
+  {id:'sms',title:'防诈·短信',steps:[
+    {t:'banner',kind:'danger',ico:'✉️',who:'106 短信',sub:'【医保中心】'},
+    {t:'user',asSms:true,text:'您的医保卡异常已冻结,请扫这个码验证并把钱转到指定账户'},
+    {t:'mascot',s:'alarm',badge:'⚠️'},
+    {t:'fraudAlert',caller:'106900',content:'您的医保卡异常已冻结,请扫这个码验证并把钱转到指定账户',scene:'sms'},
+    {t:'clearBanner'},{t:'mascot',s:'idle'}]},
+
+  {id:'sos',title:'紧急呼救',steps:[
+    {t:'user',text:'哎哟…我胸口疼,喘不上气,快不行了'},
+    {t:'brain',text:'哎哟我胸口疼,喘不上气,快不行了',s:'help',badge:'🚑'},
+    {t:'sos'},{t:'mascot',s:'caring',badge:'💗'},{t:'caption',text:'✅ 已呼叫120并通知家人,别怕,有我在',ms:1600},
+    {t:'clearAction'},{t:'mascot',s:'idle'}]},
+
+  {id:'call',title:'打电话',steps:[
+    {t:'user',text:'打电话给女儿'},{t:'brain',text:'打电话给女儿',s:'happy'},
+    {t:'action',ico:'📞',hd:'正在拨打 · 女儿',sub:'133-xxxx-8866'},{t:'wait',ms:1600},{t:'clearAction'},{t:'mascot',s:'idle'}]},
+
+  {id:'video',title:'视频·微信',steps:[
+    {t:'user',text:'我想跟女儿视频'},{t:'brain',text:'我想跟女儿视频',s:'happy',badge:'💬'},
+    {t:'action',ico:'💬',hd:'微信视频通话中 · 女儿',sub:'（也可切换 Instagram / FaceTime）'},{t:'wait',ms:1700},{t:'clearAction'},{t:'mascot',s:'idle'}]},
+
+  {id:'shorts',title:'短视频·语音操作',steps:[
+    {t:'shorts'},{t:'caption',text:'在刷短视频,想操作又不想动手…',ms:1000},
+    {t:'user',text:'小灵,换下一个'},{t:'cmd',action:'next',label:'换下一个',speech:'好,下一个。'},
+    {t:'user',text:'这个点赞并收藏'},{t:'cmd',action:'favlike',label:'点赞+收藏',speech:'赞和收藏都好啦。'},
+    {t:'user',text:'关注一下作者'},{t:'cmd',action:'follow',label:'关注',speech:'已经帮您关注。'},
+    {t:'user',text:'打开评论看看'},{t:'cmd',action:'comment',label:'看评论',speech:'评论给您打开了。'},
+    {t:'user',text:'播放快一点,两倍速'},{t:'cmd',action:'speed',label:'2x 倍速',speech:'已调到两倍速。'},
+    {t:'user',text:'声音吵,静音'},{t:'cmd',action:'mute',label:'静音',speech:'已静音。'},
+    {t:'clearShorts'},{t:'mascot',s:'idle'}]},
+
+  {id:'navi',title:'导航·手机地图',steps:[
+    {t:'user',text:'导航到人民医院'},{t:'brain',text:'导航到人民医院',s:'happy',badge:'🗺️'},
+    {t:'action',ico:'🗺️',hd:'已打开手机自带地图',sub:'正在导航到 · 人民医院'},{t:'wait',ms:1800},{t:'clearAction'},{t:'mascot',s:'idle'}]},
+
+  {id:'remind',title:'用药提醒',steps:[
+    {t:'user',text:'提醒我每天早上八点吃药'},{t:'brain',text:'提醒我每天早上八点吃药',s:'caring',badge:'💊'},
+    {t:'action',ico:'⏰',hd:'每天 08:00 · 提醒吃药',sub:'已加入日程,到点我会喊您'},{t:'wait',ms:1600},{t:'clearAction'},{t:'mascot',s:'idle'}]},
+
+  {id:'guardian',title:'子女·远程看护',steps:[
+    {t:'guardian'},{t:'caption',text:'👨‍👩‍👧 这一切,女儿的手机都实时看得到',ms:1500},
+    {t:'sayG',text:'爸爸的情况我都替女儿看着。这周帮爸爸拦下两次诈骗,用药也按时提醒;万一有紧急情况,女儿的手机会第一时间响,她还能远程帮爸爸设置提醒。'},
+    {t:'clearGuardian'},{t:'mascot',s:'idle'}]},
+
+  {id:'chat',title:'情感陪伴',steps:[
+    {t:'user',text:'今天天气真好,有点想老伴了'},{t:'brain',text:'今天天气真好,有点想老伴了',s:'caring',badge:'❤️'}]},
+
+  {id:'end',title:'结尾',steps:[{t:'outro'}]},
+];
+
+/* ===== 播放引擎 ===== */
+const $=s=>document.querySelector(s);
+const stage=$('#stage'),badge=$('#badge'),home=$('#home'),guardian=$('#guardian'),shorts=$("#shorts"),lat=$('#lat'),latTxt=$('#latTxt'),latMs=$('#latMs'),mic=$('#mic'),micT=$('#micT'),banner=$('#banner'),
+  action=$('#action'),caption=$('#caption'),progress=$('#progress'),nowtitle=$('#nowtitle'),start=$('#start'),
+  playbtn=$('#playbtn'),btnPlay=$('#btnPlay'),btnReplay=$('#btnReplay'),btnSound=$('#btnSound'),btnSpeed=$('#btnSpeed'),charEl=$('.char');
+const player={token:0,paused:false,muted:false,speed:1,sceneIdx:0,playing:false,ended:false};
+const SPEEDS=[1,1.5,2];let speedIdx=0;
+// 弹入动画结束后移除 .pop,否则离开 alarm/caring 回到 idle 时 popin 会重新触发(形象闪缩)
+charEl.addEventListener('animationend',e=>{if(e.animationName==='popin')charEl.classList.remove('pop');});
+
+SCRIPT.forEach((s,i)=>{const d=document.createElement('div');d.className='chap';d.innerHTML='<i></i>';d.title=s.title;
+  d.onclick=()=>{unlockTTS();start.classList.add('hide');jumpTo(i);};progress.appendChild(d);});
+const chapEls=[...progress.children];
+function markChapters(a){chapEls.forEach((el,i)=>{el.classList.toggle('done',i<a);el.querySelector('i').style.width=i<a?'100%':(i===a?'50%':'0');});}
+
+function setMascot(s,b){stage.setAttribute('data-state',s);if(b){badge.textContent=b;badge.classList.add('show');}else badge.classList.remove('show');
+  try{if(window.XLAvatar&&window.XLAvatar.setState)window.XLAvatar.setState(s);}catch(e){}}   // ← 可选:驱动 Live2D 形象
+function mascotTalk(on){stage.classList.toggle('talking',on);try{if(window.XLAvatar&&window.XLAvatar.setTalking)window.XLAvatar.setTalking(on);}catch(e){}}
+function showHome(){home.classList.add('show');}function hideHome(){home.classList.remove('show');}
+function showGuardian(){guardian.innerHTML=`
+  <div class="gd-head"><span class="gd-back">‹</span><div><div class="gd-title">家人看护</div><div class="gd-sub">女儿的手机 · 与爸爸实时同步</div></div><span class="gd-bee">🐝</span></div>
+  <div class="gd-toast">🔔 小灵:刚刚为爸爸拦下一通诈骗电话</div>
+  <div class="gd-body">
+    <div class="gd-card gd-ok"><div class="gd-row">👴 爸爸 · 今日状态<span class="gd-tag ok">在家 · 安好</span></div><div class="gd-mini">12:30 更新 · 最近位置:人民医院 → 已回家</div></div>
+    <div class="gd-card"><div class="gd-row">🛡️ 本周拦截诈骗<b>2 次</b></div></div>
+    <div class="gd-card"><div class="gd-row">💊 今日用药提醒<span class="gd-tag ok">已按时 ✓</span></div></div>
+    <div class="gd-card"><div class="gd-row">🆘 紧急呼救记录<span class="gd-tag warn">1 次 · 已处理</span></div></div>
+    <div class="gd-btns"><div class="gd-btn">远程设置提醒</div><div class="gd-btn">管理紧急联系人</div></div>
+  </div>`;guardian.classList.add('show');}
+function hideGuardian(){guardian.classList.remove('show');}
+
+/* ===== 即时反馈 · 毫秒延迟读数(识别中→已执行) ===== */
+let latRunning=false,latAccum=0,latLast=0,latGen=0;
+function latStart(){latGen++;const g=latGen;latRunning=true;latAccum=0;latLast=performance.now();lat.classList.remove('done');lat.classList.add('show');latTxt.textContent='识别中';clearTimeout(lat._t);latTick(g);}
+function latTick(g){if(!latRunning||g!==latGen)return;const now=performance.now();if(!player.paused){latAccum+=now-latLast;}latLast=now;latMs.textContent=(latAccum/1000).toFixed(2)+'s';requestAnimationFrame(()=>latTick(g));}
+function latFreeze(label){latRunning=false;const s=latAccum/1000;lat.classList.add('done');latTxt.textContent='⚡ '+(label||'已执行');latMs.textContent=s.toFixed(2)+'s';clearTimeout(lat._t);lat._t=setTimeout(()=>lat.classList.remove('show'),1200);return s;}
+function latStop(){latRunning=false;lat.classList.remove('show');}
+
+/* ===== 短视频界面 + 语音手势 ===== */
+const VIDS=[
+  {bg:'linear-gradient(165deg,#1e3c72,#2a5298)',subj:'🏔️',acct:'@山河风光',cap:'张家界云海 · 4K 慢直播',music:'原声 · 云端'},
+  {bg:'linear-gradient(165deg,#5a3f37,#b07a52)',subj:'🐱',acct:'@萌宠日记',cap:'打呼噜的橘猫,一天的治愈',music:'原声 · 猫咪呼噜'},
+  {bg:'linear-gradient(165deg,#7a3b1a,#d68a3c)',subj:'🍜',acct:'@老王面馆',cap:'手工兰州拉面,看一遍就会',music:'原声 · 后厨的声音'},
+];
+let shIdx=0;
+function showShorts(){shIdx=0;
+  shorts.innerHTML=`<div class="reel" id="shReel">`+VIDS.map((v,i)=>`
+    <div class="vid" style="top:${i*100}%;background:${v.bg}"><div class="subj">${v.subj}</div><div class="grad"></div>
+    <div class="meta"><div class="acct">${v.acct}</div><div class="cap">${v.cap}</div><div class="music">🎵 ${v.music}</div></div></div>`).join('')
+    +`</div>
+    <div class="sh-rail">
+      <div class="it"><span class="ic heart" id="shHeart">♡</span><span id="shLike">1.2万</span></div>
+      <div class="it"><span class="ic" id="shStar">☆</span><span>收藏</span></div>
+      <div class="it"><span class="ic">💬</span>340</div><div class="it"><span class="ic">↗</span>分享</div><div class="sh-disc"></div></div>
+    <div class="sh-prog"><i id="shProg"></i></div><div class="sh-mute" id="shMute">🔇 已静音</div>
+    <div class="sh-seek" id="shSeek">⏩ +15s</div><div class="sh-toast" id="shToast"></div>
+    <div class="sh-comments" id="shComments"><div class="hd">评论 128</div>
+      <div class="c">👵 说得真好,学到了,谢谢~</div><div class="c">🧑 这个看着真不错</div><div class="c">👴 已经收藏,小灵帮我点开的</div></div>
+    <div class="sh-bee" id="shBee">🐝</div>`;
+  shorts.classList.add('show');
+}
+function hideShorts(){shorts.classList.remove('show');}
+function shBeePing(){const b=document.querySelector('#shBee');if(b){b.classList.remove('ping');void b.offsetWidth;b.classList.add('ping');}}
+function shortsGo(i){shIdx=Math.max(0,Math.min(VIDS.length-1,i));const r=document.querySelector('#shReel');if(r)r.style.transform=`translateY(-${shIdx*100}%)`;}
+function shortsLike(){const h=document.querySelector('#shHeart');if(h){h.textContent='❤️';h.classList.remove('burst');void h.offsetWidth;h.classList.add('burst');}}
+function shortsFav(){const s=document.querySelector('#shStar');if(s){s.textContent='⭐';s.classList.remove('burst');void s.offsetWidth;s.classList.add('burst');}}
+function shortsSeek(){const p=document.querySelector('#shProg');if(p)p.style.width='72%';const s=document.querySelector('#shSeek');if(s){s.classList.add('show');clearTimeout(s._t);s._t=setTimeout(()=>s.classList.remove('show'),1000);}}
+function shortsMute(){const m=document.querySelector('#shMute');if(m)m.classList.add('show');}
+function shToast(txt){const t=document.querySelector('#shToast');if(t){t.textContent=txt;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1100);}}
+function shortsFollow(){shToast('已关注 @' + (VIDS[shIdx].acct||'').replace('@',''));}
+function shortsComment(){const c=document.querySelector('#shComments');if(c)c.classList.add('show');}
+function shortsSpeed(){shToast('⏩ 已切 2x 倍速');const p=document.querySelector('#shProg');if(p)p.style.animation='none';}
+function doShortsAction(a){shBeePing();
+  if(a==='next')shortsGo(shIdx+1);else if(a==='prev')shortsGo(shIdx-1);
+  else if(a==='favlike'){shortsLike();shortsFav();}else if(a==='like')shortsLike();else if(a==='fav')shortsFav();
+  else if(a==='seek')shortsSeek();else if(a==='mute')shortsMute();
+  else if(a==='follow')shortsFollow();else if(a==='comment')shortsComment();else if(a==='speed')shortsSpeed();}
+function showMic(t){micT.textContent=t||'在听…';mic.classList.add('show');}function hideMic(){mic.classList.remove('show');}
+function showBanner(o){banner.innerHTML=`<div class="bcard ${o.kind||''}"><div class="ico">${o.ico}</div><div class="col"><div class="who">${o.who}</div><div class="sub">${o.sub||''}</div></div>${o.risk?`<div class="risk">${o.risk}</div>`:''}</div>`;banner.classList.add('show');}
+function hideBanner(){banner.classList.remove('show');}
+function showAction(h){action.innerHTML=h;action.classList.add('show');}function hideAction(){action.classList.remove('show');}
+function showCaption(h){caption.innerHTML=h;caption.classList.add('show');}function hideCaption(){caption.classList.remove('show');}
+
+/* TTS */
+let zhVoice=null,voicesLoaded=false,ttsUnlocked=false,ttsReady=('speechSynthesis'in window);
+function pickVoice(){if(!ttsReady)return;const vs=speechSynthesis.getVoices();if(vs.length)voicesLoaded=true;
+  zhVoice=vs.find(v=>/zh|chinese|普通|Yaoyao|Huihui|Kangkang|Tingting/i.test(v.lang+v.name))||null;}
+if(ttsReady){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+function unlockTTS(){if(!ttsReady||ttsUnlocked)return;ttsUnlocked=true;try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('小灵');u.volume=0;u.lang='zh-CN';if(zhVoice)u.voice=zhVoice;speechSynthesis.speak(u);}catch(e){}}
+function usableTTS(){return ttsReady&&!player.muted&&!(voicesLoaded&&!zhVoice);}
+
+function wait(ms,token){return new Promise(res=>{let rem=ms,last=performance.now();
+  function step(now){if(token!==player.token)return res('abort');if(!player.paused){rem-=(now-last);}last=now;if(rem<=0)return res('done');requestAnimationFrame(step);}
+  requestAnimationFrame(step);});}
+function speak(text,token){return new Promise(res=>{
+  const plain=text.replace(/<[^>]+>/g,'');
+  if(!usableTTS()){mascotTalk(true);wait(Math.max(1500,plain.length*135)/player.speed,token).then(v=>{mascotTalk(false);res(v);});return;}
+  const chunks=plain.match(/[^,。!?;、,.!?;：:]+[,。!?;、,.!?;：:]?/g)||[plain];
+  const rate=Math.min(1.15,0.98*player.speed);let i=0,done=false;
+  function finish(v){if(done)return;done=true;mascotTalk(false);if(v==='abort'){try{speechSynthesis.cancel()}catch(e){}}res(v);}
+  (function watch(){if(done)return;if(token!==player.token)return finish('abort');requestAnimationFrame(watch);})();
+  mascotTalk(true);
+  function next(){if(done)return;if(token!==player.token)return finish('abort');if(player.muted)return finish('done');if(player.paused){requestAnimationFrame(next);return;}
+    if(i>=chunks.length)return finish('done');const part=chunks[i++];
+    const u=new SpeechSynthesisUtterance(part);u.lang='zh-CN';if(zhVoice)u.voice=zhVoice;u.rate=rate;u.pitch=1.08;
+    let stepped=false;const go=()=>{if(stepped)return;stepped=true;next();};u.onend=go;u.onerror=go;
+    let gRem=Math.max(2500,part.length*260)/rate,gLast=performance.now();
+    (function g(now){if(stepped||done)return;if(token!==player.token)return finish('abort');if(!player.paused){gRem-=(now-gLast);}gLast=now;if(gRem<=0)return go();requestAnimationFrame(g);})(performance.now());
+    try{speechSynthesis.speak(u);}catch(e){go();}}
+  try{speechSynthesis.cancel();}catch(e){}next();
+});}
+
+async function runStep(step,token){
+  switch(step.t){
+    case 'mascot':setMascot(step.s,step.badge);return;
+    case 'wait':return wait(step.ms/player.speed,token);
+    case 'homescreen':setMascot('idle');showHome();return wait(300/player.speed,token);
+    case 'voiceWake':showMic('小灵小灵…');showCaption('🗣️ 用户对手机说:<b>“小灵小灵”</b>');await wait(1500/player.speed,token);if(token!==player.token)return;hideMic();hideCaption();return;
+    case 'summon':hideHome();charEl.classList.remove('pop');void charEl.offsetWidth;charEl.classList.add('pop');setMascot('happy','🐝');await wait(650/player.speed,token);return;
+    case 'wake':setMascot('happy','👋');showCaption('🗣️ <b>“小灵小灵”</b>');await wait(1100/player.speed,token);if(token!==player.token)return;hideCaption();setMascot('happy');return;
+    case 'caption':showCaption(step.text);return wait((step.ms||1500)/player.speed,token);
+    case 'say':{if(step.s)setMascot(step.s);showCaption('🔊 '+step.text);await speak(step.text,token);if(token!==player.token)return;hideCaption();return;}
+    case 'user':{setMascot('listen');const isVoice=!step.asCaller&&!step.asSms;if(isVoice)showMic('在听…');
+      const ico=step.asCaller?'☎️':step.asSms?'✉️':'👵';showCaption(ico+' '+step.text);
+      await wait((isVoice?1000:1600)/player.speed,token);if(token!==player.token)return;hideCaption();if(isVoice)hideMic();return;}
+    case 'banner':showBanner(step);return wait(700/player.speed,token);
+    case 'clearBanner':hideBanner();return wait(400/player.speed,token);
+    case 'fraudAlert':{const r=brainReply(step.content,{scene:step.scene,caller:step.caller});
+      latStart();{const w=await wait((step.proc||320)/player.speed,token);if(w==='abort'||token!==player.token){latStop();return;}}latFreeze('识别诈骗');
+      setMascot('alarm','⚠️');
+      showAction(`<div class="acard"><div class="hd"><span class="ico">🛡️</span>诈骗预警 · 风险 ${(r.risk*100)|0}%</div><div class="steps"><div class="stp on"><span class="dot">!</span>疑似${r.fraud.category} · 命中「${(r.fraud.hits||[]).slice(0,2).join('、')}」</div><div class="stp on"><span class="dot">✓</span>已记录,可一键通知子女</div></div></div>`);
+      showCaption('🔊 '+r.speech);await speak(r.speech,token);if(token!==player.token)return;hideCaption();await wait(500/player.speed,token);if(token!==player.token)return;hideAction();return;}
+    case 'brain':{setMascot(step.s||'idle',step.badge);const r=brainReply(step.text,{});
+      if(step.lat!==false){latStart();const w=await wait((step.proc||280)/player.speed,token);if(w==='abort'||token!==player.token){latStop();return;}latFreeze(step.label||r.skill);}
+      showCaption('🔊 '+r.speech);await speak(r.speech,token);if(token!==player.token)return;hideCaption();return;}
+    case 'action':showAction(`<div class="acard"><div class="hd"><span class="ico">${step.ico}</span>${step.hd}</div><div class="stp on" style="margin-top:6px"><span class="dot">✓</span>${step.sub}</div></div>`);return wait(300/player.speed,token);
+    case 'clearAction':hideAction();return wait(400/player.speed,token);
+    case 'sos':{setMascot('help','🚑');
+      showAction(`<div class="acard"><div class="hd"><span class="ico">🆘</span>正在紧急救助</div><div class="steps"><div class="stp" data-i="0"><span class="dot">1</span>拨打 120 急救</div><div class="stp" data-i="1"><span class="dot">2</span>通知紧急联系人(女儿)</div><div class="stp" data-i="2"><span class="dot">3</span>发送实时定位</div></div></div>`);
+      for(const s of [...action.querySelectorAll('.stp')]){if(token!==player.token)return;s.classList.add('on');s.querySelector('.dot').textContent='✓';await wait(850/player.speed,token);}return;}
+    case 'guardian':showGuardian();return wait(400/player.speed,token);
+    case 'shorts':showShorts();return wait(300/player.speed,token);
+    case 'cmd':{latStart();const r=await wait((step.proc||300)/player.speed,token);   // 识别+理解:计数器实时跳动
+      if(r==='abort'||token!==player.token){latStop();return;}
+      latFreeze(step.label);doShortsAction(step.action);                              // 冻结毫秒读数 + 执行手势
+      if(step.speech){showCaption('🔊 '+step.speech);await speak(step.speech,token);if(token!==player.token)return;hideCaption();}return;}
+    case 'clearShorts':hideShorts();return wait(400/player.speed,token);
+    case 'sayG':{showCaption('🔊 '+step.text);await speak(step.text,token);if(token!==player.token)return;hideCaption();return;}
+    case 'clearGuardian':hideGuardian();return wait(400/player.speed,token);
+    case 'outro':{setMascot('caring','🧡');hideBanner();hideAction();showCaption('🐝 小灵 · 会说话就能用 · 防诈骗 · 能呼救 · 有陪伴');await wait(2600/player.speed,token);return;}
+  }
+}
+
+async function run(fromScene){
+  player.token++;const token=player.token;player.paused=false;player.playing=true;player.ended=false;
+  if(ttsReady){try{speechSynthesis.resume();speechSynthesis.cancel();}catch(e){}}
+  setPlayUI(true);
+  for(let s=fromScene;s<SCRIPT.length;s++){if(token!==player.token)return;
+    player.sceneIdx=s;markChapters(s);nowtitle.textContent=`▶ ${SCRIPT[s].title}(${s+1}/${SCRIPT.length})`;
+    for(const step of SCRIPT[s].steps){if(token!==player.token)return;const r=await runStep(step,token);if(r==='abort'||token!==player.token)return;}
+    chapEls[s].classList.add('done');chapEls[s].querySelector('i').style.width='100%';}
+  finish(token);
+}
+function finish(token){if(token!==player.token)return;player.playing=false;player.ended=true;markChapters(SCRIPT.length);nowtitle.textContent='✅ 演示结束 · 点重播再看一遍';setPlayUI(false);try{window.__ended=true;}catch(e){}}
+function setPlayUI(p){btnPlay.textContent=p?'⏸ 暂停':'▶ 播放';}
+function startShow(){start.classList.add('hide');unlockTTS();run(0);}
+function togglePlay(){if(!player.playing&&!player.paused){if(player.ended){replay();return;}run(player.sceneIdx);return;}
+  player.paused=!player.paused;
+  if(player.paused){if(ttsReady)try{speechSynthesis.pause()}catch(e){}nowtitle.textContent='⏸ 已暂停';btnPlay.textContent='▶ 继续';}
+  else{if(ttsReady)try{speechSynthesis.resume()}catch(e){}btnPlay.textContent='⏸ 暂停';nowtitle.textContent=`▶ ${SCRIPT[player.sceneIdx].title}`;}}
+function reset(){hideBanner();hideAction();hideCaption();hideMic();hideHome();hideGuardian();hideShorts();latStop();mascotTalk(false);setMascot('idle');}
+function replay(){reset();player.ended=false;run(0);}
+function jumpTo(i){reset();player.ended=false;player.paused=false;run(i);}
+
+playbtn.onclick=()=>{unlockTTS();startShow();};
+btnPlay.onclick=()=>{unlockTTS();if(start.classList.contains('hide'))togglePlay();else startShow();};
+btnReplay.onclick=()=>{unlockTTS();start.classList.add('hide');replay();};
+btnSound.onclick=()=>{player.muted=!player.muted;btnSound.classList.toggle('on',!player.muted);btnSound.textContent=player.muted?'🔇 静音':'🔊 语音';if(player.muted&&ttsReady)try{speechSynthesis.cancel()}catch(e){}};
+btnSpeed.onclick=()=>{speedIdx=(speedIdx+1)%SPEEDS.length;player.speed=SPEEDS[speedIdx];btnSpeed.textContent=player.speed+'x';};
+function tick(){const d=new Date();$('#clock').textContent=d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');}
+tick();setInterval(tick,30000);
+
+/* PWA:注册 Service Worker(仅 https/localhost 下生效;file:// 会跳过,不报错) */
+if(typeof navigator!=='undefined'&&'serviceWorker' in navigator&&typeof location!=='undefined'&&(location.protocol==='https:'||location.hostname==='localhost')){
+  try{navigator.serviceWorker.register('sw.js').catch(()=>{});}catch(e){}
+}
+if(typeof location!=='undefined'&&/[?&]record=1/.test(location.search)){
+  try{document.body.classList.add('rec');}catch(e){}
+  player.muted=true;btnSound.classList.remove('on');btnSound.textContent='🔇 静音';
+  start.classList.add('hide');run(0);
+}
+
+/* 可选:?live2d=1 时加载 Live2D 适配层(见 live2d.js / LIVE2D.md)。
+   加载后 window.XLAvatar 接管形象;setMascot/mascotTalk 已埋好驱动钩子。缺失则继续用 SVG 小蜜蜂。 */
+if(typeof location!=='undefined'&&/[?&]live2d=1/.test(location.search)){
+  try{const s=document.createElement('script');s.src='live2d.js';s.onerror=()=>console.warn('live2d.js 未找到,继续用 SVG 形象');document.body.appendChild(s);}catch(e){}
+}
+</script>
+</body>
+</html>

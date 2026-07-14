@@ -1,0 +1,14 @@
+{
+  "name": "xiaoling-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "小灵 AI手机精灵 · 演示大脑 + 录制器",
+  "scripts": {
+    "demo": "node xiaoling.js",
+    "serve": "node xiaoling.js --serve",
+    "record": "node record.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}
