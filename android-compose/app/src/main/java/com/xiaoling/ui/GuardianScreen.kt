@@ -1,5 +1,9 @@
 package com.xiaoling.ui
 
+import android.app.role.RoleManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -25,17 +29,34 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaoling.core.AppState
+import com.xiaoling.core.FraudStore
 import com.xiaoling.core.Screen
 
 @Composable
 fun GuardianScreen(vm: AppState) {
     val ui by vm.state.collectAsStateWithLifecycle()
+    val ctx = LocalContext.current
     var url by remember { mutableStateOf(ui.brainUrl) }
+    val callBlocked = remember { FraudStore.count(ctx) }
+
+    // 申请「来电识别/防骚扰」默认应用角色(Android 10+)
+    val roleLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { }
+    fun requestScreenRole() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val rm = ctx.getSystemService(RoleManager::class.java)
+            if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) {
+                roleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING))
+            }
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(18.dp).verticalScroll(rememberScrollState())
@@ -56,11 +77,19 @@ fun GuardianScreen(vm: AppState) {
         )
 
         StatCard("本周为老人拦截诈骗", "${ui.fraudBlocked} 次")
+        StatCard("来电防诈拦截", "$callBlocked 次")
         StatCard("紧急呼救记录", ui.sosLabel)
         StatCard("今日用药提醒", if (ui.medsOk) "已按时 ✓" else "待提醒")
         StatCard("同步状态", if (ui.familySynced) "已同步给家人 ✓" else "未同步")
 
         Spacer(Modifier.height(14.dp))
+        Button(
+            onClick = { requestScreenRole() },
+            modifier = Modifier.fillMaxWidth().height(60.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) { Text("设为来电防诈助手(拦截可疑来电)", fontSize = 18.sp) }
+
+        Spacer(Modifier.height(10.dp))
         Button(
             onClick = { vm.syncFamily() },
             modifier = Modifier.fillMaxWidth().height(60.dp),
