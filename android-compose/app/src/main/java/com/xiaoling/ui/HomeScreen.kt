@@ -97,10 +97,18 @@ fun HomeScreen(vm: AppState) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Avatar(
-                state = ui.mascot,
-                modifier = Modifier.fillMaxWidth().aspectRatio(0.82f)
-            )
+            if (ui.live2d) {
+                Live2DView(
+                    state = ui.mascot,
+                    talking = ui.speaking,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(0.82f)
+                )
+            } else {
+                Avatar(
+                    state = ui.mascot,
+                    modifier = Modifier.fillMaxWidth().aspectRatio(0.82f)
+                )
+            }
             Spacer(Modifier.height(28.dp))
             ListeningLine(listening = ui.listening)
             Spacer(Modifier.height(12.dp))

@@ -66,7 +66,17 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper(或用 Android Stud
 - **A|动态图(现在就支持)**:把角色做成一小段**循环动画**(眨眼/说话/警惕),导出**动态 WebP 或 GIF**,放到
   `android-compose/app/src/main/assets/`,命名 `avatar.webp`(或分表情 `avatar_alarm.webp / avatar_happy.webp /
   avatar_listening.webp / avatar_thinking.webp / avatar_talking.webp`)。App 会**播放真动态**,没有就回退静态图。
-- **B|Live2D 骨骼(最像"活的",可后续接)**:把角色绑成 Live2D 模型(需美术/建模),再接 WebView 运行时——工程量更大,想上我再帮你接。
+- **B|Live2D 骨骼(最像"活的",可眨眼+口型+表情)**:App 已内置 WebView 运行位(`assets/live2d/index.html`)+ 原生 JS 桥(状态→表情、说话→口型)。启用步骤:
+  1. 把 3 个运行时放到 `assets/live2d/lib/`:`live2dcubismcore.min.js`、`pixi.min.js`、`index.min.js`(pixi-live2d-display);
+  2. 把你角色的 **Live2D 模型**放到 `assets/live2d/model/`(需美术把图绑成 `.moc3` 模型,单图生成不了);改 `index.html` 里 `CONFIG.MODEL`/表情名;
+  3. App「设置 → 3D 形象(Live2D)」打开开关。未就绪就保持关闭,用静态/动图形象。
+  > 授权:Live2D Cubism 运行时/样例模型受 Live2D 许可,商用需遵守其条款。
+
+## 会员与支付(演示闭环 · 未真实扣款)
+「设置 → 会员权益中心」两档:**基础 ¥29.9/月**、**高级 ¥299/年**。点「立即开通」→ 选微信/支付宝 →
+客户端调后端 `POST /pay/create` 下单 →(占位:此处接官方 SDK 拉起收银台)→ 视为支付成功 → 本地记为已开通。
+> **接真实支付要做**:①申请微信支付/支付宝**商户号**;②App 接**官方 SDK**(WeChat OpenSDK / Alipay SDK)用后端返回的
+> prepay 参数拉起收银台;③后端实现**统一下单 + 异步回调验签**(`/pay/notify`),验签通过再发放会员。代码里已标好接入位置。
 
 ## 极致反应(说完约 1~2 秒就回)
 - 语音识别**停顿 0.8 秒即定稿**,不空等;

@@ -18,4 +18,12 @@ object Settings {
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit().putString(KEY_URL, url.trim()).apply()
     }
+
+    private const val KEY_LIVE2D = "live2d_enabled"
+    fun live2dEnabled(ctx: Context): Boolean =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_LIVE2D, false)
+
+    fun setLive2d(ctx: Context, on: Boolean) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putBoolean(KEY_LIVE2D, on).apply()
+    }
 }

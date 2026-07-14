@@ -19,10 +19,13 @@ data class UiState(
     val caption: String = "小灵在这儿,想说什么直接说",
     val mascot: MascotState = MascotState.Idle,
     val listening: Boolean = false,
+    val speaking: Boolean = false,
     val busy: Boolean = false,
     val screen: Screen = Screen.Home,
     val lastUser: String = "",
     val brainUrl: String = "",
+    val live2d: Boolean = false,
+    val membership: String = "",     // "" / "basic" / "premium"
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
     val sosLabel: String = "无",
@@ -34,7 +37,14 @@ data class UiState(
 class AppState(application: Application) : AndroidViewModel(application) {
 
     private val app = application
-    private val _state = MutableStateFlow(UiState(brainUrl = Settings.brainUrl(app), fraudBlocked = FraudStore.count(app)))
+    private val _state = MutableStateFlow(
+        UiState(
+            brainUrl = Settings.brainUrl(app),
+            fraudBlocked = FraudStore.count(app),
+            live2d = Settings.live2dEnabled(app),
+            membership = Membership.tier(app)
+        )
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val speech = SpeechController(app)
@@ -56,7 +66,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         FraudStore.clearPending(app)
         val say = "注意!$reason。千万不要转账、不要提供验证码、不要点链接。"
         speaking = true
-        _state.update { it.copy(mascot = MascotState.Alarm, caption = say, busy = false, fraudBlocked = FraudStore.count(app)) }
+        _state.update { it.copy(mascot = MascotState.Alarm, caption = say, busy = false, speaking = true, fraudBlocked = FraudStore.count(app)) }
         try { ActionDispatcher.execute(app, JSONObject().put("type", "FRAUD_WARN")) } catch (e: Exception) {}
         tts.speak(say)
         scheduleAlarmReset()
@@ -144,6 +154,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 busy = false,
+                speaking = true,
                 caption = toSay,
                 mascot = stateFor(type, reply),
                 fraudBlocked = FraudStore.count(app),
@@ -164,8 +175,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun onSpeakDone() {
         speaking = false
         _state.update {
-            if (it.listening) it
-            else it.copy(mascot = if (it.mascot == MascotState.Alarm) MascotState.Alarm else MascotState.Idle)
+            val m = if (it.mascot == MascotState.Alarm) MascotState.Alarm else MascotState.Idle
+            if (it.listening) it.copy(speaking = false) else it.copy(speaking = false, mascot = m)
         }
         if (autoOn) restartSoon()
     }
@@ -178,6 +189,27 @@ class AppState(application: Application) : AndroidViewModel(application) {
     fun setBrainUrl(url: String) {
         Settings.setBrainUrl(app, url)
         _state.update { it.copy(brainUrl = Settings.brainUrl(app)) }
+    }
+
+    fun setLive2d(on: Boolean) {
+        Settings.setLive2d(app, on)
+        _state.update { it.copy(live2d = on) }
+    }
+
+    /** 开通会员:下单→(占位)收银台→回调→本地记录。plan: "basic"/"premium",method: 微信/支付宝 */
+    fun buyPlan(plan: String, method: String) {
+        _state.update { it.copy(caption = "正在通过$method 开通…") }
+        viewModelScope.launch {
+            val ok = PayClient.pay(app, plan, method)
+            if (ok) {
+                Membership.set(app, plan)
+                val label = Membership.label(plan)
+                _state.update { it.copy(membership = plan, caption = "$label 开通成功,感谢支持!") }
+                tts.speak("$label 开通成功,感谢您的支持。")
+            } else {
+                _state.update { it.copy(caption = "支付未完成,可稍后再试。") }
+            }
+        }
     }
 
     fun syncFamily() {

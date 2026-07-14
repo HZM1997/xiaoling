@@ -31,3 +31,28 @@ def dialogue(u: Utterance) -> Reply:
 # 供 CLI / 测试 直接进程内调用,免起服务
 def handle(text: str, context: dict | None = None, user_id: str = "guest") -> Reply:
     return dialogue(Utterance(text=text, context=context, user_id=user_id))
+
+
+# ---------- 支付(演示用下单;真实微信/支付宝需接官方 SDK + 商户号 + 验签) ----------
+from pydantic import BaseModel
+import time
+
+
+class Order(BaseModel):
+    plan: str          # basic / premium
+    method: str        # 微信支付 / 支付宝
+
+
+@app.post("/pay/create")
+def pay_create(o: Order):
+    """下单:真实场景这里调微信统一下单/支付宝下单,返回 prepay_id/orderInfo 给客户端拉起收银台。"""
+    price = "29.9" if o.plan == "basic" else "299"
+    return {"ok": True, "orderId": f"XL{int(time.time())}", "plan": o.plan,
+            "method": o.method, "amount": price}
+
+
+@app.post("/pay/notify")
+def pay_notify(body: dict):
+    """支付回调(真实场景由支付平台异步回调并验签,验签通过后给用户发放会员)。"""
+    return {"ok": True, "paid": True}
+

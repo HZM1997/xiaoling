@@ -20,13 +20,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +60,7 @@ fun SettingsScreen(vm: AppState) {
     val ui by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
     var url by remember { mutableStateOf(ui.brainUrl) }
+    var payPlan by remember { mutableStateOf<String?>(null) }
 
     val roleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -106,18 +110,43 @@ fun SettingsScreen(vm: AppState) {
 
             // 模块二:会员权益中心
             SettingCard {
-                Text("会员权益中心", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("会员权益中心", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "当前:" + membershipLabel(ui.membership),
+                        fontSize = 14.sp,
+                        color = if (ui.membership.isEmpty()) DimColor else AccentBlue,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
                 Spacer(Modifier.height(10.dp))
-                PlanCard(
-                    "基础会员", "¥29.9 / 月",
-                    listOf("无限畅聊陪伴", "健康用药提醒", "来电 + 短信防诈")
-                )
+                PlanCard("基础会员", "¥29.9 / 月",
+                    listOf("无限畅聊陪伴", "健康用药提醒", "来电 + 短信防诈"),
+                    plan = "basic", current = ui.membership == "basic", onBuy = { payPlan = it })
                 Spacer(Modifier.height(10.dp))
-                PlanCard(
-                    "高级会员", "¥299 / 年",
+                PlanCard("高级会员", "¥299 / 年",
                     listOf("基础会员全部权益", "明星 / 亲人语音包", "亲情守护 · 家人看护", "专属人工客服"),
-                    highlight = true
-                )
+                    plan = "premium", highlight = true, current = ui.membership == "premium", onBuy = { payPlan = it })
+            }
+
+            // 形象:Live2D 开关
+            SettingCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("3D 形象(Live2D)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        Text("需先放入模型与运行时,详见 NATIVE.md;未就绪时保持关闭",
+                            fontSize = 12.sp, color = DimColor, modifier = Modifier.padding(top = 2.dp))
+                    }
+                    Switch(checked = ui.live2d, onCheckedChange = { vm.setLive2d(it) })
+                }
             }
 
             // 模块三:家人看护
@@ -160,7 +189,28 @@ fun SettingsScreen(vm: AppState) {
                 modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(20.dp))
         }
+
+        val p = payPlan
+        if (p != null) {
+            AlertDialog(
+                onDismissRequest = { payPlan = null },
+                title = { Text("选择支付方式") },
+                text = { Text("开通 " + membershipLabel(p) + "(" + (if (p == "basic") "¥29.9/月" else "¥299/年") + ")") },
+                confirmButton = {
+                    TextButton(onClick = { vm.buyPlan(p, "微信支付"); payPlan = null }) { Text("微信支付") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { vm.buyPlan(p, "支付宝"); payPlan = null }) { Text("支付宝") }
+                }
+            )
+        }
     }
+}
+
+private fun membershipLabel(tier: String): String = when (tier) {
+    "basic" -> "基础会员"
+    "premium" -> "高级会员"
+    else -> "未开通"
 }
 
 @Composable
@@ -187,7 +237,15 @@ private fun StatRow(title: String, value: String) {
 }
 
 @Composable
-private fun PlanCard(name: String, price: String, benefits: List<String>, highlight: Boolean = false) {
+private fun PlanCard(
+    name: String,
+    price: String,
+    benefits: List<String>,
+    plan: String,
+    highlight: Boolean = false,
+    current: Boolean = false,
+    onBuy: (String) -> Unit
+) {
     Column(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
@@ -209,10 +267,11 @@ private fun PlanCard(name: String, price: String, benefits: List<String>, highli
         }
         Spacer(Modifier.height(8.dp))
         Button(
-            onClick = { },
+            onClick = { if (!current) onBuy(plan) },
+            enabled = !current,
             modifier = Modifier.fillMaxWidth().height(44.dp),
             shape = RoundedCornerShape(12.dp)
-        ) { Text("立即开通", fontSize = 16.sp) }
+        ) { Text(if (current) "已开通" else "立即开通", fontSize = 16.sp) }
     }
 }
 
