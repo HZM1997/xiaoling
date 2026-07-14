@@ -1,6 +1,4 @@
 <resources>
-    <color name="bg">#0D1117</color>
-    <color name="beeYellow">#F2B705</color>
-    <color name="beeDark">#3A2412</color>
-    <color name="ic_bg">#0D1117</color>
+    <color name="bg">#F4F8FF</color>
+    <color name="ic_bg">#DCE8FB</color>
 </resources>

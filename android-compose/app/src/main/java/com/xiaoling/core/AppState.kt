@@ -3,6 +3,7 @@ package com.xiaoling.core
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,10 +11,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-enum class Screen { Home, Guardian }
+enum class Screen { Home, Settings }
 
 data class UiState(
-    val caption: String = "点下面的大按钮,对我说话",
+    val caption: String = "小灵在这儿,想说什么直接说",
     val mascot: MascotState = MascotState.Idle,
     val listening: Boolean = false,
     val busy: Boolean = false,
@@ -24,10 +25,10 @@ data class UiState(
     val fraudBlocked: Int = 0,
     val sosLabel: String = "无",
     val medsOk: Boolean = true,
-    val familySynced: Boolean = false,
+    val familySynced: Boolean = false
 )
 
-/** 编排:语音识别 → 大脑(云端/本地兜底) → TTS → 执行动作 → 形象表情 */
+/** 编排:常听式语音识别 → 大脑(云端/本地兜底) → TTS → 执行动作 → 形象状态 */
 class AppState(application: Application) : AndroidViewModel(application) {
 
     private val app = application
@@ -37,35 +38,54 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private val speech = SpeechController(app)
     private val tts = Tts(app) { onSpeakDone() }
 
-    val recognitionAvailable: Boolean get() = speech.isAvailable
+    @Volatile private var autoOn = false     // 常听开关(跨主线程/ TTS 回调线程读写)
+    @Volatile private var speaking = false   // TTS 播报中(此时不听,避免听到自己)
 
-    // ---------- 语音输入 ----------
-    fun startListening() {
-        _state.update { it.copy(listening = true, mascot = MascotState.Listening, caption = "我在听…") }
+    // ---------- 常听式语音(免手动) ----------
+    fun startAuto() {
+        if (autoOn) return
+        if (!speech.isAvailable) {
+            _state.update { it.copy(caption = "这台手机未检测到语音识别,请启用「Google 语音服务」") }
+            return
+        }
+        autoOn = true
+        listenOnce()
+    }
+
+    fun stopAuto() {
+        autoOn = false
+        speech.destroy()
+        _state.update { it.copy(listening = false) }
+    }
+
+    private fun listenOnce() {
+        if (!autoOn || speaking) return
+        _state.update {
+            it.copy(
+                listening = true,
+                caption = "在听…有事就跟我说",
+                mascot = if (it.mascot == MascotState.Alarm) it.mascot else MascotState.Listening
+            )
+        }
         speech.listen(
-            onText = { text -> onHeard(text) },
-            onError = { onSttError() }
+            onText = { t ->
+                _state.update { it.copy(listening = false) }
+                if (t.isNotBlank()) process(t) else restartSoon()
+            },
+            onError = { restartSoon() }
         )
     }
 
-    private fun onHeard(text: String) {
+    private fun restartSoon() {
         _state.update { it.copy(listening = false) }
-        if (text.isBlank()) {
-            _state.update { it.copy(mascot = MascotState.Idle, caption = "没太听清,您再说一遍好吗?") }
-            return
-        }
-        process(text)
-    }
-
-    private fun onSttError() {
-        _state.update { it.copy(listening = false, mascot = MascotState.Idle, caption = "麦克风没准备好,请再点一次说话。") }
+        if (!autoOn) return
+        viewModelScope.launch { delay(900); if (autoOn && !speaking) listenOnce() }
     }
 
     // ---------- 处理:安全优先本地,其余走云端 ----------
     private fun process(text: String) {
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = "小灵在想…", lastUser = text) }
 
-        // 安全优先:呼救 / 红线诈骗词 → 本地即时处理,不等网络
         val local = LocalSafetyNet.handle(text)
         if (local != null) { applyReply(local); return }
 
@@ -84,13 +104,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
         val type = reply.action?.optString("type")
         val hint = reply.action?.let { ActionDispatcher.execute(app, it) }
         val toSay = hint ?: reply.speech
-        val mascot = stateFor(type, reply)
-
+        speaking = true
         _state.update {
             it.copy(
                 busy = false,
                 caption = toSay,
-                mascot = mascot,
+                mascot = stateFor(type, reply),
                 fraudBlocked = it.fraudBlocked + if (type == "FRAUD_WARN") 1 else 0,
                 sosLabel = if (type == "SOS") "刚刚" else it.sosLabel
             )
@@ -106,11 +125,15 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onSpeakDone() {
-        _state.update { if (it.listening || it.busy) it else it.copy(mascot = MascotState.Idle) }
+        speaking = false
+        _state.update { if (it.listening) it else it.copy(mascot = MascotState.Idle) }
+        if (autoOn) restartSoon()
     }
 
-    // ---------- 子女端 ----------
-    fun showScreen(s: Screen) { _state.update { it.copy(screen = s) } }
+    // ---------- 设置 / 子女端 ----------
+    fun showScreen(s: Screen) {
+        _state.update { it.copy(screen = s) }
+    }
 
     fun setBrainUrl(url: String) {
         Settings.setBrainUrl(app, url)

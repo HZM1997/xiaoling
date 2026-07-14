@@ -21,7 +21,7 @@ fun XiaolingApp(vm: AppState) {
             val ui by vm.state.collectAsStateWithLifecycle()
             when (ui.screen) {
                 Screen.Home -> HomeScreen(vm)
-                Screen.Guardian -> GuardianScreen(vm)
+                Screen.Settings -> SettingsScreen(vm)
             }
         }
     }

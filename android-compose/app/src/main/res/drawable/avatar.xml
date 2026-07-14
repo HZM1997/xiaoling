@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="240dp" android:height="240dp"
+    android:viewportWidth="240" android:viewportHeight="240">
+    <!-- 占位头像:把你的 3D 图存成 avatar.png 放到 res/drawable/ 覆盖本文件即可 -->
+    <path android:fillColor="#DCE8FB" android:pathData="M0,0h240v240h-240z" />
+    <!-- 肩(白衬衫) -->
+    <path android:fillColor="#FFFFFF" android:pathData="M120,150 C70,150 40,185 40,240 L200,240 C200,185 170,150 120,150 Z" />
+    <!-- 头发 -->
+    <path android:fillColor="#2A2A30" android:pathData="M120,40 C78,40 66,80 68,120 C70,150 90,165 120,165 C150,165 170,150 172,120 C174,80 162,40 120,40 Z" />
+    <!-- 脸 -->
+    <path android:fillColor="#FCE3CC" android:pathData="M120,60 m-42,6 a42,48 0 1,0 84,0 a42,48 0 1,0 -84,0" />
+    <!-- 眼镜 -->
+    <path android:strokeColor="#2A2A30" android:strokeWidth="3" android:fillColor="#00000000"
+        android:pathData="M100,110 m-14,0 a14,12 0 1,0 28,0 a14,12 0 1,0 -28,0" />
+    <path android:strokeColor="#2A2A30" android:strokeWidth="3" android:fillColor="#00000000"
+        android:pathData="M140,110 m-14,0 a14,12 0 1,0 28,0 a14,12 0 1,0 -28,0" />
+    <path android:strokeColor="#2A2A30" android:strokeWidth="3" android:pathData="M114,110 L126,110" />
+    <!-- 眼 -->
+    <path android:fillColor="#3A2412" android:pathData="M100,110 m-4,0 a4,5 0 1,0 8,0 a4,5 0 1,0 -8,0" />
+    <path android:fillColor="#3A2412" android:pathData="M140,110 m-4,0 a4,5 0 1,0 8,0 a4,5 0 1,0 -8,0" />
+    <!-- 笑嘴 -->
+    <path android:strokeColor="#C86B6B" android:strokeWidth="3" android:strokeLineCap="round"
+        android:fillColor="#00000000" android:pathData="M110,132 Q120,140 130,132" />
+</vector>
