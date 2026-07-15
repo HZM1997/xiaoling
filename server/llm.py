@@ -78,3 +78,52 @@ def _offline_fallback(u: Utterance) -> Reply:
                "或者陪我聊聊天。有需要随时喊我。",
         skill="offline_fallback",
     )
+
+
+# ---------- 防诈二次研判(仅规则中危时调用,降误报) ----------
+_FRAUD_TOOL = [{
+    "name": "judge_fraud",
+    "description": "判断一通电话/短信内容是否为电信诈骗",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "is_fraud": {"type": "boolean", "description": "是否为诈骗"},
+            "confidence": {"type": "number", "description": "0~1 置信度"},
+            "reason": {"type": "string", "description": "给老人听的一句白话理由"},
+        },
+        "required": ["is_fraud", "confidence"],
+    },
+}]
+
+_FRAUD_SYSTEM = (
+    "你是资深反诈专家。判断给定的来电/短信内容是否电信诈骗。"
+    "典型诈骗:冒充公检法/客服/银行/子女领导、要求转账/验证码/屏幕共享、"
+    "贷款征信、刷单返利、虚拟币荐股、养老理财、中奖。"
+    "正常内容(家人问候、挂号缴费、快递物业通知)判 is_fraud=false。只调用 judge_fraud。"
+)
+
+
+def judge_fraud(text: str, category: str = "") -> dict | None:
+    """
+    大模型二次研判。返回 {is_fraud, confidence, reason} 或 None(无大模型时,让规则判定生效)。
+    只在规则中危(拿不准)时调用,省成本、降误报。
+    """
+    try:
+        import anthropic
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            return None
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-opus-4-8",     # 国内换 qwen-max / doubao-pro
+            max_tokens=256,
+            system=_FRAUD_SYSTEM,
+            tools=_FRAUD_TOOL,
+            tool_choice={"type": "tool", "name": "judge_fraud"},
+            messages=[{"role": "user", "content": f"[疑似类型:{category}] 内容:{text}"}],
+        )
+        for block in msg.content:
+            if getattr(block, "type", "") == "tool_use":
+                return block.input
+    except Exception:
+        return None
+    return None

@@ -10,6 +10,8 @@ from typing import Callable, Optional
 
 from models import Utterance, Reply
 from fraud import analyze as fraud_analyze
+from fraud_session import analyze_session
+from llm import judge_fraud
 
 # (name, priority, fn):priority 越小越先判,防诈/呼救优先级最高
 _REGISTRY: list[tuple[str, int, Callable[[Utterance], Optional[Reply]]]] = []
@@ -47,14 +49,23 @@ def sos(u: Utterance) -> Optional[Reply]:
 
 @skill("防诈骗预警", priority=2)
 def anti_fraud(u: Utterance) -> Optional[Reply]:
-    """来电/短信场景:context 带 caller/scene,做实时分类风险研判。"""
+    """来电/短信场景:context 带 caller/scene/session_id,做多轮累积的实时研判。"""
     ctx = u.context or {}
     scene = ctx.get("scene")
     if scene not in ("incoming_call", "sms", "incoming_sms"):
         return None
-    r = fraud_analyze(u.text, ctx.get("caller", ""), scene)
+    # 多轮:同一通电话/短信跨句累积研判(骗子分句铺垫也能抓)
+    r = analyze_session(u.text, ctx.get("caller", ""), scene, ctx)
     if r.level == "safe":
         return None
+    # 中危(规则拿不准)→ 大模型二次研判,降误报;无大模型则按规则判定
+    if r.level == "medium":
+        verdict = judge_fraud(u.text, r.category)
+        if verdict is not None:
+            if not verdict.get("is_fraud", True) and verdict.get("confidence", 0) >= 0.6:
+                return None   # 大模型确信非诈骗 → 不打扰
+            if verdict.get("is_fraud") and verdict.get("confidence", 0) >= 0.85:
+                r.level = "high"   # 大模型高置信确认 → 升级
     level_cn = "极高" if r.level == "high" else "较高"
     return Reply(
         speech=(f"注意!这通电话诈骗风险{level_cn}(疑似{r.category}):{r.reason}。"
