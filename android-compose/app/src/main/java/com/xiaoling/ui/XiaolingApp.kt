@@ -1,5 +1,6 @@
 package com.xiaoling.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -19,6 +20,8 @@ fun XiaolingApp(vm: AppState) {
             color = MaterialTheme.colorScheme.background
         ) {
             val ui by vm.state.collectAsStateWithLifecycle()
+            // 系统返回键:在设置页时先回主页,而不是退出 App
+            BackHandler(enabled = ui.screen == Screen.Settings) { vm.showScreen(Screen.Home) }
             when (ui.screen) {
                 Screen.Home -> HomeScreen(vm)
                 Screen.Settings -> SettingsScreen(vm)

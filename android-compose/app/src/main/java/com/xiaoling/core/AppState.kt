@@ -49,11 +49,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val speech = SpeechController(app)
-    private val tts = Tts(app) { onSpeakDone() }
+    private val tts = Tts(app) { id -> onSpeakDone(id) }
 
     @Volatile private var autoOn = false     // 常听开关(跨主线程/ TTS 回调线程读写)
     @Volatile private var speaking = false   // TTS 播报中(此时不听,避免听到自己)
     @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
+    private var curUtt = ""                   // 当前 TTS utteranceId(被 flush 的旧句忽略)
 
     init {
         // 后台(短信/来电)检测到诈骗 → 形象即时警惕
@@ -75,6 +76,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     /** 收到家庭组跨设备事件 → 提示 + 语音播报(家人设备侧) */
     private fun onFamilyEvent(ev: org.json.JSONObject) {
+        if (ev.optString("sender") == PushClient.deviceId(app)) return   // 忽略自己发的事件,避免自我回声
         val text = ev.optString("text").ifBlank { "家人有一条新的看护提醒" }
         val type = ev.optString("type")
         val prefix = when (type) {
@@ -84,7 +86,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         speaking = true
         _state.update { it.copy(caption = "🔔 $prefix$text", mascot = MascotState.Caring, speaking = true) }
-        tts.speak(prefix + text)
+        curUtt = tts.speak(prefix + text)
     }
 
     /** 来自短信/来电的高危事件:把形象切到警惕态,并语音+震动强反馈 */
@@ -95,7 +97,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(mascot = MascotState.Alarm, caption = say, busy = false, speaking = true, fraudBlocked = FraudStore.count(app)) }
         try { ActionDispatcher.execute(app, JSONObject().put("type", "FRAUD_WARN")) } catch (e: Exception) {}
         viewModelScope.launch { PushClient.emit(app, "fraud_call", reason, System.currentTimeMillis()) }
-        tts.speak(say)
+        curUtt = tts.speak(say)
         scheduleAlarmReset()
     }
 
@@ -188,7 +190,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 sosLabel = if (type == "SOS") "刚刚" else it.sosLabel
             )
         }
-        tts.speak(toSay)
+        curUtt = tts.speak(toSay)
         if (type == "FRAUD_WARN" || type == "SOS") {
             scheduleAlarmReset()
             val pushType = if (type == "SOS") "sos" else "fraud_sms"
@@ -203,7 +205,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         else -> MascotState.Talking
     }
 
-    private fun onSpeakDone() {
+    private fun onSpeakDone(id: String?) {
+        if (id != curUtt) return   // 被 flush 的旧句完成回调,忽略,避免边说边听/提前复位
         speaking = false
         _state.update {
             val m = if (it.mascot == MascotState.Alarm) MascotState.Alarm else MascotState.Idle
@@ -214,7 +217,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     // ---------- 设置 / 子女端 ----------
     fun showScreen(s: Screen) {
-        _state.update { it.copy(screen = s) }
+        _state.update { it.copy(screen = s, fraudBlocked = FraudStore.count(app)) }
     }
 
     fun setBrainUrl(url: String) {
@@ -236,7 +239,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 Membership.set(app, plan)
                 val label = Membership.label(plan)
                 _state.update { it.copy(membership = plan, caption = "$label 开通成功,感谢支持!") }
-                tts.speak("$label 开通成功,感谢您的支持。")
+                curUtt = tts.speak("$label 开通成功,感谢您的支持。")
             } else {
                 _state.update { it.copy(caption = "支付未完成,可稍后再试。") }
             }
@@ -252,7 +255,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 "已在本地记录,联网后会自动同步给家人。"
             }
             _state.update { it.copy(familySynced = true, caption = msg) }
-            tts.speak(msg)
+            curUtt = tts.speak(msg)
         }
     }
 

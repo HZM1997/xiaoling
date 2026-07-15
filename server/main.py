@@ -71,6 +71,7 @@ _subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
 
 class Event(BaseModel):
     family_id: str          # 家庭组 id(老人与家人共用)
+    sender: str = ""        # 发送设备 id(用于家人设备忽略自己发的事件)
     type: str               # fraud_call / fraud_sms / sos / meds / sync
     text: str = ""
     at: int = 0

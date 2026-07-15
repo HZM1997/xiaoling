@@ -24,11 +24,16 @@ class WakeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(NOTIF_ID, buildNotification())
-        startWakeEngine()
+        // 前台服务启动包一层:未授麦克风权限时在 API 34 上 startForeground(microphone) 会抛异常,避免崩溃
+        try {
+            startForeground(NOTIF_ID, buildNotification())
+            startWakeEngine()
+        } catch (e: Exception) {
+            stopSelf()
+        }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_NOT_STICKY
 
     private fun startWakeEngine() {
         // TODO 接离线唤醒引擎:

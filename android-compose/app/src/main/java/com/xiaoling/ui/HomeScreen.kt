@@ -66,13 +66,21 @@ fun HomeScreen(vm: AppState) {
     )
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { result -> if (result[Manifest.permission.RECORD_AUDIO] == true) vm.startAuto() }
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+            vm.startAuto()
+            com.xiaoling.service.WakeService.start(ctx)
+        }
+    }
 
     LaunchedEffect(Unit) {
         val granted = ContextCompat.checkSelfPermission(
             ctx, Manifest.permission.RECORD_AUDIO
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) vm.startAuto() else launcher.launch(perms)
+        if (granted) {
+            vm.startAuto()
+            com.xiaoling.service.WakeService.start(ctx)   // 麦克风已授权后再启动常驻服务(避免 API34 崩溃)
+        } else launcher.launch(perms)
     }
     DisposableEffect(Unit) { onDispose { vm.stopAuto() } }
 

@@ -39,6 +39,7 @@ fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modi
         update = { web ->
             web.evaluateJavascript("window.XLAvatar&&XLAvatar.setState('$stateName')", null)
             web.evaluateJavascript("window.XLAvatar&&XLAvatar.setTalking(${if (talking) "true" else "false"})", null)
-        }
+        },
+        onRelease = { web -> web.destroy() }   // 关闭 3D / 离场时销毁 WebView,避免泄漏
     )
 }
