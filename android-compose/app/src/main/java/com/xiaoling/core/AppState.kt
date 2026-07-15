@@ -29,6 +29,8 @@ data class UiState(
     val membership: String = "",     // "" / "basic" / "premium"
     val loggedIn: Boolean = false,
     val phone: String = "",
+    val role: String = "elder",                       // elder(老人端) / family(家人端)
+    val familyEvents: List<String> = emptyList(),     // 家人端:收到的看护事件流
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
     val sosLabel: String = "无",
@@ -47,7 +49,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
             live2d = Settings.live2dEnabled(app),
             membership = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app),
             loggedIn = Account.isLoggedIn(app),
-            phone = Account.phone(app)
+            phone = Account.phone(app),
+            role = Account.role(app)
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -76,7 +79,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun subscribePush() {
         viewModelScope.launch {
             while (isActive) {
-                if (isPremium()) PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }   // 家人看护:高级会员专享
+                // 家人端 或 高级会员(老人端)才订阅家庭组事件
+                if (Account.role(app) == "family" || isPremium()) PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }
                 delay(3000)   // 断线/未开通时轮询重试
             }
         }
@@ -92,9 +96,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
             "sos" -> "家人发起了紧急呼救:"
             else -> "家人看护:"
         }
+        // 家人端:记入事件流(保留最近 30 条)
+        _state.update { it.copy(familyEvents = (listOf("$prefix$text") + it.familyEvents).take(30)) }
         speaking = true
         _state.update { it.copy(caption = "🔔 $prefix$text", mascot = MascotState.Caring, speaking = true) }
         curUtt = tts.speak(prefix + text)
+    }
+
+    fun setRole(role: String) {
+        Account.setRole(app, role)
+        _state.update { it.copy(role = role, screen = Screen.Home) }
+    }
+
+    /** 家人端:拨打老人电话(演示号码;真实场景取家庭组里老人的号码) */
+    fun callElder() {
+        val num = "10086"   // TODO 换成家庭组里老人的手机号
+        try { ActionDispatcher.execute(app, JSONObject().put("type", "CALL_NUMBER").put("number", num)) } catch (e: Exception) {}
     }
 
     /** 来自短信/来电的高危事件:把形象切到警惕态,并语音+震动强反馈 */

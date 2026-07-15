@@ -73,16 +73,27 @@ fun HomeScreen(vm: AppState) {
         }
     }
 
-    LaunchedEffect(Unit) {
-        val granted = ContextCompat.checkSelfPermission(
-            ctx, Manifest.permission.RECORD_AUDIO
-        ) == PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            vm.startAuto()
-            com.xiaoling.service.WakeService.start(ctx)   // 麦克风已授权后再启动常驻服务(避免 API34 崩溃)
-        } else launcher.launch(perms)
+    // 生命周期驱动:App 到前台开听、退到后台停听(把麦交给 WakeService 听唤醒词,避免抢麦)
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            when (event) {
+                androidx.lifecycle.Lifecycle.Event.ON_START -> {
+                    val granted = ContextCompat.checkSelfPermission(
+                        ctx, Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (granted) {
+                        vm.startAuto()
+                        com.xiaoling.service.WakeService.start(ctx)
+                    } else launcher.launch(perms)
+                }
+                androidx.lifecycle.Lifecycle.Event.ON_STOP -> vm.stopAuto()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs); vm.stopAuto() }
     }
-    DisposableEffect(Unit) { onDispose { vm.stopAuto() } }
 
     Box(
         modifier = Modifier.fillMaxSize()

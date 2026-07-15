@@ -24,7 +24,7 @@ fun XiaolingApp(vm: AppState) {
             BackHandler(enabled = ui.screen == Screen.Settings) { vm.showScreen(Screen.Home) }
             BackHandler(enabled = ui.screen == Screen.Login) { vm.showScreen(Screen.Settings) }
             when (ui.screen) {
-                Screen.Home -> HomeScreen(vm)
+                Screen.Home -> if (ui.role == "family") GuardianHomeScreen(vm) else HomeScreen(vm)
                 Screen.Settings -> SettingsScreen(vm)
                 Screen.Login -> LoginScreen(vm)
             }

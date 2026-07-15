@@ -41,6 +41,11 @@ object ActionDispatcher {
                 }
                 null
             }
+            "CALL_NUMBER" -> {
+                val num = action.optString("number")
+                if (num.isNotBlank()) view(app, Intent(Intent.ACTION_DIAL, Uri.parse("tel:$num")))
+                null
+            }
             "OPEN_URI" -> {
                 val uri = action.optString("uri")
                 val ok = view(app, Intent(Intent.ACTION_VIEW, Uri.parse(uri)))
