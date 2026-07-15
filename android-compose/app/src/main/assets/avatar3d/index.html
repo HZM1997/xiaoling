@@ -5,101 +5,89 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <style>
   html,body{margin:0;height:100%;background:transparent;overflow:hidden}
-  #cv{width:100%;height:100%;display:block}
+  #c{width:100%;height:100%;display:block}
   #tip{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
     color:#7A8296;font-family:sans-serif;font-size:14px;padding:26px;line-height:1.8}
 </style>
 </head>
 <body>
-<canvas id="cv"></canvas>
-<div id="tip">正在加载 3D 数字人…<br><small>把 VRM 模型放到 assets/avatar3d/model.vrm,运行时放到 assets/avatar3d/lib/</small></div>
-<script>
-/* 小灵 · 3D 数字人(three.js + three-vrm,WebView 内嵌,离线)
- * 原生层通过 window.XLAvatar.setState(...) / setTalking(bool) 驱动:
- *   状态 → 表情 blendshape(joy/surprised/angry/sorrow/neutral/blink)、待机呼吸、视线微动;
- *   说话 → 口型(aa)开合。
- * 需要(全部本地放入 assets/avatar3d/):
- *   lib/three.min.js  lib/three-vrm.min.js  model.vrm
- * 缺任一显示提示;原生层可回退到透明 PNG 形象。
- */
-var CONFIG = { MODEL: './model.vrm', LIB: ['./lib/three.min.js','./lib/three-vrm.min.js'] };
-var vrm=null, clock=null, talking=false, pending='idle', t=0;
+<canvas id="c"></canvas>
+<div id="tip">正在加载 3D 数字人…</div>
 
-// 状态 → 目标表情权重
-var EXPR = {
-  idle:    {neutral:1},
-  listen:  {neutral:0.7, joy:0.3},
-  think:   {neutral:0.6, sorrow:0.2},
-  talk:    {neutral:0.8, joy:0.2},
-  alarm:   {surprised:0.9, angry:0.3},
-  caring:  {joy:0.9}
-};
-var cur = {}, tgt = EXPR.idle;
-window.XLAvatar = {
-  setState:function(s){ pending=s; tgt = EXPR[s] || EXPR.idle; },
-  setTalking:function(on){ talking=!!on; }
-};
-
-function load(src){return new Promise(function(res,rej){var s=document.createElement('script');s.src=src;s.onload=res;s.onerror=function(){rej(src)};document.head.appendChild(s);});}
-
-function setExpr(name, w){ try{ if(vrm&&vrm.expressionManager) vrm.expressionManager.setValue(name, w); }catch(_){} }
-
-(async function(){
-  try{ for(var i=0;i<CONFIG.LIB.length;i++){ await load(CONFIG.LIB[i]); } }
-  catch(e){ tip('未找到运行时:'+e+'<br>请把 three.min.js / three-vrm.min.js 放到 assets/avatar3d/lib/'); return; }
-  if(!window.THREE){ tip('three.js 未加载'); return; }
-
-  var THREE=window.THREE;
-  var renderer=new THREE.WebGLRenderer({canvas:document.getElementById('cv'),alpha:true,antialias:true});
-  renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth,window.innerHeight);
-  var scene=new THREE.Scene();
-  var camera=new THREE.PerspectiveCamera(28, window.innerWidth/window.innerHeight, 0.1, 20);
-  camera.position.set(0,1.35,2.0);
-  var light=new THREE.DirectionalLight(0xffffff,1.1); light.position.set(1,1.5,1.2); scene.add(light);
-  scene.add(new THREE.AmbientLight(0xffffff,0.75));
-  clock=new THREE.Clock();
-
-  var loaderCtor = (window.THREE.GLTFLoader)||(window.GLTFLoader);
-  if(!loaderCtor){ tip('缺少 GLTFLoader(请用带 VRM 插件的 three-vrm 运行时)'); return; }
-  var loader=new loaderCtor();
-  if(window.THREE_VRM&&window.THREE_VRM.VRMLoaderPlugin){ loader.register(function(parser){return new window.THREE_VRM.VRMLoaderPlugin(parser);}); }
-
-  loader.load(CONFIG.MODEL, function(gltf){
-    vrm = gltf.userData.vrm;
-    if(!vrm){ tip('模型不是有效 VRM'); return; }
-    scene.add(vrm.scene);
-    vrm.scene.rotation.y = Math.PI;           // 面向相机
-    document.getElementById('tip').style.display='none';
-    animate();
-  }, undefined, function(err){ tip('未找到/无法加载模型:'+CONFIG.MODEL+'<br>请把 model.vrm 放到 assets/avatar3d/'); });
-
-  function animate(){
-    requestAnimationFrame(animate);
-    var dt=clock.getDelta(); t+=dt;
-    if(vrm){
-      // 表情平滑过渡
-      ['neutral','joy','surprised','angry','sorrow'].forEach(function(k){
-        var to=tgt[k]||0; cur[k]=(cur[k]||0)+((to-(cur[k]||0))*Math.min(1,dt*6)); setExpr(k, cur[k]);
-      });
-      // 眨眼
-      var blink = (Math.sin(t*0.7)>0.98)?1:0; setExpr('blink', blink);
-      // 口型
-      setExpr('aa', talking?(Math.sin(t*12)*0.5+0.5)*0.7:0);
-      // 待机呼吸 + 轻微视线摆动
-      if(vrm.humanoid){
-        var chest=vrm.humanoid.getNormalizedBoneNode&&vrm.humanoid.getNormalizedBoneNode('chest');
-        if(chest) chest.rotation.x=Math.sin(t*1.2)*0.02;
-        var head=vrm.humanoid.getNormalizedBoneNode&&vrm.humanoid.getNormalizedBoneNode('head');
-        if(head) head.rotation.y=Math.sin(t*0.5)*0.05;
-      }
-      if(vrm.lookAt){ /* 视线可接入触摸点,略 */ }
-      vrm.update&&vrm.update(dt);
-    }
-    renderer.render(scene,camera);
+<!-- 运行时:默认走 CDN(联网即用);离线请用 fetch-avatar3d 脚本下载到本地并改成本地路径 -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.1.4/lib/three-vrm.module.min.js"
   }
-  window.addEventListener('resize',function(){ renderer.setSize(window.innerWidth,window.innerHeight); camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); });
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+
+// 你的模型放到 assets/avatar3d/model.vrm;缺失自动用 CDN 免费样例(仅测试,商用请换授权模型)
+const MODEL = './model.vrm';
+const SAMPLE = 'https://cdn.jsdelivr.net/gh/pixiv/three-vrm@dev/packages/three-vrm/examples/models/VRM1_Constraint_Twist_Sample.vrm';
+
+// 状态 → VRM 表情预设权重
+const EXPR = {
+  idle:   { neutral: 1 },
+  listen: { neutral: 0.7, happy: 0.3 },
+  think:  { neutral: 0.7, sad: 0.15 },
+  talk:   { neutral: 0.8, happy: 0.2 },
+  alarm:  { surprised: 0.9, angry: 0.3 },
+  caring: { happy: 0.95 }
+};
+let vrm = null, talking = false, tgt = EXPR.idle, cur = {}, t = 0;
+window.XLAvatar = {
+  setState: s => { tgt = EXPR[s] || EXPR.idle; },
+  setTalking: on => { talking = !!on; }
+};
+const tip = m => { const e = document.getElementById('tip'); if (m === false) { e.style.display = 'none'; } else { e.style.display = 'flex'; e.innerHTML = m; } };
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c'), alpha: true, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(innerWidth, innerHeight);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(26, innerWidth / innerHeight, 0.1, 20); camera.position.set(0, 1.35, 1.9);
+scene.add(new THREE.AmbientLight(0xffffff, 0.85));
+const dir = new THREE.DirectionalLight(0xffffff, 1.0); dir.position.set(1, 1.4, 1.2); scene.add(dir);
+const clock = new THREE.Clock();
+
+const loader = new GLTFLoader();
+loader.register(p => new VRMLoaderPlugin(p));
+
+function setV(name, w) { try { vrm?.expressionManager?.setValue(name, w); } catch (_) {} }
+async function loadVRM(url) { const g = await loader.loadAsync(url); return g.userData.vrm; }
+
+(async () => {
+  try { vrm = await loadVRM(MODEL); }
+  catch (_) { try { vrm = await loadVRM(SAMPLE); } catch (e) { tip('未找到模型:请把 model.vrm 放到 assets/avatar3d/(或联网用样例)'); return; } }
+  VRMUtils.rotateVRM0(vrm);
+  scene.add(vrm.scene);
+  tip(false);
+  animate();
 })();
-function tip(html){var e=document.getElementById('tip');e.style.display='flex';e.innerHTML=html;}
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta(); t += dt;
+  if (vrm) {
+    ['neutral', 'happy', 'angry', 'sad', 'surprised'].forEach(k => {
+      const to = tgt[k] || 0; cur[k] = (cur[k] || 0) + (to - (cur[k] || 0)) * Math.min(1, dt * 6); setV(k, cur[k]);
+    });
+    setV('blink', (Math.sin(t * 0.6) > 0.985) ? 1 : 0);          // 眨眼
+    setV('aa', talking ? (Math.sin(t * 12) * 0.5 + 0.5) * 0.7 : 0); // 口型
+    const head = vrm.humanoid?.getNormalizedBoneNode('head');
+    if (head) head.rotation.y = Math.sin(t * 0.5) * 0.05;         // 头部微动
+    vrm.update(dt);
+  }
+  renderer.render(scene, camera);
+}
+addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 </script>
 </body>
 </html>

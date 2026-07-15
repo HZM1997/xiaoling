@@ -41,12 +41,47 @@ import time
 class Order(BaseModel):
     plan: str          # basic / premium
     method: str        # 微信支付 / 支付宝
+    phone: str = ""    # 已登录用户手机号(会员跟账号走)
+
+
+# 内存用户库(demo):{ phone: {membership, family_id, uid} }。真实场景用数据库。
+_users: dict[str, dict] = {}
+
+
+class SendCode(BaseModel):
+    phone: str
+
+
+class LoginReq(BaseModel):
+    phone: str
+    code: str
+
+
+@app.post("/auth/send_code")
+def auth_send_code(s: SendCode):
+    """发送验证码。真实场景接短信服务(阿里云/腾讯云)。demo:固定验证码 1234。"""
+    return {"ok": True, "hint": "演示验证码为 1234(真实场景通过短信下发)"}
+
+
+@app.post("/auth/login")
+def auth_login(r: LoginReq):
+    """手机号 + 验证码登录/注册。demo:验证码 1234 即通过。会员/家庭组跟账号走。"""
+    if r.code != "1234":
+        return {"ok": False, "msg": "验证码错误(演示请输入 1234)"}
+    u = _users.setdefault(r.phone, {})
+    u.setdefault("uid", "u" + str(abs(hash(r.phone)) % 1000000))
+    u.setdefault("family_id", "fam-" + str(abs(hash(r.phone)) % 100000))
+    u.setdefault("membership", "")
+    return {"ok": True, "token": "demo-" + u["uid"], "uid": u["uid"],
+            "family_id": u["family_id"], "membership": u["membership"]}
 
 
 @app.post("/pay/create")
 def pay_create(o: Order):
     """下单:真实场景这里调微信统一下单/支付宝下单,返回 prepay_id/orderInfo 给客户端拉起收银台。"""
     price = "29.9" if o.plan == "basic" else "299"
+    if o.phone:                       # 已登录 → 会员跟账号走(服务器端记录)
+        _users.setdefault(o.phone, {}).update(membership=o.plan)
     return {"ok": True, "orderId": f"XL{int(time.time())}", "plan": o.plan,
             "method": o.method, "amount": price}
 

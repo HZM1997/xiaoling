@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 
-enum class Screen { Home, Settings }
+enum class Screen { Home, Settings, Login }
 
 data class UiState(
     val caption: String = "小灵在这儿,想说什么直接说",
@@ -27,6 +27,8 @@ data class UiState(
     val brainUrl: String = "",
     val live2d: Boolean = false,
     val membership: String = "",     // "" / "basic" / "premium"
+    val loggedIn: Boolean = false,
+    val phone: String = "",
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
     val sosLabel: String = "无",
@@ -43,7 +45,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
             brainUrl = Settings.brainUrl(app),
             fraudBlocked = FraudStore.count(app),
             live2d = Settings.live2dEnabled(app),
-            membership = Membership.tier(app)
+            membership = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app),
+            loggedIn = Account.isLoggedIn(app),
+            phone = Account.phone(app)
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -230,13 +234,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(live2d = on) }
     }
 
-    /** 开通会员:下单→(占位)收银台→回调→本地记录。plan: "basic"/"premium",method: 微信/支付宝 */
+    /** 开通会员:下单→(占位)收银台→回调→记录(登录则跟账号,否则本地)。 */
     fun buyPlan(plan: String, method: String) {
         _state.update { it.copy(caption = "正在通过$method 开通…") }
         viewModelScope.launch {
-            val ok = PayClient.pay(app, plan, method)
+            val ok = PayClient.pay(app, plan, method, Account.phone(app))
             if (ok) {
-                Membership.set(app, plan)
+                if (Account.isLoggedIn(app)) Account.setMembership(app, plan) else Membership.set(app, plan)
                 val label = Membership.label(plan)
                 _state.update { it.copy(membership = plan, caption = "$label 开通成功,感谢支持!") }
                 curUtt = tts.speak("$label 开通成功,感谢您的支持。")
@@ -244,6 +248,37 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 _state.update { it.copy(caption = "支付未完成,可稍后再试。") }
             }
         }
+    }
+
+    // ---------- 账号(手机号登录) ----------
+    fun sendCode(phone: String) {
+        viewModelScope.launch {
+            val ok = AuthClient.sendCode(app, phone)
+            _state.update { it.copy(caption = if (ok) "验证码已发送(演示请输入 1234)" else "验证码发送失败,请检查网络/服务器") }
+        }
+    }
+
+    fun login(phone: String, code: String) {
+        _state.update { it.copy(caption = "正在登录…") }
+        viewModelScope.launch {
+            val r = AuthClient.login(app, phone, code)
+            if (r != null && r.optBoolean("ok", true) && r.has("token")) {
+                val member = r.optString("membership", "")
+                Account.save(app, r.optString("token"), phone, r.optString("uid"), r.optString("family_id"), member)
+                _state.update {
+                    it.copy(loggedIn = true, phone = phone, membership = member,
+                        screen = Screen.Settings, caption = "登录成功,欢迎回来!")
+                }
+            } else {
+                val msg = r?.optString("msg", "") ?: ""
+                _state.update { it.copy(caption = if (msg.isNotBlank()) msg else "登录失败,验证码演示请输入 1234") }
+            }
+        }
+    }
+
+    fun logout() {
+        Account.logout(app)
+        _state.update { it.copy(loggedIn = false, phone = "", membership = Membership.tier(app), caption = "已退出登录") }
     }
 
     fun syncFamily() {

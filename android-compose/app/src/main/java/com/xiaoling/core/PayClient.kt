@@ -14,8 +14,8 @@ import java.net.URL
  */
 object PayClient {
 
-    suspend fun pay(ctx: Context, plan: String, method: String): Boolean = withContext(Dispatchers.IO) {
-        val orderId = createOrder(ctx, plan, method)   // 后端下单(拿到订单号/预支付串)
+    suspend fun pay(ctx: Context, plan: String, method: String, phone: String = ""): Boolean = withContext(Dispatchers.IO) {
+        val orderId = createOrder(ctx, plan, method, phone)   // 后端下单(拿到订单号/预支付串)
         // ==== 接真实支付的位置 ====
         // 微信:IWXAPI.sendReq(PayReq) 用后端返回的 prepayId 等参数拉起微信收银台;
         // 支付宝:PayTask(activity).payV2(orderInfo) 拉起支付宝;
@@ -23,9 +23,9 @@ object PayClient {
         orderId != null || true   // demo:后端不可达也当作已支付,便于演示开通闭环
     }
 
-    private fun createOrder(ctx: Context, plan: String, method: String): String? {
+    private fun createOrder(ctx: Context, plan: String, method: String, phone: String): String? {
         return try {
-            val body = JSONObject().put("plan", plan).put("method", method).toString()
+            val body = JSONObject().put("plan", plan).put("method", method).put("phone", phone).toString()
             val url = URL(Settings.brainUrl(ctx).trimEnd('/') + "/pay/create")
             val c = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"; doOutput = true

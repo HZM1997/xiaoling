@@ -104,7 +104,8 @@ fun SettingsScreen(vm: AppState) {
             ) {
                 Spacer(Modifier.height(6.dp))
                 when (tab) {
-                    0 -> UserTab(ui) { title, body -> dialog = title to body }
+                    0 -> UserTab(ui, showText = { title, body -> dialog = title to body },
+                        onLogin = { vm.showScreen(Screen.Login) }, onLogout = { vm.logout() })
                     1 -> MemberTab(ui) { payPlan = it }
                     2 -> CareTab(ui, onSync = { vm.syncFamily() }, onRole = { requestScreenRole() },
                         live2d = ui.live2d, onLive2d = { vm.setLive2d(it) })
@@ -161,7 +162,12 @@ private fun TabBar(selected: Int, onSelect: (Int) -> Unit) {
 
 /* ---------------- 模块一:用户信息 ---------------- */
 @Composable
-private fun UserTab(ui: com.xiaoling.core.UiState, showText: (String, String) -> Unit) {
+private fun UserTab(
+    ui: com.xiaoling.core.UiState,
+    showText: (String, String) -> Unit,
+    onLogin: () -> Unit,
+    onLogout: () -> Unit
+) {
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Image(
@@ -173,13 +179,23 @@ private fun UserTab(ui: com.xiaoling.core.UiState, showText: (String, String) ->
             )
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
-                Text("小灵用户", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Text("ID: 100086 · " + memberLabel(ui.membership), fontSize = 13.sp, color = DimColor)
+                Text(if (ui.loggedIn) "已登录" else "未登录", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    (if (ui.loggedIn) maskPhone(ui.phone) else "点击登录同步会员与家人看护") + " · " + memberLabel(ui.membership),
+                    fontSize = 13.sp, color = DimColor
+                )
+            }
+            if (ui.loggedIn) {
+                Text("退出", fontSize = 14.sp, color = AccentBlue,
+                    modifier = Modifier.clickable { onLogout() }.padding(6.dp))
+            } else {
+                Text("登录", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AccentBlue,
+                    modifier = Modifier.clickable { onLogin() }.padding(6.dp))
             }
         }
     }
     GlassCard {
-        RowItem("账号与安全") { showText("账号与安全", "· 绑定手机号 / 微信一键登录\n· 登录设备管理\n· 修改密码与注销账号\n(完整账号体系可后续接入)") }
+        RowItem("账号与安全") { if (ui.loggedIn) showText("账号与安全", "· 手机号:" + maskPhone(ui.phone) + "\n· 登录设备管理\n· 注销账号") else onLogin() }
         Divider()
         RowItem("隐私保护设置") { showText("隐私保护设置", "· 通话/短信仅用于本机防诈判定,默认不上传\n· 麦克风仅在唤起对话时使用\n· 可随时在系统设置撤销各项权限") }
         Divider()
@@ -188,6 +204,10 @@ private fun UserTab(ui: com.xiaoling.core.UiState, showText: (String, String) ->
         RowItem("隐私政策摘要") { showText("隐私政策摘要", "我们仅收集为您提供防诈、呼救、陪伴所必需的最少信息;敏感数据尽量在本机处理;不向第三方出售您的个人信息。完整政策见官网。") }
     }
 }
+
+private fun maskPhone(p: String): String =
+    if (p.length == 11) p.substring(0, 3) + "****" + p.substring(7) else p
+
 
 /* ---------------- 模块二:会员权益 ---------------- */
 @Composable

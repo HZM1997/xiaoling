@@ -80,10 +80,17 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper(或用 Android Stud
 > 诚实说明:①常驻服务真实生效,但部分厂商定制系统需手动把 App 加入「自启动/后台保活」白名单;②"离线语音唤起"这一步必须接唤醒引擎,纯系统能力做不到常驻离线监听。
 
 ## 3D 数字人(真 3D,非 Live2D)
-`assets/avatar3d/index.html` 用 **three.js + three-vrm** 渲染 **VRM 数字人**:丰富表情 blendshape(高兴/惊讶/警惕/难过/眨眼)、口型、待机呼吸、头部微动;原生按状态/说话经 JS 桥驱动。启用:
-1. 运行时放 `assets/avatar3d/lib/`:`three.min.js`、`three-vrm.min.js`(带 GLTF/VRM 插件);
-2. 你的 **`.vrm` 模型**放 `assets/avatar3d/model.vrm`(网上有免费 VRM 数字人可先用;单张 PNG 生成不了 3D 模型);
-3. 「设置 → 家人看护 → 3D 数字人形象」打开。未就绪就保持关闭,用透明 PNG 形象 + 智能光晕。
+`assets/avatar3d/index.html` 用 **three.js + three-vrm** 渲染 **VRM 数字人**:表情 blendshape(高兴/惊讶/警惕/难过/眨眼)、口型、头部微动;原生按状态/说话经 JS 桥驱动。
+- **联网即用**:默认从 CDN 加载运行时 + 一个**免费样例 VRM**,「设置 → 家人看护 → 3D 数字人形象」开启即可看到真 3D 数字人动起来(证明管线通)。⚠ 样例模型仅供测试,商用请换你自研/授权的模型。
+- **换成你的角色**:把你的 `.vrm` 放到 `assets/avatar3d/model.vrm`(单张 PNG 生成不了 VRM,需美术/建模或用 VRoid 生成)。
+- **离线化**:`cd android-compose && bash fetch-avatar3d.sh` 把运行时 + 样例模型下载到 `assets/`,再按脚本提示把 index.html 的 importmap 改成本地路径。
+> 注:VRM 渲染依赖手机 WebView 版本(需较新 Chromium WebView,支持 ES 模块/importmap);过旧 WebView 会显示提示,原生自动回退透明 PNG 形象。
+
+## 账号体系(手机号登录 · 会员/家庭组跟账号走)
+- 「设置 → 用户信息 → 账号与安全」进入**登录**:手机号 + 验证码(**演示验证码 1234**)。
+- 登录后:**会员**与**家庭组**跟账号走(服务器返回),跨设备推送用账号的 `family_id`;退出登录清除本地会话。
+- 服务器:`/auth/send_code`、`/auth/login`(内存用户库);`/pay/create` 已登录时把会员记到账号。
+> **接真实登录要做**:①后端接**短信服务**(阿里云/腾讯云)发真实 OTP + 校验;②token 换 **JWT/OAuth**;③用户库换数据库。代码已标注接入位置。
 
 ## 会员与支付(演示闭环 · 未真实扣款)
 「设置 → 会员权益中心」两档:**基础 ¥29.9/月**、**高级 ¥299/年**。点「立即开通」→ 选微信/支付宝 →

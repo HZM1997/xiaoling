@@ -23,7 +23,7 @@ object PushClient {
     private const val PREF = "xiaoling"
     private const val KEY_DEVICE = "device_id"
 
-    fun familyId(ctx: Context): String = DEFAULT_FAMILY   // 真实场景:与账号/家庭组绑定
+    fun familyId(ctx: Context): String = Account.familyId(ctx).ifBlank { DEFAULT_FAMILY }   // 登录后跟账号的家庭组
 
     fun deviceId(ctx: Context): String {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
