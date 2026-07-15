@@ -4,6 +4,7 @@ import android.app.role.RoleManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -32,18 +33,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.foundation.Image
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,16 +54,22 @@ import com.xiaoling.R
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
 import com.xiaoling.ui.theme.AccentBlue
+import com.xiaoling.ui.theme.AccentGlow
 import com.xiaoling.ui.theme.BgBottom
+import com.xiaoling.ui.theme.BgMid
 import com.xiaoling.ui.theme.BgTop
 import com.xiaoling.ui.theme.DimColor
+import com.xiaoling.ui.theme.InkColor
+
+private val TABS = listOf("用户信息", "会员权益", "家人看护")
 
 @Composable
 fun SettingsScreen(vm: AppState) {
     val ui by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
-    var url by remember { mutableStateOf(ui.brainUrl) }
+    var tab by remember { mutableIntStateOf(0) }
     var payPlan by remember { mutableStateOf<String?>(null) }
+    var dialog by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val roleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -75,162 +84,191 @@ fun SettingsScreen(vm: AppState) {
     }
 
     Box(
-        modifier = Modifier.fillMaxSize()
-            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(BgTop, BgBottom)))
+        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BgTop, BgMid, BgBottom)))
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(18.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("‹", fontSize = 30.sp, color = AccentBlue,
-                    modifier = Modifier.clickable { vm.showScreen(Screen.Home) })
-                Spacer(Modifier.size(10.dp))
-                Text("设置", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxSize()) {
+            // 顶栏
+            Row(
+                Modifier.fillMaxWidth().padding(start = 8.dp, end = 18.dp, top = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("‹", fontSize = 32.sp, color = AccentBlue,
+                    modifier = Modifier.clickable { vm.showScreen(Screen.Home) }.padding(horizontal = 12.dp))
+                Text("设置", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = InkColor)
             }
-            Spacer(Modifier.height(14.dp))
+            // 页签
+            TabBar(tab) { tab = it }
 
-            // 用户信息
-            SettingCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Image(
-                        painter = painterResource(R.drawable.avatar),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        alignment = Alignment.TopCenter,
-                        modifier = Modifier.size(56.dp).clip(CircleShape)
-                    )
-                    Spacer(Modifier.size(14.dp))
-                    Column {
-                        Text("用户", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                        Text("ID: 100086", fontSize = 14.sp, color = DimColor)
-                    }
-                }
-            }
-
-            // 模块二:会员权益中心
-            SettingCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("会员权益中心", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        "当前:" + membershipLabel(ui.membership),
-                        fontSize = 14.sp,
-                        color = if (ui.membership.isEmpty()) DimColor else AccentBlue,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(Modifier.height(10.dp))
-                PlanCard("基础会员", "¥29.9 / 月",
-                    listOf("无限畅聊陪伴", "健康用药提醒", "来电 + 短信防诈"),
-                    plan = "basic", current = ui.membership == "basic", onBuy = { payPlan = it })
-                Spacer(Modifier.height(10.dp))
-                PlanCard("高级会员", "¥299 / 年",
-                    listOf("基础会员全部权益", "明星 / 亲人语音包", "亲情守护 · 家人看护", "专属人工客服"),
-                    plan = "premium", highlight = true, current = ui.membership == "premium", onBuy = { payPlan = it })
-            }
-
-            // 形象:Live2D 开关
-            SettingCard {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("3D 形象(Live2D)", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Text("需先放入模型与运行时,详见 NATIVE.md;未就绪时保持关闭",
-                            fontSize = 12.sp, color = DimColor, modifier = Modifier.padding(top = 2.dp))
-                    }
-                    Switch(checked = ui.live2d, onCheckedChange = { vm.setLive2d(it) })
-                }
-            }
-
-            // 模块三:家人看护
-            SettingCard {
-                Text("家人看护", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(8.dp))
-                StatRow("累计拦截诈骗", "${ui.fraudBlocked} 次")
-                StatRow("紧急呼救记录", ui.sosLabel)
-                StatRow("同步状态", if (ui.familySynced) "已同步 ✓" else "未同步")
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(
-                    onClick = { vm.syncFamily() },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) { Text("同步给家人") }
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { requestScreenRole() },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) { Text("设为来电防诈助手") }
-            }
-
-            // 开发者:服务器地址(联调用,不属于三大模块)
-            SettingCard {
-                Text("开发者 · 服务器地址", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = DimColor)
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
+            ) {
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(value = url, onValueChange = { url = it },
-                    singleLine = true, modifier = Modifier.fillMaxWidth())
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { vm.setBrainUrl(url) },
-                    modifier = Modifier.fillMaxWidth().height(44.dp),
-                    shape = RoundedCornerShape(14.dp)
-                ) { Text("保存地址") }
+                when (tab) {
+                    0 -> UserTab(ui) { title, body -> dialog = title to body }
+                    1 -> MemberTab(ui) { payPlan = it }
+                    2 -> CareTab(ui, onSync = { vm.syncFamily() }, onRole = { requestScreenRole() },
+                        live2d = ui.live2d, onLive2d = { vm.setLive2d(it) })
+                }
+                Spacer(Modifier.height(28.dp))
+                Text("小灵 · v1.0", fontSize = 12.sp, color = DimColor,
+                    modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                Spacer(Modifier.height(24.dp))
             }
-
-            Spacer(Modifier.height(20.dp))
-            Text("小灵 · v1.0", fontSize = 13.sp, color = DimColor,
-                modifier = Modifier.fillMaxWidth(), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Spacer(Modifier.height(20.dp))
         }
 
-        val p = payPlan
-        if (p != null) {
+        // 支付方式
+        payPlan?.let { p ->
             AlertDialog(
                 onDismissRequest = { payPlan = null },
                 title = { Text("选择支付方式") },
-                text = { Text("开通 " + membershipLabel(p) + "(" + (if (p == "basic") "¥29.9/月" else "¥299/年") + ")") },
-                confirmButton = {
-                    TextButton(onClick = { vm.buyPlan(p, "微信支付"); payPlan = null }) { Text("微信支付") }
-                },
-                dismissButton = {
-                    TextButton(onClick = { vm.buyPlan(p, "支付宝"); payPlan = null }) { Text("支付宝") }
-                }
+                text = { Text("开通 " + memberLabel(p) + "(" + (if (p == "basic") "¥29.9/月" else "¥299/年") + ")") },
+                confirmButton = { TextButton(onClick = { vm.buyPlan(p, "微信支付"); payPlan = null }) { Text("微信支付") } },
+                dismissButton = { TextButton(onClick = { vm.buyPlan(p, "支付宝"); payPlan = null }) { Text("支付宝") } }
+            )
+        }
+        // 文本弹窗(隐私摘要/反馈等)
+        dialog?.let { (title, body) ->
+            AlertDialog(
+                onDismissRequest = { dialog = null },
+                title = { Text(title) },
+                text = { Text(body, fontSize = 15.sp, lineHeight = 23.sp) },
+                confirmButton = { TextButton(onClick = { dialog = null }) { Text("知道了") } }
             )
         }
     }
 }
 
-private fun membershipLabel(tier: String): String = when (tier) {
-    "basic" -> "基础会员"
-    "premium" -> "高级会员"
-    else -> "未开通"
+@Composable
+private fun TabBar(selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(16.dp)
+            .clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.6f)).padding(4.dp)
+    ) {
+        TABS.forEachIndexed { i, t ->
+            val on = i == selected
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(13.dp))
+                    .background(if (on) AccentBlue else Color.Transparent)
+                    .clickable { onSelect(i) }.padding(vertical = 11.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(t, fontSize = 15.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    color = if (on) Color.White else DimColor)
+            }
+        }
+    }
+}
+
+/* ---------------- 模块一:用户信息 ---------------- */
+@Composable
+private fun UserTab(ui: com.xiaoling.core.UiState, showText: (String, String) -> Unit) {
+    GlassCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Image(
+                painter = painterResource(R.drawable.avatar),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White)
+            )
+            Spacer(Modifier.size(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("小灵用户", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text("ID: 100086 · " + memberLabel(ui.membership), fontSize = 13.sp, color = DimColor)
+            }
+        }
+    }
+    GlassCard {
+        RowItem("账号与安全") { showText("账号与安全", "· 绑定手机号 / 微信一键登录\n· 登录设备管理\n· 修改密码与注销账号\n(完整账号体系可后续接入)") }
+        Divider()
+        RowItem("隐私保护设置") { showText("隐私保护设置", "· 通话/短信仅用于本机防诈判定,默认不上传\n· 麦克风仅在唤起对话时使用\n· 可随时在系统设置撤销各项权限") }
+        Divider()
+        RowItem("意见反馈") { showText("意见反馈", "感谢您的使用!反馈请发送至 feedback@xiaoling.ai,我们会认真对待每一条建议。") }
+        Divider()
+        RowItem("隐私政策摘要") { showText("隐私政策摘要", "我们仅收集为您提供防诈、呼救、陪伴所必需的最少信息;敏感数据尽量在本机处理;不向第三方出售您的个人信息。完整政策见官网。") }
+    }
+}
+
+/* ---------------- 模块二:会员权益 ---------------- */
+@Composable
+private fun MemberTab(ui: com.xiaoling.core.UiState, onBuy: (String) -> Unit) {
+    GlassCard {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text("会员权益中心", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("当前:" + memberLabel(ui.membership), fontSize = 14.sp, fontWeight = FontWeight.Bold,
+                color = if (ui.membership.isEmpty()) DimColor else AccentBlue)
+        }
+        Spacer(Modifier.height(12.dp))
+        PlanCard("基础会员", "¥29.9 / 月", listOf("无限畅聊陪伴", "健康用药提醒", "来电 + 短信防诈"),
+            plan = "basic", current = ui.membership == "basic", onBuy = onBuy)
+        Spacer(Modifier.height(12.dp))
+        PlanCard("高级会员", "¥299 / 年",
+            listOf("基础会员全部权益", "明星 / 亲人语音包", "3D 数字人形象", "亲情守护 · 家人看护", "专属人工客服"),
+            plan = "premium", highlight = true, current = ui.membership == "premium", onBuy = onBuy)
+    }
+}
+
+/* ---------------- 模块三:家人看护 ---------------- */
+@Composable
+private fun CareTab(
+    ui: com.xiaoling.core.UiState, onSync: () -> Unit, onRole: () -> Unit,
+    live2d: Boolean, onLive2d: (Boolean) -> Unit
+) {
+    GlassCard {
+        Text("家人看护", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        StatRow("恶意来电及短信拦截", "${ui.fraudBlocked} 次")
+        StatRow("紧急呼救记录", ui.sosLabel)
+        StatRow("跨设备同步", if (ui.familySynced) "已同步 ✓" else "未同步")
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = onSync, modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp)) { Text("同步给家人", fontSize = 16.sp) }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onRole, modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(14.dp)) { Text("设为来电防诈助手") }
+    }
+    GlassCard {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("3D 数字人形象", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text("放入 VRM 模型后开启,详见 NATIVE.md", fontSize = 12.sp, color = DimColor,
+                    modifier = Modifier.padding(top = 2.dp))
+            }
+            Switch(checked = live2d, onCheckedChange = onLive2d)
+        }
+    }
+}
+
+/* ---------------- 复用组件 ---------------- */
+@Composable
+private fun GlassCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.82f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) { Column(Modifier.padding(18.dp), content = content) }
 }
 
 @Composable
-private fun SettingCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 7.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+private fun RowItem(title: String, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(vertical = 13.dp),
+        horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.padding(18.dp), content = content)
+        Text(title, fontSize = 16.sp, color = InkColor)
+        Text("›", fontSize = 20.sp, color = DimColor)
     }
 }
 
 @Composable
+private fun Divider() {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0x11000000)))
+}
+
+@Composable
 private fun StatRow(title: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), Arrangement.SpaceBetween) {
         Text(title, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSurface)
         Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = AccentBlue)
     }
@@ -238,40 +276,38 @@ private fun StatRow(title: String, value: String) {
 
 @Composable
 private fun PlanCard(
-    name: String,
-    price: String,
-    benefits: List<String>,
-    plan: String,
-    highlight: Boolean = false,
-    current: Boolean = false,
-    onBuy: (String) -> Unit
+    name: String, price: String, benefits: List<String>, plan: String,
+    highlight: Boolean = false, current: Boolean = false, onBuy: (String) -> Unit
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(if (highlight) Color(0xFFFFF6E6) else Color(0xFFF1F6FF))
-            .padding(14.dp)
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+            .background(
+                if (highlight) Brush.verticalGradient(listOf(Color(0xFFFFF3DC), Color(0xFFFFF9EF)))
+                else Brush.verticalGradient(listOf(Color(0xFFEDF1FF), Color(0xFFF7F9FF)))
+            ).padding(16.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(name, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                if (highlight) {
+                    Spacer(Modifier.size(6.dp))
+                    Text("推荐", fontSize = 11.sp, color = Color(0xFF8A5A00),
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xFFFFE0A3)).padding(horizontal = 6.dp, vertical = 2.dp))
+                }
+            }
             Text(price, fontSize = 18.sp, fontWeight = FontWeight.Bold,
                 color = if (highlight) Color(0xFFB8860B) else AccentBlue)
         }
         Spacer(Modifier.height(6.dp))
-        benefits.forEach {
-            Text("· $it", fontSize = 14.sp, color = DimColor, modifier = Modifier.padding(vertical = 2.dp))
-        }
-        Spacer(Modifier.height(8.dp))
+        benefits.forEach { Text("· $it", fontSize = 14.sp, color = DimColor, modifier = Modifier.padding(vertical = 2.dp)) }
+        Spacer(Modifier.height(10.dp))
         Button(
-            onClick = { if (!current) onBuy(plan) },
-            enabled = !current,
-            modifier = Modifier.fillMaxWidth().height(44.dp),
-            shape = RoundedCornerShape(12.dp)
+            onClick = { if (!current) onBuy(plan) }, enabled = !current,
+            modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(13.dp)
         ) { Text(if (current) "已开通" else "立即开通", fontSize = 16.sp) }
     }
 }
 
+private fun memberLabel(tier: String): String = when (tier) {
+    "basic" -> "基础会员"; "premium" -> "高级会员"; else -> "未开通"
+}

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,6 +60,31 @@ class AppState(application: Application) : AndroidViewModel(application) {
         AlarmBus.events.onEach { onExternalFraud(it) }.launchIn(viewModelScope)
         // App 被诈骗事件冷启动 / 刚打开时,读取近 2 分钟内的待处理事件
         FraudStore.takePendingIfRecent(app)?.let { onExternalFraud(it) }
+        // 跨设备:订阅家庭组事件(家人设备实时收到老人端的推送),断线自动重连
+        subscribePush()
+    }
+
+    private fun subscribePush() {
+        viewModelScope.launch {
+            while (isActive) {
+                PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }
+                delay(3000)   // 断线重连
+            }
+        }
+    }
+
+    /** 收到家庭组跨设备事件 → 提示 + 语音播报(家人设备侧) */
+    private fun onFamilyEvent(ev: org.json.JSONObject) {
+        val text = ev.optString("text").ifBlank { "家人有一条新的看护提醒" }
+        val type = ev.optString("type")
+        val prefix = when (type) {
+            "fraud_call", "fraud_sms" -> "家人可能遇到诈骗:"
+            "sos" -> "家人发起了紧急呼救:"
+            else -> "家人看护:"
+        }
+        speaking = true
+        _state.update { it.copy(caption = "🔔 $prefix$text", mascot = MascotState.Caring, speaking = true) }
+        tts.speak(prefix + text)
     }
 
     /** 来自短信/来电的高危事件:把形象切到警惕态,并语音+震动强反馈 */
@@ -68,6 +94,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         speaking = true
         _state.update { it.copy(mascot = MascotState.Alarm, caption = say, busy = false, speaking = true, fraudBlocked = FraudStore.count(app)) }
         try { ActionDispatcher.execute(app, JSONObject().put("type", "FRAUD_WARN")) } catch (e: Exception) {}
+        viewModelScope.launch { PushClient.emit(app, "fraud_call", reason, System.currentTimeMillis()) }
         tts.speak(say)
         scheduleAlarmReset()
     }
@@ -162,7 +189,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
             )
         }
         tts.speak(toSay)
-        if (type == "FRAUD_WARN" || type == "SOS") scheduleAlarmReset()
+        if (type == "FRAUD_WARN" || type == "SOS") {
+            scheduleAlarmReset()
+            val pushType = if (type == "SOS") "sos" else "fraud_sms"
+            viewModelScope.launch { PushClient.emit(app, pushType, reply.speech, System.currentTimeMillis()) }
+        }
     }
 
     private fun stateFor(type: String?, reply: Reply): MascotState = when {

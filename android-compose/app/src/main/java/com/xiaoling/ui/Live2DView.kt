@@ -9,11 +9,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaoling.core.MascotState
 
 /**
- * Live2D 形象内嵌视图:WebView 加载 assets/live2d/index.html,
- * 原生层按状态/说话经 JS 桥驱动表情与口型。缺模型/运行时会显示提示,不影响 App。
+ * 3D 数字人内嵌视图:WebView + three.js/three-vrm 加载 assets/avatar3d/index.html。
+ * 原生层按状态/说话经 JS 桥驱动表情 blendshape 与口型。缺模型/运行时显示提示,不影响 App。
  */
 @Composable
-fun Live2DView(state: MascotState, talking: Boolean, modifier: Modifier = Modifier) {
+fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modifier) {
     val stateName = when (state) {
         MascotState.Alarm -> "alarm"
         MascotState.Listening -> "listen"
@@ -29,10 +29,11 @@ fun Live2DView(state: MascotState, talking: Boolean, modifier: Modifier = Modifi
                 settings.javaScriptEnabled = true
                 settings.allowFileAccess = true
                 settings.allowFileAccessFromFileURLs = true
+                settings.allowUniversalAccessFromFileURLs = true
                 settings.domStorageEnabled = true
                 setBackgroundColor(Color.TRANSPARENT)
                 webViewClient = WebViewClient()
-                loadUrl("file:///android_asset/live2d/index.html")
+                loadUrl("file:///android_asset/avatar3d/index.html")
             }
         },
         update = { web ->

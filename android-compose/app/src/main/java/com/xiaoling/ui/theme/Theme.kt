@@ -9,29 +9,34 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// 亲民 + 高级极简:浅色、柔和蓝、留白
-val BgTop = Color(0xFFDCE8FB)
-val BgBottom = Color(0xFFF4F8FF)
-val AccentBlue = Color(0xFF4C82F7)
-val InkColor = Color(0xFF1B2430)
-val DimColor = Color(0xFF6B7787)
-val AlarmRed = Color(0xFFE5534B)
+// 高级 · 亲和 · 智能感:柔和渐变紫蓝,通透留白
+val BgTop = Color(0xFFEAF0FF)
+val BgMid = Color(0xFFF3EEFF)
+val BgBottom = Color(0xFFFBFCFF)
+val AccentBlue = Color(0xFF4C6FFF)
+val AccentGlow = Color(0xFF7C5CFF)
+val InkColor = Color(0xFF1A1F36)
+val DimColor = Color(0xFF7A8296)
+val AlarmRed = Color(0xFFE5484D)
+val CardBg = Color(0xFFFFFFFF)
 
 private val Scheme = lightColorScheme(
     primary = AccentBlue,
     onPrimary = Color.White,
+    secondary = AccentGlow,
     background = BgBottom,
     onBackground = InkColor,
-    surface = Color.White,
+    surface = CardBg,
     onSurface = InkColor,
     onSurfaceVariant = DimColor,
     error = AlarmRed
 )
 
 private val AppType = Typography(
-    titleLarge = TextStyle(fontSize = 26.sp, fontWeight = FontWeight.Bold),
-    bodyLarge = TextStyle(fontSize = 18.sp),
-    bodyMedium = TextStyle(fontSize = 15.sp)
+    titleLarge = TextStyle(fontSize = 27.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp),
+    titleMedium = TextStyle(fontSize = 19.sp, fontWeight = FontWeight.SemiBold),
+    bodyLarge = TextStyle(fontSize = 17.sp, letterSpacing = 0.15.sp),
+    bodyMedium = TextStyle(fontSize = 14.sp, color = DimColor)
 )
 
 @Composable

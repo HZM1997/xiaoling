@@ -56,3 +56,61 @@ def pay_notify(body: dict):
     """支付回调(真实场景由支付平台异步回调并验签,验签通过后给用户发放会员)。"""
     return {"ok": True, "paid": True}
 
+
+# ---------- 跨设备实时推送(家人看护) ----------
+# 事件总线 + SSE 订阅:老人机上报事件 → 家人设备实时收到。
+# 真实生产建议叠加厂商推送(极光/个推/华为/小米/APNs)以送达「关着的 App」;此处 SSE 覆盖「App 在线」实时场景。
+import asyncio
+import json as _json
+from collections import defaultdict
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+
+_subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
+
+
+class Event(BaseModel):
+    family_id: str          # 家庭组 id(老人与家人共用)
+    type: str               # fraud_call / fraud_sms / sos / meds / sync
+    text: str = ""
+    at: int = 0
+
+
+@app.post("/push/emit")
+async def push_emit(e: Event):
+    """老人机上报事件,广播给该家庭组所有在线家人设备。"""
+    payload = _json.dumps(e.model_dump(), ensure_ascii=False)
+    for q in list(_subscribers.get(e.family_id, [])):
+        try:
+            q.put_nowait(payload)
+        except Exception:
+            pass
+    return {"ok": True, "delivered": len(_subscribers.get(e.family_id, []))}
+
+
+@app.get("/push/subscribe")
+async def push_subscribe(family_id: str, request: Request):
+    """家人设备订阅本家庭组事件(SSE 长连接,实时下发)。"""
+    q: asyncio.Queue = asyncio.Queue()
+    _subscribers[family_id].append(q)
+
+    async def gen():
+        try:
+            yield "event: ready\ndata: {}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=15)
+                    yield f"data: {data}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keep-alive\n\n"   # 心跳
+        finally:
+            try:
+                _subscribers[family_id].remove(q)
+            except ValueError:
+                pass
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+

@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- Android 11+ 必须声明,否则 SpeechRecognizer.isRecognitionAvailable()==false / 调不起拨号地图 -->
     <queries>
@@ -62,5 +64,11 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
+
+        <!-- 常驻守护服务:退出后瞬间唤起 / 离线语音唤起(唤醒引擎可插拔) -->
+        <service
+            android:name=".service.WakeService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
     </application>
 </manifest>

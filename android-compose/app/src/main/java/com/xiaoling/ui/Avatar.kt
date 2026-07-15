@@ -2,6 +2,7 @@ package com.xiaoling.ui
 
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -9,27 +10,20 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil.ImageLoader
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
@@ -41,11 +35,8 @@ import com.xiaoling.ui.theme.AccentBlue
 import com.xiaoling.ui.theme.AlarmRed
 
 /**
- * 富动效角色:
- *  - 若 assets/ 里放了对应动态图(webp/gif),播放**真动态**(眨眼/说话循环等);
- *  - 否则用静态 avatar.png + 动效兜底。
- *  按状态找:avatar_alarm / avatar_happy / avatar_listening / avatar_thinking / avatar_talking,缺失回退 avatar。
- *  危险态:红光暴闪 + 抖动 + 红框 + 头顶⚠。
+ * 无边框透明形象:透明通道 PNG(Fit,不裁剪、不描边),身后叠加柔和"智能光晕"传达 AI 感。
+ * 支持 assets/ 动态图(webp/gif)与分表情;缺失回退静态透明 PNG。
  */
 @Composable
 fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
@@ -56,26 +47,27 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
             else add(GifDecoder.Factory())
         }.build()
     }
-    // 动态资源(assets),没有则 null → 用静态 drawable
     val animModel = remember(state) { pickAnimAsset(ctx, baseName(state)) ?: pickAnimAsset(ctx, "avatar") }
 
     val inf = rememberInfiniteTransition(label = "av")
-    val breathe by inf.animateFloat(0.99f, 1.02f, infiniteRepeatable(tween(2400), RepeatMode.Reverse), label = "b")
+    val breathe by inf.animateFloat(0.985f, 1.015f, infiniteRepeatable(tween(2600), RepeatMode.Reverse), label = "b")
     val bob by inf.animateFloat(1f, 1.03f, infiniteRepeatable(tween(320), RepeatMode.Reverse), label = "bo")
     val shake by inf.animateFloat(-1f, 1f, infiniteRepeatable(tween(80), RepeatMode.Reverse), label = "sh")
-    val sway by inf.animateFloat(-3f, 3f, infiniteRepeatable(tween(2600), RepeatMode.Reverse), label = "sw")
-    val pulse by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (state == MascotState.Alarm) 420 else 1600), RepeatMode.Reverse), label = "pu")
-    val ripple by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1600), RepeatMode.Restart), label = "rp")
+    val sway by inf.animateFloat(-2.4f, 2.4f, infiniteRepeatable(tween(2800), RepeatMode.Reverse), label = "sw")
+    val pulse by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(if (state == MascotState.Alarm) 420 else 2200), RepeatMode.Reverse), label = "pu")
+    val spin by inf.animateFloat(0f, 360f, infiniteRepeatable(tween(9000, easing = LinearEasing), RepeatMode.Restart), label = "sp")
+    val ripple by inf.animateFloat(0f, 1f, infiniteRepeatable(tween(1800), RepeatMode.Restart), label = "rp")
 
-    val aura by animateColorAsState(
+    val glow by animateColorAsState(
         when (state) {
             MascotState.Alarm -> AlarmRed
-            MascotState.Listening, MascotState.Thinking, MascotState.Talking -> AccentBlue
-            MascotState.Caring -> Color(0xFFFF8FA3)
-            else -> Color(0xFF9BB6E8)
-        }, label = "aura"
+            MascotState.Listening -> AccentBlue
+            MascotState.Thinking -> Color(0xFF7C5CFF)
+            MascotState.Talking -> AccentBlue
+            MascotState.Caring -> Color(0xFFFF8FB0)
+            else -> Color(0xFF7FA8FF)
+        }, label = "glow"
     )
-    val shape = RoundedCornerShape(40.dp)
     val isAlarm = state == MascotState.Alarm
 
     val figureModifier = Modifier
@@ -87,45 +79,54 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
                 else -> breathe
             }
             scaleX = s; scaleY = s
-            translationX = if (isAlarm) shake * 16f else 0f
+            translationX = if (isAlarm) shake * 14f else 0f
             rotationZ = if (state == MascotState.Caring) sway else 0f
         }
-        .clip(shape)
-        .border(if (isAlarm) 6.dp else if (state == MascotState.Idle) 2.dp else 3.dp, aura, shape)
 
-    Box(modifier, contentAlignment = Alignment.TopCenter) {
-        // 背后光环 / 涟漪
+    Box(modifier, contentAlignment = Alignment.Center) {
+        // 智能光晕:柔和径向光 + 旋转光弧,危险时红色暴闪
         Canvas(Modifier.fillMaxSize()) {
-            val c = Offset(size.width / 2f, size.height * 0.5f)
-            val base = size.minDimension * 0.5f
-            drawCircle(aura.copy(alpha = 0.10f + 0.14f * pulse), base * (1.25f + 0.1f * pulse), c)
+            val c = Offset(size.width / 2f, size.height * 0.52f)
+            val base = size.minDimension * 0.46f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(glow.copy(alpha = 0.30f + 0.16f * pulse), Color.Transparent),
+                    center = c, radius = base * (1.35f + 0.12f * pulse)
+                ),
+                radius = base * (1.35f + 0.12f * pulse), center = c
+            )
+            // 环绕光点(智能感),非危险态
+            if (state != MascotState.Alarm) {
+                for (i in 0 until 3) {
+                    val ang = Math.toRadians((spin + i * 120.0))
+                    val rr = base * 1.15f
+                    val p = Offset(c.x + (rr * kotlin.math.cos(ang)).toFloat(), c.y + (rr * kotlin.math.sin(ang)).toFloat())
+                    drawCircle(glow.copy(alpha = 0.5f), size.minDimension * 0.012f, p)
+                }
+            }
             if (state == MascotState.Listening) {
-                drawCircle(aura.copy(alpha = 0.25f * (1f - ripple)), base * (1f + 0.5f * ripple), c)
+                drawCircle(glow.copy(alpha = 0.22f * (1f - ripple)), base * (0.9f + 0.6f * ripple), c, style = androidx.compose.ui.graphics.drawscope.Stroke(4f))
+            }
+            if (isAlarm) {
+                drawCircle(AlarmRed.copy(alpha = 0.12f + 0.20f * pulse), base * 1.5f, c)
             }
         }
-        // 角色:优先动态图,否则静态图
+        // 形象:透明 PNG / 动态图,Fit 不裁剪、无边框
         if (animModel != null) {
             AsyncImage(
                 model = ImageRequest.Builder(ctx).data(animModel).build(),
                 imageLoader = loader,
                 contentDescription = "小灵",
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
+                contentScale = ContentScale.Fit,
                 modifier = figureModifier
             )
         } else {
             Image(
                 painter = painterResource(R.drawable.avatar),
                 contentDescription = "小灵",
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
+                contentScale = ContentScale.Fit,
                 modifier = figureModifier
             )
-        }
-        // 危险:红光暴闪盖层 + ⚠
-        if (isAlarm) {
-            Box(Modifier.fillMaxSize().clip(shape).background(AlarmRed.copy(alpha = 0.10f + 0.22f * pulse)))
-            Text("⚠", fontSize = 66.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp))
         }
     }
 }
@@ -139,11 +140,10 @@ private fun baseName(state: MascotState): String = when (state) {
     else -> "avatar"
 }
 
-/** 在 assets/ 找 name.webp / name.gif,存在返回 file:///android_asset/... 否则 null */
 private fun pickAnimAsset(ctx: android.content.Context, name: String): String? {
     for (ext in listOf("webp", "gif")) {
         val f = "$name.$ext"
-        try { ctx.assets.open(f).close(); return "file:///android_asset/$f" } catch (e: Exception) { /* 不存在 */ }
+        try { ctx.assets.open(f).close(); return "file:///android_asset/$f" } catch (e: Exception) { }
     }
     return null
 }

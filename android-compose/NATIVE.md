@@ -66,11 +66,24 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper(或用 Android Stud
 - **A|动态图(现在就支持)**:把角色做成一小段**循环动画**(眨眼/说话/警惕),导出**动态 WebP 或 GIF**,放到
   `android-compose/app/src/main/assets/`,命名 `avatar.webp`(或分表情 `avatar_alarm.webp / avatar_happy.webp /
   avatar_listening.webp / avatar_thinking.webp / avatar_talking.webp`)。App 会**播放真动态**,没有就回退静态图。
-- **B|Live2D 骨骼(最像"活的",可眨眼+口型+表情)**:App 已内置 WebView 运行位(`assets/live2d/index.html`)+ 原生 JS 桥(状态→表情、说话→口型)。启用步骤:
-  1. 把 3 个运行时放到 `assets/live2d/lib/`:`live2dcubismcore.min.js`、`pixi.min.js`、`index.min.js`(pixi-live2d-display);
-  2. 把你角色的 **Live2D 模型**放到 `assets/live2d/model/`(需美术把图绑成 `.moc3` 模型,单图生成不了);改 `index.html` 里 `CONFIG.MODEL`/表情名;
-  3. App「设置 → 3D 形象(Live2D)」打开开关。未就绪就保持关闭,用静态/动图形象。
-  > 授权:Live2D Cubism 运行时/样例模型受 Live2D 许可,商用需遵守其条款。
+## 跨设备实时推送(家人看护)
+老人机遇到诈骗/呼救 → 上报服务器 `POST /push/emit` → 服务器广播给**家庭组** → 家人设备用 **SSE 长连接**
+(`GET /push/subscribe?family_id=...`)**实时收到** + 语音播报。App 在线即时生效,断线自动重连。
+> 送达「**关着的** App」需叠加**厂商推送**(极光/个推/华为/小米/APNs):`PushClient.emit` 里已标注接入位置。
+> 家庭组 id 现为占位 `family-100086`,接账号体系后与真实家庭组绑定。
+
+## 退出后瞬间唤起 / 离线语音唤起
+- `WakeService` 是**常驻前台服务**(进 App 即启动),让「回到手机主屏后也能被唤起」有了载体;通知栏常驻,点通知即回 App。
+- **离线唤醒词**(说「小灵小灵」免手动、且不依赖网络)需接**离线唤醒引擎**——已留可插拔位:
+  - Picovoice Porcupine(需 AccessKey);或 Vosk(离线模型)。在 `WakeService.startWakeEngine()` 接上,命中 → `wakeUp()` 拉起 App 并开听。
+- 唤醒**离线可用**;唤醒后复杂对话若离线,走**本地快通道/兜底**(打电话/呼救/红线防诈等)。
+> 诚实说明:①常驻服务真实生效,但部分厂商定制系统需手动把 App 加入「自启动/后台保活」白名单;②"离线语音唤起"这一步必须接唤醒引擎,纯系统能力做不到常驻离线监听。
+
+## 3D 数字人(真 3D,非 Live2D)
+`assets/avatar3d/index.html` 用 **three.js + three-vrm** 渲染 **VRM 数字人**:丰富表情 blendshape(高兴/惊讶/警惕/难过/眨眼)、口型、待机呼吸、头部微动;原生按状态/说话经 JS 桥驱动。启用:
+1. 运行时放 `assets/avatar3d/lib/`:`three.min.js`、`three-vrm.min.js`(带 GLTF/VRM 插件);
+2. 你的 **`.vrm` 模型**放 `assets/avatar3d/model.vrm`(网上有免费 VRM 数字人可先用;单张 PNG 生成不了 3D 模型);
+3. 「设置 → 家人看护 → 3D 数字人形象」打开。未就绪就保持关闭,用透明 PNG 形象 + 智能光晕。
 
 ## 会员与支付(演示闭环 · 未真实扣款)
 「设置 → 会员权益中心」两档:**基础 ¥29.9/月**、**高级 ¥299/年**。点「立即开通」→ 选微信/支付宝 →
