@@ -10,8 +10,10 @@ from fastapi import FastAPI
 from models import Utterance, Reply
 import skills          # 导入即注册所有技能
 from llm import llm_reply
+import firewall        # 后端防火墙(限流/体积限制/安全头)
 
 app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.1.0")
+firewall.install(app)  # 启用防火墙中间件
 
 
 @app.get("/health")
@@ -34,14 +36,14 @@ def handle(text: str, context: dict | None = None, user_id: str = "guest") -> Re
 
 
 # ---------- 支付(演示用下单;真实微信/支付宝需接官方 SDK + 商户号 + 验签) ----------
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import time
 
 
 class Order(BaseModel):
-    plan: str          # basic / premium
-    method: str        # 微信支付 / 支付宝
-    phone: str = ""    # 已登录用户手机号(会员跟账号走)
+    plan: str = Field(default="basic", pattern="^(basic|premium)$")
+    method: str = Field(default="", max_length=16)
+    phone: str = Field(default="", max_length=32)
 
 
 # 内存用户库(demo):{ phone: {membership, family_id, uid} }。真实场景用数据库。
@@ -49,12 +51,12 @@ _users: dict[str, dict] = {}
 
 
 class SendCode(BaseModel):
-    phone: str
+    phone: str = Field(..., min_length=6, max_length=20, pattern=r"^\+?\d{6,20}$")
 
 
 class LoginReq(BaseModel):
-    phone: str
-    code: str
+    phone: str = Field(..., min_length=6, max_length=20, pattern=r"^\+?\d{6,20}$")
+    code: str = Field(..., min_length=4, max_length=8, pattern=r"^\d{4,8}$")
 
 
 @app.post("/auth/send_code")
@@ -77,7 +79,7 @@ def auth_login(r: LoginReq):
 
 
 class WxLogin(BaseModel):
-    code: str = ""
+    code: str = Field(default="", max_length=128)
 
 
 @app.post("/auth/wx_login")
@@ -121,10 +123,10 @@ _subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
 
 
 class Event(BaseModel):
-    family_id: str          # 家庭组 id(老人与家人共用)
-    sender: str = ""        # 发送设备 id(用于家人设备忽略自己发的事件)
-    type: str               # fraud_call / fraud_sms / sos / meds / sync
-    text: str = ""
+    family_id: str = Field(..., max_length=64)          # 家庭组 id(老人与家人共用)
+    sender: str = Field(default="", max_length=64)      # 发送设备 id(用于家人设备忽略自己发的事件)
+    type: str = Field(default="", max_length=32)        # fraud_call / fraud_sms / sos / meds / sync
+    text: str = Field(default="", max_length=500)
     at: int = 0
 
 

@@ -46,6 +46,15 @@ fun LoginScreen(vm: AppState) {
     var code by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }
 
+    // 安全:登录页禁止截屏/录屏(防手机号/验证码被截取);离开页恢复
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val win = (ctx as? android.app.Activity)?.window
+        win?.setFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose { win?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+    }
+
     Box(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(BgTop, BgMid, BgBottom)))
     ) {

@@ -74,7 +74,12 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper(或用 Android Stud
 
 ## 退出后瞬间唤起 / 离线语音唤起
 - `WakeService` 是**常驻前台服务**,退出 App 回主屏后**在后台持续听唤醒词「小灵」**(用系统语音识别),听到就把 App 拉到前台并开始对话。App 在前台时服务**让位**(由 App 自己听),避免抢麦。
-- 说明:①用系统识别的"唤醒"需较新的 Google 语音服务、且会耗电/个别机型有提示音——真正省电的**离线唤醒词**可在 `WakeService.loop()` 处换 Picovoice(AccessKey)/Vosk(离线模型);②部分厂商定制系统需手动把 App 加入「自启动/后台保活」白名单,否则后台服务会被杀。
+- 说明:①用系统识别的"唤醒"需较新的 Google 语音服务、且会耗电/个别机型有提示音;②部分厂商定制系统需手动把 App 加入「自启动/后台保活」白名单,否则后台服务会被杀。
+- **真·离线唤醒(推荐,更省电/不联网/误唤醒低)**:App 已内置 **Picovoice Porcupine** 可插拔引擎,填齐三要素即自动启用(否则回退系统识别唤醒):
+  1. 到 `console.picovoice.ai` 免费注册拿 **AccessKey**,填到 `core/WakeConfig.kt` 的 `ACCESS_KEY`(或运行时 SharedPreferences `pv_access_key`);
+  2. 控制台用中文训练唤醒词「小灵」→ 下载 `.ppn` 放 `assets/wake/xiaoling_zh.ppn`;
+  3. 下载中文模型 `porcupine_params_zh.pv` 放 `assets/wake/porcupine_params_zh.pv`。
+  三要素齐全,`WakeService` 优先走离线唤醒;缺任一则静默回退,不影响构建。
 - 唤醒**离线可用**(依赖端侧识别);唤起后复杂对话若离线,走本地快通道/兜底。
 
 ## 老人端 / 家人端(一个 App 两种视图)

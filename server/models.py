@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 
 class Utterance(BaseModel):
     """一次用户语音输入(ASR 已转写成文本)"""
-    user_id: str = "guest"
-    text: str = Field(..., description="ASR 转写后的文本,方言已转普通话")
+    user_id: str = Field(default="guest", max_length=64)
+    text: str = Field(..., max_length=2000, description="ASR 转写后的文本,方言已转普通话")
     context: Optional[dict[str, Any]] = Field(
         default=None,
         description="场景信息,如 {'scene':'incoming_call','caller':'400xxxx'}",

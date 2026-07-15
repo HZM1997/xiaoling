@@ -19,9 +19,28 @@ android {
         vectorDrawables { useSupportLibrary true }
     }
 
+    // release 签名:从环境变量读密钥库(CI 用 GitHub Secrets 注入;本地可在 keystore.properties 提供)
+    // 不把任何密钥/密码写进代码或仓库。见 RELEASE.md。
+    signingConfigs {
+        release {
+            def ksPath = System.getenv('XL_KEYSTORE') ?: ''
+            if (ksPath) {
+                storeFile file(ksPath)
+                storePassword System.getenv('XL_KS_PASS') ?: ''
+                keyAlias System.getenv('XL_KEY_ALIAS') ?: ''
+                keyPassword System.getenv('XL_KEY_PASS') ?: ''
+            }
+        }
+    }
+
     buildTypes {
         release {
-            minifyEnabled false
+            // 仅当提供了 keystore 才启用签名(否则出未签名包,便于无密钥时也能编译验证)
+            if (System.getenv('XL_KEYSTORE')) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled true          // R8:混淆 + 优化(加大逆向难度)
+            shrinkResources true        // 去无用资源,减小体积
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -66,4 +85,7 @@ dependencies {
     // 动态形象:播放动态 WebP/GIF(用户放到 assets/ 即生效)
     implementation 'io.coil-kt:coil-compose:2.6.0'
     implementation 'io.coil-kt:coil-gif:2.6.0'
+
+    // 离线唤醒词(可选):Picovoice Porcupine。填 AccessKey + .ppn 模型即启用,否则回退系统识别唤醒。
+    implementation 'ai.picovoice:porcupine-android:3.0.3'
 }

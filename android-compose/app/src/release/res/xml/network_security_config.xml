@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- release 版:禁止明文 HTTP,强制 HTTPS。此文件仅打进 release 包(覆盖 main 的同名文件)。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

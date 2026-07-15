@@ -30,6 +30,8 @@ class WakeService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
     @Volatile private var running = false
+    private var porcupine: com.xiaoling.core.PorcupineWakeEngine? = null
+    @Volatile private var offlineOn = false
 
     override fun onCreate() {
         super.onCreate()
@@ -39,7 +41,10 @@ class WakeService : Service() {
             stopSelf(); return   // 未授麦克风等原因:优雅退出,不崩
         }
         running = true
-        loop()
+        // 优先离线唤醒(Picovoice):省电、不联网、误唤醒低;不可用则回退系统识别循环
+        porcupine = com.xiaoling.core.PorcupineWakeEngine(this)
+        offlineOn = porcupine?.start { if (!AppForeground.active) wakeUp() } == true
+        if (!offlineOn) loop()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -109,6 +114,7 @@ class WakeService : Service() {
     override fun onDestroy() {
         running = false
         recognizer?.destroy(); recognizer = null
+        porcupine?.stop(); porcupine = null
         super.onDestroy()
     }
 
