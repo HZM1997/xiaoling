@@ -24,6 +24,11 @@ object AuthClient {
         post(ctx, "/auth/login", JSONObject().put("phone", phone).put("code", code))
     }
 
+    /** 微信一键登录:真实场景传微信授权 code;demo 传固定 code。 */
+    suspend fun wxLogin(ctx: Context): JSONObject? = withContext(Dispatchers.IO) {
+        post(ctx, "/auth/wx_login", JSONObject().put("code", "demo-wx-code"))
+    }
+
     private fun post(ctx: Context, path: String, body: JSONObject): JSONObject? {
         return try {
             val url = URL(Settings.brainUrl(ctx).trimEnd('/') + path)

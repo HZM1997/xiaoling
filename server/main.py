@@ -76,6 +76,22 @@ def auth_login(r: LoginReq):
             "family_id": u["family_id"], "membership": u["membership"]}
 
 
+class WxLogin(BaseModel):
+    code: str = ""
+
+
+@app.post("/auth/wx_login")
+def auth_wx_login(w: WxLogin):
+    """微信一键登录。真实场景:后端用 code 调微信 code2session 换 openid,再建会话。demo:返回一个微信演示账号。"""
+    phone = "wx-" + (w.code[-6:] if w.code else "demo")
+    u = _users.setdefault(phone, {})
+    u.setdefault("uid", "wx" + str(abs(hash(phone)) % 1000000))
+    u.setdefault("family_id", "fam-" + str(abs(hash(phone)) % 100000))
+    u.setdefault("membership", "")
+    return {"ok": True, "token": "demo-" + u["uid"], "uid": u["uid"], "phone": phone,
+            "family_id": u["family_id"], "membership": u["membership"]}
+
+
 @app.post("/pay/create")
 def pay_create(o: Order):
     """下单:真实场景这里调微信统一下单/支付宝下单,返回 prepay_id/orderInfo 给客户端拉起收银台。"""

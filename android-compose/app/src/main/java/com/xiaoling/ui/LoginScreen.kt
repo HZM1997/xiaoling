@@ -89,6 +89,17 @@ fun LoginScreen(vm: AppState) {
                 modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(16.dp)
             ) { Text("登录 / 注册", fontSize = 18.sp) }
 
+            Spacer(Modifier.height(14.dp))
+            Text("— 或 —", fontSize = 12.sp, color = DimColor)
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = { vm.wxLogin() },
+                modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(16.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = androidx.compose.ui.graphics.Color(0xFF07C160), contentColor = androidx.compose.ui.graphics.Color.White
+                )
+            ) { Text("微信一键登录", fontSize = 18.sp) }
+
             if (ui.caption.contains("验证码") || ui.caption.contains("登录")) {
                 Spacer(Modifier.height(12.dp))
                 Text(ui.caption, fontSize = 13.sp, color = DimColor, textAlign = TextAlign.Center)

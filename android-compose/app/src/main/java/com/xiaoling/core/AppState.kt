@@ -60,6 +60,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
     private var curUtt = ""                   // 当前 TTS utteranceId(被 flush 的旧句忽略)
 
+    /** 当前会员档位(登录跟账号,否则本地) */
+    private fun tierNow(): String = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app)
+    private fun isPremium(): Boolean = tierNow() == "premium"
+
     init {
         // 后台(短信/来电)检测到诈骗 → 形象即时警惕
         AlarmBus.events.onEach { onExternalFraud(it) }.launchIn(viewModelScope)
@@ -72,8 +76,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun subscribePush() {
         viewModelScope.launch {
             while (isActive) {
-                PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }
-                delay(3000)   // 断线重连
+                if (isPremium()) PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }   // 家人看护:高级会员专享
+                delay(3000)   // 断线/未开通时轮询重试
             }
         }
     }
@@ -100,7 +104,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         speaking = true
         _state.update { it.copy(mascot = MascotState.Alarm, caption = say, busy = false, speaking = true, fraudBlocked = FraudStore.count(app)) }
         try { ActionDispatcher.execute(app, JSONObject().put("type", "FRAUD_WARN")) } catch (e: Exception) {}
-        viewModelScope.launch { PushClient.emit(app, "fraud_call", reason, System.currentTimeMillis()) }
+        if (isPremium()) viewModelScope.launch { PushClient.emit(app, "fraud_call", reason, System.currentTimeMillis()) }
         curUtt = tts.speak(say)
         scheduleAlarmReset()
     }
@@ -197,8 +201,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
         curUtt = tts.speak(toSay)
         if (type == "FRAUD_WARN" || type == "SOS") {
             scheduleAlarmReset()
-            val pushType = if (type == "SOS") "sos" else "fraud_sms"
-            viewModelScope.launch { PushClient.emit(app, pushType, reply.speech, System.currentTimeMillis()) }
+            if (isPremium()) {   // 跨设备家人推送:高级会员专享
+                val pushType = if (type == "SOS") "sos" else "fraud_sms"
+                viewModelScope.launch { PushClient.emit(app, pushType, reply.speech, System.currentTimeMillis()) }
+            }
         }
     }
 
@@ -230,6 +236,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     fun setLive2d(on: Boolean) {
+        if (on && !isPremium()) {
+            _state.update { it.copy(caption = "3D 数字人形象是高级会员专享,开通后解锁。") }
+            return
+        }
         Settings.setLive2d(app, on)
         _state.update { it.copy(live2d = on) }
     }
@@ -278,10 +288,36 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         Account.logout(app)
-        _state.update { it.copy(loggedIn = false, phone = "", membership = Membership.tier(app), caption = "已退出登录") }
+        _state.update { it.copy(loggedIn = false, phone = "", membership = Membership.tier(app), live2d = false, caption = "已退出登录") }
+    }
+
+    /**
+     * 微信一键登录(演示骨架)。真实场景:
+     *  ① 微信开放平台注册应用拿 AppID + 配置应用签名;
+     *  ② 集成微信 OpenSDK,IWXAPI.sendReq(SendAuth.Req) 拉起微信授权,WXEntryActivity 收 code;
+     *  ③ 把 code 发后端 /auth/wx_login,后端 code2session 换 openid + 会话,返回账号。
+     * 此处直接调后端 /auth/wx_login(demo code)完成登录闭环。
+     */
+    fun wxLogin() {
+        _state.update { it.copy(caption = "正在通过微信登录…") }
+        viewModelScope.launch {
+            val r = AuthClient.wxLogin(app)
+            if (r != null && r.has("token")) {
+                val member = r.optString("membership", "")
+                val ph = r.optString("phone", "微信用户")
+                Account.save(app, r.optString("token"), ph, r.optString("uid"), r.optString("family_id"), member)
+                _state.update { it.copy(loggedIn = true, phone = ph, membership = member, screen = Screen.Settings, caption = "微信登录成功,欢迎回来!") }
+            } else {
+                _state.update { it.copy(caption = "微信登录未完成(演示需后端在线)。") }
+            }
+        }
     }
 
     fun syncFamily() {
+        if (!isPremium()) {
+            _state.update { it.copy(caption = "家人看护是高级会员专享,开通后可与家人跨设备同步。") }
+            return
+        }
         viewModelScope.launch {
             val msg = try {
                 val ctx = JSONObject().put("scene", "family_sync")

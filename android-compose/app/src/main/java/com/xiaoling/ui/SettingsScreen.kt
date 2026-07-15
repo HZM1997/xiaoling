@@ -108,7 +108,7 @@ fun SettingsScreen(vm: AppState) {
                         onLogin = { vm.showScreen(Screen.Login) }, onLogout = { vm.logout() })
                     1 -> MemberTab(ui) { payPlan = it }
                     2 -> CareTab(ui, onSync = { vm.syncFamily() }, onRole = { requestScreenRole() },
-                        live2d = ui.live2d, onLive2d = { vm.setLive2d(it) })
+                        onLive2d = { vm.setLive2d(it) }, onUpgrade = { tab = 1 })
                 }
                 Spacer(Modifier.height(28.dp))
                 Text("小灵 · v1.0", fontSize = 12.sp, color = DimColor,
@@ -232,17 +232,21 @@ private fun MemberTab(ui: com.xiaoling.core.UiState, onBuy: (String) -> Unit) {
 @Composable
 private fun CareTab(
     ui: com.xiaoling.core.UiState, onSync: () -> Unit, onRole: () -> Unit,
-    live2d: Boolean, onLive2d: (Boolean) -> Unit
+    onLive2d: (Boolean) -> Unit, onUpgrade: () -> Unit
 ) {
+    val premium = ui.membership == "premium"
     GlassCard {
-        Text("家人看护", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Text("家人看护", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            if (!premium) LockTag(onUpgrade)
+        }
         Spacer(Modifier.height(8.dp))
-        StatRow("恶意来电及短信拦截", "${ui.fraudBlocked} 次")
+        StatRow("恶意来电及短信拦截", "${ui.fraudBlocked} 次")   // 防诈拦截:免费
         StatRow("紧急呼救记录", ui.sosLabel)
-        StatRow("跨设备同步", if (ui.familySynced) "已同步 ✓" else "未同步")
+        StatRow("跨设备同步", if (!premium) "高级会员" else if (ui.familySynced) "已同步 ✓" else "未同步")
         Spacer(Modifier.height(12.dp))
         Button(onClick = onSync, modifier = Modifier.fillMaxWidth().height(48.dp),
-            shape = RoundedCornerShape(14.dp)) { Text("同步给家人", fontSize = 16.sp) }
+            shape = RoundedCornerShape(14.dp)) { Text(if (premium) "同步给家人" else "同步给家人(高级会员)", fontSize = 16.sp) }
         Spacer(Modifier.height(8.dp))
         OutlinedButton(onClick = onRole, modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(14.dp)) { Text("设为来电防诈助手") }
@@ -251,13 +255,32 @@ private fun CareTab(
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("3D 数字人形象", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("放入 VRM 模型后开启,详见 NATIVE.md", fontSize = 12.sp, color = DimColor,
-                    modifier = Modifier.padding(top = 2.dp))
+                Text(if (premium) "放入 VRM 模型后开启,详见 NATIVE.md" else "高级会员专享 · 开通后解锁",
+                    fontSize = 12.sp, color = DimColor, modifier = Modifier.padding(top = 2.dp))
             }
-            Switch(checked = live2d, onCheckedChange = onLive2d)
+            if (premium) Switch(checked = ui.live2d, onCheckedChange = onLive2d)
+            else LockTag(onUpgrade)
+        }
+    }
+    GlassCard {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("明星 / 亲人语音包", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(if (premium) "已解锁,可在语音设置中挑选" else "高级会员专享 · 换成明星或亲人的声音陪伴",
+                    fontSize = 12.sp, color = DimColor, modifier = Modifier.padding(top = 2.dp))
+            }
+            if (!premium) LockTag(onUpgrade) else Text("›", fontSize = 20.sp, color = DimColor)
         }
     }
 }
+
+@Composable
+private fun LockTag(onUpgrade: () -> Unit) {
+    Text("🔒 去开通", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB8860B),
+        modifier = Modifier.clip(RoundedCornerShape(999.dp)).background(Color(0xFFFFF0CC))
+            .clickable { onUpgrade() }.padding(horizontal = 12.dp, vertical = 6.dp))
+}
+
 
 /* ---------------- 复用组件 ---------------- */
 @Composable
