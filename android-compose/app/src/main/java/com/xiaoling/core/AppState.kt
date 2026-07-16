@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,8 +30,6 @@ data class UiState(
     val membership: String = "",     // "" / "basic" / "premium"
     val loggedIn: Boolean = false,
     val phone: String = "",
-    val role: String = "elder",                       // elder(老人端) / family(家人端)
-    val familyEvents: List<String> = emptyList(),     // 家人端:收到的看护事件流
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
     val sosLabel: String = "无",
@@ -49,8 +48,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             live2d = Settings.live2dEnabled(app),
             membership = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app),
             loggedIn = Account.isLoggedIn(app),
-            phone = Account.phone(app),
-            role = Account.role(app)
+            phone = Account.phone(app)
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -79,14 +77,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun subscribePush() {
         viewModelScope.launch {
             while (isActive) {
-                // 家人端 或 高级会员(老人端)才订阅家庭组事件
-                if (Account.role(app) == "family" || isPremium()) PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }
+                if (isPremium()) PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }   // 家人看护推送:高级会员
                 delay(3000)   // 断线/未开通时轮询重试
             }
         }
     }
 
-    /** 收到家庭组跨设备事件 → 提示 + 语音播报(家人设备侧) */
+    /** 收到家庭组跨设备事件 → 语音播报提醒 */
     private fun onFamilyEvent(ev: org.json.JSONObject) {
         if (ev.optString("sender") == PushClient.deviceId(app)) return   // 忽略自己发的事件,避免自我回声
         val text = ev.optString("text").ifBlank { "家人有一条新的看护提醒" }
@@ -96,22 +93,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
             "sos" -> "家人发起了紧急呼救:"
             else -> "家人看护:"
         }
-        // 家人端:记入事件流(保留最近 30 条)
-        _state.update { it.copy(familyEvents = (listOf("$prefix$text") + it.familyEvents).take(30)) }
         speaking = true
         _state.update { it.copy(caption = "🔔 $prefix$text", mascot = MascotState.Caring, speaking = true) }
         curUtt = tts.speak(prefix + text)
-    }
-
-    fun setRole(role: String) {
-        Account.setRole(app, role)
-        _state.update { it.copy(role = role, screen = Screen.Home) }
-    }
-
-    /** 家人端:拨打老人电话(演示号码;真实场景取家庭组里老人的号码) */
-    fun callElder() {
-        val num = "10086"   // TODO 换成家庭组里老人的手机号
-        try { ActionDispatcher.execute(app, JSONObject().put("type", "CALL_NUMBER").put("number", num)) } catch (e: Exception) {}
     }
 
     /** 来自短信/来电的高危事件:把形象切到警惕态,并语音+震动强反馈 */
@@ -181,20 +165,19 @@ class AppState(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { delay(400); if (autoOn && !speaking) listenOnce() }
     }
 
-    // ---------- 处理:本地快通道优先(极致反应),其余走云端 ----------
+    // ---------- 处理:本地快通道优先(极致反应),云端硬超时兜底,保证 ≤2s ----------
     private fun process(text: String) {
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = "好的…", lastUser = text) }
 
-        // 安全 + 高频指令本地即时处理,不等网络
+        // 安全 + 高频指令本地即时处理,不等网络(<0.3s 秒回)
         val local = LocalSafetyNet.handle(text) ?: LocalIntents.parse(text)
         if (local != null) { applyReply(local); return }
 
         viewModelScope.launch {
-            val reply = try {
-                BrainClient.ask(app, text)
-            } catch (e: Exception) {
-                Reply("我先陪您聊两句。您可以说『打电话给女儿』『导航到医院』。", null, "chat", 0.0)
-            }
+            // 云端最多等 1.8s:whichever first。超时/失败即本地兜底,总响应 ≤2s
+            val reply = withTimeoutOrNull(1800) {
+                try { BrainClient.ask(app, text) } catch (e: Exception) { null }
+            } ?: Reply("我先陪您聊两句。您可以说『打电话给女儿』『导航到医院』,或者让我帮您翻译。", null, "chat", 0.0)
             applyReply(reply)
         }
     }

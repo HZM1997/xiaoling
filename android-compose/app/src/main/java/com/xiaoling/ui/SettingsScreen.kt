@@ -105,8 +105,7 @@ fun SettingsScreen(vm: AppState) {
                 Spacer(Modifier.height(6.dp))
                 when (tab) {
                     0 -> UserTab(ui, showText = { title, body -> dialog = title to body },
-                        onLogin = { vm.showScreen(Screen.Login) }, onLogout = { vm.logout() },
-                        onRole = { vm.setRole(it) })
+                        onLogin = { vm.showScreen(Screen.Login) }, onLogout = { vm.logout() })
                     1 -> MemberTab(ui) { payPlan = it }
                     2 -> CareTab(ui, onSync = { vm.syncFamily() }, onRole = { requestScreenRole() },
                         onLive2d = { vm.setLive2d(it) }, onUpgrade = { tab = 1 })
@@ -167,8 +166,7 @@ private fun UserTab(
     ui: com.xiaoling.core.UiState,
     showText: (String, String) -> Unit,
     onLogin: () -> Unit,
-    onLogout: () -> Unit,
-    onRole: (String) -> Unit
+    onLogout: () -> Unit
 ) {
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -204,24 +202,6 @@ private fun UserTab(
         RowItem("意见反馈") { showText("意见反馈", "感谢您的使用!反馈请发送至 feedback@xiaoling.ai,我们会认真对待每一条建议。") }
         Divider()
         RowItem("隐私政策摘要") { showText("隐私政策摘要", "我们仅收集为您提供防诈、呼救、陪伴所必需的最少信息;敏感数据尽量在本机处理;不向第三方出售您的个人信息。完整政策见官网。") }
-    }
-    GlassCard {
-        Text("使用身份", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-        Text("老人端:语音陪伴+防诈+呼救;家人端:远程看护老人的实时提醒", fontSize = 12.sp, color = DimColor,
-            modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            RoleBtn("老人端", ui.role == "elder", Modifier.weight(1f)) { onRole("elder") }
-            RoleBtn("家人端", ui.role == "family", Modifier.weight(1f)) { onRole("family") }
-        }
-    }
-}
-
-@Composable
-private fun RoleBtn(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    if (selected) {
-        Button(onClick = onClick, modifier = modifier.height(48.dp), shape = RoundedCornerShape(14.dp)) { Text(label) }
-    } else {
-        OutlinedButton(onClick = onClick, modifier = modifier.height(48.dp), shape = RoundedCornerShape(14.dp)) { Text(label) }
     }
 }
 

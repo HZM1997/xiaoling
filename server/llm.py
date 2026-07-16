@@ -127,3 +127,29 @@ def judge_fraud(text: str, category: str = "") -> dict | None:
     except Exception:
         return None
     return None
+
+
+# ---------- 翻译兜底(端侧词库未命中时) ----------
+_LANG_CN = {"english": "英语", "cantonese": "粤语", "mandarin": "普通话"}
+
+
+def llm_translate(content: str, lang: str) -> str | None:
+    """大模型翻译。无大模型/无 KEY 返回 None,让上层给降级提示。"""
+    try:
+        import anthropic
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            return None
+        target = _LANG_CN.get(lang, "英语")
+        client = anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=200,
+            system=f"你是翻译助手。把用户的话翻译成{target},只输出译文,粤语可附拼音,不要解释。",
+            messages=[{"role": "user", "content": content}],
+        )
+        for block in msg.content:
+            if getattr(block, "type", "") == "text":
+                return block.text.strip()
+    except Exception:
+        return None
+    return None

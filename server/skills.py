@@ -11,7 +11,8 @@ from typing import Callable, Optional
 from models import Utterance, Reply
 from fraud import analyze as fraud_analyze
 from fraud_session import analyze_session
-from llm import judge_fraud
+from llm import judge_fraud, llm_translate
+from translate import parse_translate, translate_phrase, LANGS
 
 # (name, priority, fn):priority 越小越先判,防诈/呼救优先级最高
 _REGISTRY: list[tuple[str, int, Callable[[Utterance], Optional[Reply]]]] = []
@@ -75,6 +76,26 @@ def anti_fraud(u: Utterance) -> Optional[Reply]:
                 "hangup_suggest": r.suggest_hangup, "report": r.report},
         risk=r.risk,
     )
+
+
+@skill("实时翻译", priority=8)
+def translate(u: Utterance) -> Optional[Reply]:
+    """实时翻译:普通话/英语/粤语。端侧词库即时命中,未命中走大模型兜底。"""
+    parsed = parse_translate(u.text)
+    if not parsed:
+        return None
+    content, lang = parsed
+    lang_cn = LANGS.get(lang, "英语")
+    hit = translate_phrase(content, lang)
+    if hit:
+        return Reply(speech=f"{content} 的{lang_cn}是:{hit}",
+                     action={"type": "SPEAK", "text": hit, "lang": lang}, skill="实时翻译")
+    # 未命中 → 大模型翻译(无 KEY 时降级提示)
+    out = llm_translate(content, lang)
+    if out:
+        return Reply(speech=f"{content} 的{lang_cn}是:{out}",
+                     action={"type": "SPEAK", "text": out, "lang": lang}, skill="实时翻译")
+    return Reply(speech=f"这句我暂时翻不了,联网后再试试吧。", skill="实时翻译")
 
 
 @skill("打电话", priority=10)

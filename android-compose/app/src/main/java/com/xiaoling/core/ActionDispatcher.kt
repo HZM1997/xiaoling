@@ -57,7 +57,7 @@ object ActionDispatcher {
                 null
             }
             "FRAUD_WARN" -> { vibrate(app); null }
-            "PLAY", "REMIND" -> null   // v1:仅语音确认
+            "PLAY", "REMIND", "SPEAK" -> null   // 仅语音播报(翻译结果由 TTS 念出)
             else -> null
         }
     }

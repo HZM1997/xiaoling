@@ -9,14 +9,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-// 高级 · 亲和 · 智能感:柔和渐变紫蓝,通透留白
-val BgTop = Color(0xFFEAF0FF)
-val BgMid = Color(0xFFF3EEFF)
-val BgBottom = Color(0xFFFBFCFF)
-val AccentBlue = Color(0xFF4C6FFF)
-val AccentGlow = Color(0xFF7C5CFF)
-val InkColor = Color(0xFF1A1F36)
-val DimColor = Color(0xFF7A8296)
+// 主色白 · 辅色蓝 · 活力亲和智能感:通透留白,一抹活力蓝
+val BgTop = Color(0xFFFFFFFF)
+val BgMid = Color(0xFFF4F8FF)
+val BgBottom = Color(0xFFEAF2FF)
+val AccentBlue = Color(0xFF2F6BFF)
+val AccentGlow = Color(0xFF4EA8FF)
+val InkColor = Color(0xFF16233B)
+val DimColor = Color(0xFF8A93A6)
 val AlarmRed = Color(0xFFE5484D)
 val CardBg = Color(0xFFFFFFFF)
 

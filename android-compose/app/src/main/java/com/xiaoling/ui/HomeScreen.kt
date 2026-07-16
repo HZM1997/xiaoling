@@ -9,7 +9,9 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +28,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaoling.core.AppState
-import com.xiaoling.core.MascotState
 import com.xiaoling.core.Screen
 import com.xiaoling.ui.theme.AccentBlue
 import com.xiaoling.ui.theme.AccentGlow
@@ -99,45 +98,22 @@ fun HomeScreen(vm: AppState) {
         modifier = Modifier.fillMaxSize()
             .background(Brush.verticalGradient(listOf(BgTop, BgMid, BgBottom)))
     ) {
-        // 顶栏:品牌名 + 智能状态 + 设置
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text("小灵", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = InkColor)
-                Text("你的 AI 智能管家", fontSize = 12.sp, color = DimColor)
-            }
-            Spacer(Modifier.weight(1f))
-            Surface(
-                onClick = { vm.showScreen(Screen.Settings) },
-                shape = CircleShape,
-                color = Color.White.copy(alpha = 0.7f),
-                shadowElevation = 2.dp,
-                modifier = Modifier.size(44.dp)
-            ) { Box(contentAlignment = Alignment.Center) { Text("⚙", fontSize = 20.sp) } }
-        }
-
+        // 极简主界面:角色形象为主角 + 语音状态 + 字幕
         Column(
             modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             if (ui.live2d) {
-                Avatar3DView(ui.mascot, ui.speaking, Modifier.fillMaxWidth().aspectRatio(0.8f))
+                Avatar3DView(ui.mascot, ui.speaking, Modifier.fillMaxWidth().aspectRatio(0.86f))
             } else {
-                Avatar(ui.mascot, Modifier.fillMaxWidth().aspectRatio(0.8f))
+                Avatar(ui.mascot, Modifier.fillMaxWidth().aspectRatio(0.86f))
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(20.dp))
             VoiceWave(ui.listening, ui.busy)
             Spacer(Modifier.height(16.dp))
             // 字幕:毛玻璃卡片
-            Surface(
-                shape = RoundedCornerShape(22.dp),
-                color = Color.White.copy(alpha = 0.66f),
-                shadowElevation = 1.dp,
-                modifier = Modifier.fillMaxWidth()
-            ) {
+            GlassSurface(radius = 24.dp, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     ui.caption,
                     fontSize = 17.sp,
@@ -148,6 +124,43 @@ fun HomeScreen(vm: AppState) {
                 )
             }
         }
+
+        // 唯一入口:右上角 毛玻璃 设置按钮
+        GlassSurface(
+            onClick = { vm.showScreen(Screen.Settings) },
+            radius = 30.dp,
+            modifier = Modifier.align(Alignment.TopEnd).padding(20.dp).size(50.dp)
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("⚙", fontSize = 22.sp, color = AccentBlue)
+            }
+        }
+    }
+}
+
+/** 毛玻璃表面:半透明白 + 细白描边 + 柔和投影(Compose 无原生模糊,用半透明分层近似) */
+@Composable
+private fun GlassSurface(
+    modifier: Modifier = Modifier,
+    radius: androidx.compose.ui.unit.Dp = 24.dp,
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    val shape = RoundedCornerShape(radius)
+    val glass = Modifier
+        .clip(shape)
+        .background(
+            Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.78f), Color.White.copy(alpha = 0.55f))
+            )
+        )
+        .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.9f)), shape)
+    if (onClick != null) {
+        Surface(onClick = onClick, shape = shape, color = Color.Transparent, shadowElevation = 6.dp,
+            modifier = modifier) { Box(glass) { content() } }
+    } else {
+        Surface(shape = shape, color = Color.Transparent, shadowElevation = 3.dp,
+            modifier = modifier) { Box(glass) { content() } }
     }
 }
 
