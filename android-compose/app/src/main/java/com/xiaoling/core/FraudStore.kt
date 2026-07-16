@@ -8,6 +8,15 @@ object FraudStore {
     private const val KEY = "call_fraud_blocked"
     private const val KEY_PENDING = "pending_fraud"
     private const val KEY_PENDING_AT = "pending_fraud_at"
+    private const val KEY_LAST_NUM = "last_fraud_number"
+
+    fun setLastFraudNumber(ctx: Context, number: String) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit()
+            .putString(KEY_LAST_NUM, number).apply()
+    }
+
+    fun lastFraudNumber(ctx: Context): String =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_LAST_NUM, "") ?: ""
 
     fun inc(ctx: Context): Int {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)

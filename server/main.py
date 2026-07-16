@@ -142,6 +142,25 @@ async def push_emit(e: Event):
     return {"ok": True, "delivered": len(_subscribers.get(e.family_id, []))}
 
 
+# ---------- 号码举报 / 信任(数据飞轮) ----------
+import number_reputation as _numrep
+
+
+class NumberMark(BaseModel):
+    number: str = Field(..., max_length=32)
+    action: str = Field(default="report", pattern="^(report|trust)$")  # report=举报诈骗 / trust=标为可信
+
+
+@app.post("/report_number")
+def report_number(m: NumberMark):
+    """用户/家人举报某号码为诈骗(拉黑),或标为可信(加白)。即时生效,喂养号码信誉库。"""
+    if m.action == "report":
+        _numrep.report_fraud_number(m.number)
+    else:
+        _numrep.trust_number(m.number)
+    return {"ok": True, "action": m.action, "stats": _numrep.stats()}
+
+
 @app.get("/push/subscribe")
 async def push_subscribe(family_id: str, request: Request):
     """家人设备订阅本家庭组事件(SSE 长连接,实时下发)。"""

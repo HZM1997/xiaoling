@@ -46,7 +46,7 @@
 - ✅ pydantic v2 用法正确(`Field(pattern=..., max_length=...)`,非旧版 `regex=`)。
 
 ### 逻辑 —— 通过(要点)
-- ✅ `fraud.py`:归一化抗混淆 → 红线短路 → 分类累加 → 放大/抑制因子 → 阈值;`ConversationTracker` 多轮衰减累积取峰值。本机评测 P=1.0 / R=1.0(77 样本)。
+- ✅ `fraud.py`:归一化抗混淆 → 红线短路 → 分类累加 → 放大/抑制因子 → 阈值;`ConversationTracker` 多轮衰减累积取峰值。**号码信誉引擎(number_reputation.py)**:黑白名单(可热更新+运行期举报/信任)+ 官方服务号段白名单 + 可疑号段 + 三方 API 真实接入(urllib+缓存1h+1.5s超时降级);可信号码抑制误报、黑名单加成。本机评测 P=1.0 / R=1.0(112 样本,含冒充法院/海关/停机、原始股杀猪盘、社保套现、虚假绑架、公用事业收费等新类型)。
 - ✅ `fraud_session.py`:按 session_id/caller+scene 维护会话,TTL 180s + GC + 上限,防内存膨胀。
 - ✅ `firewall.py`:滑窗限流(全局+敏感端点)+ 请求体 64KB 上限 + 安全响应头 + 周期 GC。
 

@@ -26,6 +26,7 @@ class SmsFraudReceiver : BroadcastReceiver() {
 
         val app = ctx.applicationContext
         FraudStore.inc(app)
+        FraudStore.setLastFraudNumber(app, sender)
         FraudStore.setPending(app, "这条短信疑似诈骗:$reason")
         AlarmBus.post("这条短信疑似诈骗:$reason")
         Notifier.warn(

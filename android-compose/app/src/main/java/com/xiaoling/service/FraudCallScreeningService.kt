@@ -27,6 +27,7 @@ class FraudCallScreeningService : CallScreeningService() {
             val app = applicationContext
             val why = if (level == "block") "已为您拦截:$reason" else "$reason,请勿转账、勿提供验证码"
             FraudStore.inc(app)
+            FraudStore.setLastFraudNumber(app, number)
             FraudStore.setPending(app, "这通电话疑似诈骗:$reason")
             AlarmBus.post("这通电话疑似诈骗:$reason")
             Notifier.warn(app, "⚠ 疑似诈骗来电", "$number · $why", ("call" + number).hashCode())

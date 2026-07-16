@@ -9,6 +9,8 @@ const fs = require('fs');
 const path = require('path');
 const RULES = JSON.parse(fs.readFileSync(path.join(__dirname, 'fraud_rules.json'), 'utf8'));
 const CORPUS = JSON.parse(fs.readFileSync(path.join(__dirname, 'fraud_corpus.json'), 'utf8'));
+let NUMDB = { blacklist: [], whitelist: [], gov_service: [], risky_segments: [] };
+try { NUMDB = JSON.parse(fs.readFileSync(path.join(__dirname, 'number_reputation.json'), 'utf8')); } catch (e) {}
 
 function normalize(text) {
   let t = text || '';
@@ -21,13 +23,18 @@ function normalize(text) {
   }
   return compact;
 }
-function suspiciousNumber(caller) {
-  if (!caller) return false;
-  const c = caller.replace(/[-\s]/g, '');
-  for (const p of RULES.number_reputation.suspicious_prefixes)
-    if (c.startsWith(p) && !c.startsWith('+86')) return true;
+function numAssess(caller) {
+  // 镜像 number_reputation.assess:返回 [基线分, 标签]
+  const c = (caller || '').replace(/[^\d+]/g, '');
+  if (!c) return [0.0, 'unknown'];
+  if ((NUMDB.whitelist || []).includes(c)) return [0.0, 'white'];
+  for (const seg of (NUMDB.gov_service || [])) if (c.startsWith(seg)) return [0.0, 'white'];
+  if ((NUMDB.blacklist || []).includes(c)) return [0.6, 'black'];
+  for (const seg of (NUMDB.risky_segments || []))
+    if (c.startsWith(seg.prefix) && !c.startsWith('+86')) return [0.15, 'risky'];
   const d = c.replace(/^\+/, '');
-  return !(d.length >= 7 && d.length <= 12);
+  if (!(d.length >= 7 && d.length <= 12)) return [0.15, 'risky'];
+  return [0.0, 'unknown'];
 }
 function amplifierHits(t) {
   const out = [];
@@ -51,7 +58,8 @@ function analyze(text, caller) {
   const red = cats.redline;
   const redHits = red.words.filter(w => t.includes(w));
   if (redHits.length) return { risk: 0.96, level: 'high', hits: redHits, amps: amplifierHits(t) };
-  let base = suspiciousNumber(caller) ? 0.15 : 0.0;
+  const [numBase, numTag] = numAssess(caller);
+  let base = numBase;
   let bestScore = 0, allHits = [];
   for (const [key, c] of Object.entries(cats)) {
     if (key === 'redline') continue;
@@ -65,6 +73,8 @@ function analyze(text, caller) {
   const amps = amplifierHits(t);
   for (const k of amps) risk += RULES.amplifiers.signals[k].add;
   risk -= suppressorDelta(t);
+  if (numTag === 'black') risk += 0.25;
+  else if (numTag === 'white') risk = Math.min(risk, RULES.thresholds.medium - 0.01);
   risk = Math.max(0, Math.min(risk, 0.99));
   return { risk: +risk.toFixed(2), level: levelOf(risk), hits: allHits, amps };
 }

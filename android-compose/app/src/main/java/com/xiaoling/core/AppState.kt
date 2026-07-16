@@ -184,6 +184,21 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun applyReply(reply: Reply) {
         val type = reply.action?.optString("type")
+        // 语音举报/信任号码:对最近一次诈骗号码操作,喂号码信誉库
+        if (type == "REPORT_NUMBER" || type == "TRUST_NUMBER") {
+            val num = FraudStore.lastFraudNumber(app)
+            if (num.isBlank()) {
+                speaking = true
+                _state.update { it.copy(busy = false, speaking = true, caption = "最近没有可疑来电或短信,暂时不用举报。") }
+                curUtt = tts.speak("最近没有可疑来电或短信,暂时不用举报。")
+                return
+            }
+            reportNumber(num, report = type == "REPORT_NUMBER")
+            speaking = true
+            _state.update { it.copy(busy = false, speaking = true, mascot = MascotState.Caring, caption = reply.speech) }
+            curUtt = tts.speak(reply.speech)
+            return
+        }
         val hint = reply.action?.let { ActionDispatcher.execute(app, it) }
         val toSay = hint ?: reply.speech
         if (type == "FRAUD_WARN") FraudStore.inc(app)
@@ -233,6 +248,20 @@ class AppState(application: Application) : AndroidViewModel(application) {
     fun setBrainUrl(url: String) {
         Settings.setBrainUrl(app, url)
         _state.update { it.copy(brainUrl = Settings.brainUrl(app)) }
+    }
+
+    /** 举报号码为诈骗(拉黑)或标为可信(加白),喂养号码信誉库 —— 数据飞轮 */
+    fun reportNumber(number: String, report: Boolean = true) {
+        if (number.isBlank()) return
+        viewModelScope.launch {
+            val ok = BrainClient.reportNumber(app, number, if (report) "report" else "trust")
+            _state.update {
+                it.copy(caption = if (ok) {
+                    if (report) "已举报 $number,小灵会更警惕这个号码,也会提醒其他家庭。"
+                    else "已把 $number 标为可信,以后不会再误报。"
+                } else "网络不太好,稍后再试。")
+            }
+        }
     }
 
     fun setLive2d(on: Boolean) {

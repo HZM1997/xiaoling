@@ -17,6 +17,8 @@ import os
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
+import number_reputation
+
 _RULES_PATH = os.path.join(os.path.dirname(__file__), "fraud_rules.json")
 
 
@@ -73,7 +75,10 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
     cats = _RULES["categories"]
     th = _RULES["thresholds"]
 
-    # —— L1a 红线词:命中即极高危,直接短路(但仍附带放大信号列表)——
+    # —— L0 号码信誉:分级基线 + 可信/黑名单标记 ——
+    num_base, num_tag, num_reason = number_reputation.assess(caller)
+
+    # —— L1a 红线词:命中即极高危,直接短路(白名单也拦,红线优先于可信)——
     red = cats["redline"]
     red_hits = [w for w in red["words"] if w in t]
     if red_hits:
@@ -81,8 +86,7 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
         return _finalize(0.96, red["label"], red_hits, amps,
                          f"对方要求「{red_hits[0]}」,这是诈骗分子最典型的手法", caller, raw, scene, th)
 
-    # —— L0 号码信誉基线 ——
-    base = 0.15 if _suspicious_number(caller) else 0.0
+    base = num_base
 
     # —— L1b 分类累加:取最高危类 + 命中密度 ——
     best_cat, best_score, all_hits = "", 0.0, []
@@ -105,14 +109,28 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
     supp = _suppressor_delta(t)
     risk -= supp
 
+    # —— 号码信誉修正:黑名单加成;可信白名单在无红线时压制中危误报 ——
+    if num_tag == "black":
+        risk += 0.25
+    elif num_tag == "white":
+        risk = min(risk, th["medium"] - 0.01)   # 可信号码不弹高危(红线已在前面短路)
+
     risk = max(0.0, min(risk, 0.99))
 
     if not all_hits and risk < th["medium"]:
         return FraudResult(risk=round(risk, 2), level="safe", amplifiers=amp_hits)
 
     cat = best_cat or "疑似诈骗"
-    reason = ("对方提到「" + "、".join(all_hits[:3]) + "」" if all_hits else "话术结构可疑") + \
-             ("," + "、".join(_amp_labels(amp_hits)) if amp_hits else "") + ",请提高警惕"
+    parts = []
+    if all_hits:
+        parts.append("对方提到「" + "、".join(all_hits[:3]) + "」")
+    elif num_tag == "black":
+        parts.append(num_reason)
+    else:
+        parts.append("话术结构可疑")
+    if amp_hits:
+        parts.append("、".join(_amp_labels(amp_hits)))
+    reason = ",".join(parts) + ",请提高警惕"
     return _finalize(risk, cat, all_hits, amp_hits, reason, caller, raw, scene, th)
 
 
@@ -149,17 +167,6 @@ def _finalize(risk, category, hits, amps, reason, caller, text, scene, th) -> Fr
     return FraudResult(risk=round(risk, 2), level=level, category=category,
                        reason=reason, hits=hits, amplifiers=amps,
                        suggest_hangup=(level == "high"), report=report)
-
-
-def _suspicious_number(caller: str) -> bool:
-    if not caller:
-        return False
-    c = caller.replace("-", "").replace(" ", "")
-    for p in _RULES["number_reputation"]["suspicious_prefixes"]:
-        if c.startswith(p) and not c.startswith("+86"):
-            return True
-    digits = c.lstrip("+")
-    return not (7 <= len(digits) <= 12)
 
 
 class ConversationTracker:

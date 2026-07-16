@@ -29,6 +29,13 @@ _PHRASES: dict[str, dict[str, str]] = {
     "现在几点": {"english": "What time is it now?", "cantonese": "而家几点(ji4 gaa1 gei2 dim2)"},
     "怎么走": {"english": "How do I get there?", "cantonese": "点去(dim2 heoi3)"},
     "太贵了": {"english": "That's too expensive", "cantonese": "太贵啦(taai3 gwai3 laa1)"},
+    "便宜一点": {"english": "Can it be cheaper?", "cantonese": "平啲得唔得(peng4 di1 dak1 m4 dak1)"},
+    "我头晕": {"english": "I feel dizzy", "cantonese": "我头晕(ngo5 tau4 wan4)"},
+    "我胸口疼": {"english": "My chest hurts", "cantonese": "我心口痛(ngo5 sam1 hau2 tung3)"},
+    "报警": {"english": "Call the police", "cantonese": "报警(bou3 ging2)"},
+    "请再说一遍": {"english": "Could you say that again?", "cantonese": "请再讲多次(cing2 zoi3 gong2 do1 ci3)"},
+    "多喝热水": {"english": "Drink more hot water", "cantonese": "多啲饮暖水(do1 di1 jam2 nyun5 seoi2)"},
+    "想你了": {"english": "I miss you", "cantonese": "挂住你(gwaa3 zyu6 nei5)"},
     "我爱你": {"english": "I love you", "cantonese": "我爱你(ngo5 oi3 nei5)"},
     "祝你健康": {"english": "Wish you good health", "cantonese": "祝你身体健康(zuk1 nei5 san1 tai2 gin6 hong1)"},
 }

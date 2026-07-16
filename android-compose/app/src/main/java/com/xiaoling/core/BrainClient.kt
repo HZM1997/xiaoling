@@ -45,4 +45,22 @@ object BrainClient {
                 c.disconnect()
             }
         }
+
+    /** 举报/信任号码 → POST /report_number。best-effort,返回是否成功 */
+    suspend fun reportNumber(ctx: Context, number: String, action: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val body = JSONObject().put("number", number).put("action", action).toString()
+                val url = URL(Settings.brainUrl(ctx).trimEnd('/') + "/report_number")
+                val c = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"; doOutput = true
+                    connectTimeout = 1500; readTimeout = 2000
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                }
+                c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                val ok = c.responseCode in 200..299
+                c.disconnect()
+                ok
+            } catch (e: Exception) { false }
+        }
 }
