@@ -41,12 +41,16 @@ export XL_KEY_PASS=你的密钥口令
 ```
 (Windows PowerShell 用 `$env:XL_KEYSTORE="..."` 逐个设置。)
 
-## 四、Release 版做了哪些加固
-- **R8 混淆 + 优化**:类/方法名打乱,加大逆向难度(`proguard-rules.pro`)。
+## 四、Release 版做了哪些加固 + 瘦身
+- **R8 混淆 + 完整模式**:类/方法名打乱、更激进裁剪(`fullMode`),加大逆向难度并减小体积。
 - **去日志**:剥离所有 `Log.*` / `println`,防运行时信息泄漏。
-- **资源压缩**:`shrinkResources` 去无用资源,减小体积。
+- **资源压缩**:`shrinkResources` 去无用资源;`resConfigs "zh"` 只留中文字符串。
+- **只打 ARM 架构**:`abiFilters armeabi-v7a/arm64-v8a`,去掉模拟器用的 x86 native 库。
+- **默认不打包 Porcupine**:离线唤醒库含多架构 native `.so`,体积大且需 Key;默认注释掉,运行时回退系统识别唤醒。需要时在 `app/build.gradle` 取消注释。
 - **强制 HTTPS**:release 的 `network_security_config` 禁明文,只走 HTTPS(debug 仍允许明文,方便连电脑联调)。
 - **登录页防截屏/录屏**:`FLAG_SECURE`,防手机号/验证码被截取。
+
+> 想进一步减小"单个用户下载的体积":上 Google Play 用 `bundleRelease` 出 AAB,Play 会按用户机型只下发对应架构;国内商店发 APK 时,上面这些优化已把体积压到较小。
 
 ## 五、上架前还需
 - 换正式的服务器地址(公网 HTTPS,见 `server/DEPLOY.md`),别用 `192.168.x.x`。

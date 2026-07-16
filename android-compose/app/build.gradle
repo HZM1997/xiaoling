@@ -17,6 +17,10 @@ android {
         // 注意:内层引号必须转义,否则生成的 BuildConfig.java 编不过
         buildConfigField 'String', 'BRAIN_URL', '"http://192.168.1.20:8000"'
         vectorDrawables { useSupportLibrary true }
+        // 只保留主流真机架构(x86/x86_64 基本只有模拟器用),减小 native 库体积
+        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }
+        // 只保留中文资源,去掉三方库携带的其它语言字符串
+        resConfigs "zh", "zh-rCN"
     }
 
     // release 签名:从环境变量读密钥库(CI 用 GitHub Secrets 注入;本地可在 keystore.properties 提供)
@@ -86,6 +90,8 @@ dependencies {
     implementation 'io.coil-kt:coil-compose:2.6.0'
     implementation 'io.coil-kt:coil-gif:2.6.0'
 
-    // 离线唤醒词(可选):Picovoice Porcupine。填 AccessKey + .ppn 模型即启用,否则回退系统识别唤醒。
-    implementation 'ai.picovoice:porcupine-android:3.0.3'
+    // 离线唤醒词(可选,默认不打包以减小体积):Picovoice Porcupine 含多架构 native 库,
+    // 体积较大且需 AccessKey。PorcupineWakeEngine 用纯反射调用,不打包时自动回退系统识别唤醒。
+    // 需要真离线唤醒时,取消下一行注释并按 NATIVE.md 配置 AccessKey + 模型即可。
+    // implementation 'ai.picovoice:porcupine-android:3.0.3'
 }
