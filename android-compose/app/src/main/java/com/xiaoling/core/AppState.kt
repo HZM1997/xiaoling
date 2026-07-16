@@ -132,6 +132,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         autoOn = true
+        speech.warmUp()      // 预热识别器,首轮开听更快
         listenOnce()
     }
 
@@ -151,6 +152,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
             )
         }
         speech.listen(
+            onPartial = { p ->
+                // 边说边出字:实时更新字幕,让老人看到"听到了",降低感知延迟
+                if (p.isNotBlank()) _state.update { it.copy(caption = p) }
+            },
             onText = { t ->
                 _state.update { it.copy(listening = false) }
                 if (t.isNotBlank()) process(t) else restartSoon()
@@ -162,7 +167,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun restartSoon() {
         _state.update { it.copy(listening = false) }
         if (!autoOn) return
-        viewModelScope.launch { delay(400); if (autoOn && !speaking) listenOnce() }
+        viewModelScope.launch { delay(250); if (autoOn && !speaking) listenOnce() }
     }
 
     // ---------- 处理:本地快通道优先(极致反应),云端硬超时兜底,保证 ≤2s ----------

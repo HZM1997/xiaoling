@@ -1,6 +1,7 @@
 package com.xiaoling.core
 
 import android.content.Context
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
@@ -17,12 +18,17 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
             if (status == TextToSpeech.SUCCESS) {
                 val r = tts?.setLanguage(Locale.CHINA) ?: TextToSpeech.LANG_NOT_SUPPORTED
                 ready = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
+                tts?.setSpeechRate(1.08f)   // 略快,老人也能听清,同时缩短播报时长
                 val cb = onDone   // 捕获,避免与 UtteranceProgressListener.onDone 同名方法递归
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) {}
                     override fun onDone(id: String?) { cb(id) }
                     @Deprecated("deprecated") override fun onError(id: String?) { cb(id) }
                 })
+                // 预热:静音串跑一遍合成管线,消除首句冷启动延迟
+                if (ready) tts?.speak(" ", TextToSpeech.QUEUE_FLUSH, Bundle().apply {
+                    putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0f)
+                }, "warmup")
             }
         }
     }
