@@ -33,9 +33,9 @@ jobs:
         with:
           gradle-version: '8.7'
 
-       - name: Decode keystore
+      - name: Decode keystore
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | grep -v CERTIFICATE | tr -d '\r\n ' | base64 -d > "$RUNNER_TEMP/xl.keystore"
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/xl.keystore"
           wc -c "$RUNNER_TEMP/xl.keystore"
 
       - name: Build signed release APK
