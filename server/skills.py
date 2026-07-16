@@ -9,7 +9,6 @@ import re
 from typing import Callable, Optional
 
 from models import Utterance, Reply
-from fraud import analyze as fraud_analyze
 from fraud_session import analyze_session
 from llm import judge_fraud, llm_translate
 from translate import parse_translate, translate_phrase, LANGS
