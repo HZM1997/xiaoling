@@ -8,6 +8,7 @@
 生产建议:前面再叠一层 Nginx/Cloudflare/云 WAF;本模块是应用层兜底。
 """
 from __future__ import annotations
+import os
 import time
 from collections import defaultdict, deque
 
@@ -22,6 +23,12 @@ SENSITIVE_RATE = (10, 60)           # 敏感端点(登录/发码/支付):每 60s
 SENSITIVE_PREFIXES = ("/auth/", "/pay/")
 # SSE 长连接端点不计体积、不限流退出
 STREAM_PREFIXES = ("/push/subscribe",)
+# 可信反代 IP 白名单(环境变量 XL_TRUSTED_PROXIES=1.2.3.4,10.0.0.1)。
+# 只有直连来源在此白名单内,才信任 X-Forwarded-For;否则用真实 client.host,
+# 防止外部伪造 XFF 头绕过限流。留空 = 不信任任何转发头(默认最安全)。
+TRUSTED_PROXIES = frozenset(
+    p.strip() for p in os.getenv("XL_TRUSTED_PROXIES", "").split(",") if p.strip()
+)
 
 
 class _Bucket:
@@ -47,11 +54,22 @@ _last_gc = [0.0]
 
 
 def _client_ip(request: Request) -> str:
-    # 若前置反代,信任 X-Forwarded-For 第一段(部署时确保反代已校验)
+    """
+    取真实客户端 IP,抗 X-Forwarded-For 伪造:
+      - 直连来源(request.client.host)不在可信反代白名单 → 直接用它,忽略 XFF(外部伪造无效);
+      - 直连来源是可信反代 → 从 XFF 链自右向左取第一个"非可信反代"的 IP(即真实客户端)。
+    """
+    peer = request.client.host if request.client else "unknown"
+    if peer not in TRUSTED_PROXIES:
+        return peer   # 非可信来源:XFF 不可信,以直连 IP 为准
     xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    if not xff:
+        return peer
+    chain = [p.strip() for p in xff.split(",") if p.strip()]
+    for ip in reversed(chain):        # 自右向左,跳过我们自己的可信反代
+        if ip not in TRUSTED_PROXIES:
+            return ip
+    return chain[0] if chain else peer
 
 
 class Firewall(BaseHTTPMiddleware):

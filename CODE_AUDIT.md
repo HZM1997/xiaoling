@@ -58,7 +58,7 @@
 | B3 | DEMO | main.py 支付 | `/pay/create` 恒成功、无验签 | 上线前接微信/支付宝 SDK + 后端回调验签 |
 | B4 | DEMO | main.py 用户库 | `_users` 内存字典,重启即失 | 上线前换数据库 |
 | B5 | MEDIUM | main.py `/push` | `_subscribers` + `asyncio.Queue` 无界 | 多实例部署换 Redis;Queue 设 maxsize |
-| B6 | MEDIUM | firewall.py | `X-Forwarded-For` 无条件信任第一段 | 生产在可信反代后才信任,否则可伪造绕过限流 |
+| B6 | 已修 | firewall.py | `X-Forwarded-For` 无条件信任第一段 | 已修:仅当直连来源在 `XL_TRUSTED_PROXIES` 白名单内才信任 XFF,自右向左取首个非可信 IP;否则用真实 client.host |
 | B7 | LOW | llm.py | 无 KEY 时各 LLM 函数返回 None → 规则/兜底生效 | 符合预期,仅提示接国内大模型(通义/豆包)时改 client |
 
 ---
