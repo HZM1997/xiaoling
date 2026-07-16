@@ -1,44 +1,41 @@
 """
 小灵 · 实时翻译(普通话 / 英语 / 粤语)
 端侧常用短语词库即时命中(0 延迟),未命中走大模型兜底(llm)。
-设计:老人日常高频短句直接查表,秒回;整句/生僻交给大模型。
+词库来自 translate_phrases.json(与 android assets 保持一致),支持热更新。
 """
 from __future__ import annotations
+import json
+import os
 import re
 
 # 目标语言标识
 LANGS = {"mandarin": "普通话", "english": "英语", "cantonese": "粤语"}
 
+_PATH = os.path.join(os.path.dirname(__file__), "translate_phrases.json")
+
+
+def _load() -> dict[str, dict[str, str]]:
+    try:
+        with open(_PATH, encoding="utf-8") as f:
+            return json.load(f).get("phrases", {})
+    except Exception:
+        return {
+            "你好": {"english": "Hello", "cantonese": "你好"},
+            "谢谢": {"english": "Thank you", "cantonese": "多谢"},
+            "帮帮我": {"english": "Please help me", "cantonese": "帮帮我"},
+            "叫救护车": {"english": "Call an ambulance", "cantonese": "叫白车"},
+        }
+
+
 # 高频短语词库:key=普通话,value={english, cantonese}
-_PHRASES: dict[str, dict[str, str]] = {
-    "你好": {"english": "Hello", "cantonese": "你好(nei5 hou2)"},
-    "谢谢": {"english": "Thank you", "cantonese": "多谢(do1 ze6)"},
-    "再见": {"english": "Goodbye", "cantonese": "拜拜(baai1 baai3)"},
-    "多少钱": {"english": "How much is it?", "cantonese": "几多钱(gei2 do1 cin2)"},
-    "厕所在哪里": {"english": "Where is the toilet?", "cantonese": "厕所喺边度(ci3 so2 hai2 bin1 dou6)"},
-    "我不舒服": {"english": "I don't feel well", "cantonese": "我唔舒服(ngo5 m4 syu1 fuk6)"},
-    "帮帮我": {"english": "Please help me", "cantonese": "帮帮我(bong1 bong1 ngo5)"},
-    "我要去医院": {"english": "I need to go to the hospital", "cantonese": "我要去医院(ngo5 jiu3 heoi3 ji1 jyun2)"},
-    "叫救护车": {"english": "Call an ambulance", "cantonese": "叫救护车(giu3 gau3 wu6 ce1)"},
-    "我听不懂": {"english": "I don't understand", "cantonese": "我听唔明(ngo5 teng1 m4 ming4)"},
-    "请慢一点说": {"english": "Please speak slower", "cantonese": "请讲慢啲(cing2 gong2 maan6 di1)"},
-    "吃饭了吗": {"english": "Have you eaten?", "cantonese": "食咗饭未(sik6 zo2 faan6 mei6)"},
-    "早上好": {"english": "Good morning", "cantonese": "早晨(zou2 san4)"},
-    "晚安": {"english": "Good night", "cantonese": "晚安(maan5 on1)"},
-    "多保重": {"english": "Take care", "cantonese": "保重(bou2 zung6)"},
-    "现在几点": {"english": "What time is it now?", "cantonese": "而家几点(ji4 gaa1 gei2 dim2)"},
-    "怎么走": {"english": "How do I get there?", "cantonese": "点去(dim2 heoi3)"},
-    "太贵了": {"english": "That's too expensive", "cantonese": "太贵啦(taai3 gwai3 laa1)"},
-    "便宜一点": {"english": "Can it be cheaper?", "cantonese": "平啲得唔得(peng4 di1 dak1 m4 dak1)"},
-    "我头晕": {"english": "I feel dizzy", "cantonese": "我头晕(ngo5 tau4 wan4)"},
-    "我胸口疼": {"english": "My chest hurts", "cantonese": "我心口痛(ngo5 sam1 hau2 tung3)"},
-    "报警": {"english": "Call the police", "cantonese": "报警(bou3 ging2)"},
-    "请再说一遍": {"english": "Could you say that again?", "cantonese": "请再讲多次(cing2 zoi3 gong2 do1 ci3)"},
-    "多喝热水": {"english": "Drink more hot water", "cantonese": "多啲饮暖水(do1 di1 jam2 nyun5 seoi2)"},
-    "想你了": {"english": "I miss you", "cantonese": "挂住你(gwaa3 zyu6 nei5)"},
-    "我爱你": {"english": "I love you", "cantonese": "我爱你(ngo5 oi3 nei5)"},
-    "祝你健康": {"english": "Wish you good health", "cantonese": "祝你身体健康(zuk1 nei5 san1 tai2 gin6 hong1)"},
-}
+_PHRASES: dict[str, dict[str, str]] = _load()
+
+
+def reload_phrases() -> int:
+    """热更新词库,返回条数。"""
+    global _PHRASES
+    _PHRASES = _load()
+    return len(_PHRASES)
 
 
 def parse_translate(text: str) -> tuple[str, str] | None:

@@ -1,60 +1,52 @@
 package com.xiaoling.core
 
+import android.content.Context
 import org.json.JSONObject
 
 /**
  * 端侧快通道:高频指令(打电话/导航/提醒/听/翻译/闲聊问候)本地即时解析,不等网络 → 极致反应。
  * 镜像 server/skills.py;命中不了返回 null,再走云端大脑。弱网/离线下这一层保证 <0.3s 秒回。
+ * 翻译词库从 assets/translate/phrases.json 加载(端云共用同一份,文本资源压缩,不胀包)。
  */
 object LocalIntents {
 
-    // 端侧翻译词库(普/英/粤),离线即时命中
-    private val PHRASES: Map<String, Pair<String, String>> = mapOf(  // 普通话 -> (英语, 粤语)
+    // 端侧翻译词库(普通话 -> (英语, 粤语)),启动时从 assets 加载;加载前用兜底小表
+    private var PHRASES: Map<String, Pair<String, String>> = mapOf(
         "你好" to ("Hello" to "你好"),
         "谢谢" to ("Thank you" to "多谢"),
-        "不客气" to ("You're welcome" to "唔使客气"),
-        "对不起" to ("Sorry" to "对唔住"),
-        "再见" to ("Goodbye" to "拜拜"),
-        "多少钱" to ("How much is it?" to "几多钱"),
-        "太贵了" to ("That's too expensive" to "太贵啦"),
-        "便宜一点" to ("Can it be cheaper?" to "平啲得唔得"),
-        "厕所在哪里" to ("Where is the toilet?" to "厕所喺边度"),
-        "怎么走" to ("How do I get there?" to "点去"),
-        "我迷路了" to ("I'm lost" to "我蕩失路"),
-        "我不舒服" to ("I don't feel well" to "我唔舒服"),
-        "我头晕" to ("I feel dizzy" to "我头晕"),
-        "我胸口疼" to ("My chest hurts" to "我心口痛"),
         "帮帮我" to ("Please help me" to "帮帮我"),
-        "我要去医院" to ("I need to go to the hospital" to "我要去医院"),
         "叫救护车" to ("Call an ambulance" to "叫白车"),
-        "报警" to ("Call the police" to "报警"),
-        "我听不懂" to ("I don't understand" to "我听唔明"),
-        "请慢一点说" to ("Please speak slower" to "请讲慢啲"),
-        "请再说一遍" to ("Could you say that again?" to "请再讲多次"),
-        "吃饭了吗" to ("Have you eaten?" to "食咗饭未"),
-        "多喝热水" to ("Drink more hot water" to "多啲饮暖水"),
-        "早上好" to ("Good morning" to "早晨"),
-        "晚上好" to ("Good evening" to "晚上好"),
-        "晚安" to ("Good night" to "早唞"),
-        "多保重" to ("Take care" to "保重"),
-        "慢走" to ("Take care on your way" to "慢慢行"),
-        "现在几点" to ("What time is it now?" to "而家几点"),
-        "我爱你" to ("I love you" to "我爱你"),
-        "想你了" to ("I miss you" to "挂住你"),
-        "祝你健康" to ("Wish you good health" to "祝你身体健康"),
-        "新年快乐" to ("Happy New Year" to "新年快乐"),
-        "生日快乐" to ("Happy birthday" to "生日快乐"),
-        "这个用英语怎么说" to ("How do you say this in English?" to "呢个英文点讲")
+        "我不舒服" to ("I don't feel well" to "我唔舒服")
     )
 
-    // 反向:英语/粤语 → 普通话(用户说外语,翻回中文)
-    private val REVERSE: Map<String, String> by lazy {
-        val m = HashMap<String, String>()
-        for ((zh, pair) in PHRASES) {
-            m[pair.first.lowercase().trimEnd('?', '.', '!')] = zh
-            m[pair.second] = zh
+    private var REVERSE: Map<String, String> = buildReverse(PHRASES)
+
+    /** 应用启动时调用一次,从 assets 加载完整词库(90+ 条) */
+    fun load(ctx: Context) {
+        try {
+            val txt = ctx.assets.open("translate/phrases.json").bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val obj = JSONObject(txt).getJSONObject("phrases")
+            val map = HashMap<String, Pair<String, String>>(obj.length() * 2)
+            val keys = obj.keys()
+            while (keys.hasNext()) {
+                val zh = keys.next()
+                val e = obj.getJSONObject(zh)
+                map[zh] = e.optString("en") to e.optString("yue")
+            }
+            if (map.isNotEmpty()) {
+                PHRASES = map
+                REVERSE = buildReverse(map)
+            }
+        } catch (e: Exception) { /* 加载失败保留兜底小表 */ }
+    }
+
+    private fun buildReverse(p: Map<String, Pair<String, String>>): Map<String, String> {
+        val m = HashMap<String, String>(p.size * 2)
+        for ((zh, pair) in p) {
+            if (pair.first.isNotBlank()) m[pair.first.lowercase().trimEnd('?', '.', '!')] = zh
+            if (pair.second.isNotBlank()) m[pair.second] = zh
         }
-        m
+        return m
     }
 
     fun parse(text: String): Reply? {

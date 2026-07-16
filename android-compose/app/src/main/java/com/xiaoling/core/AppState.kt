@@ -66,6 +66,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun isPremium(): Boolean = tierNow() == "premium"
 
     init {
+        // 启动加载完整翻译词库(assets/translate/phrases.json)
+        LocalIntents.load(app)
         // 后台(短信/来电)检测到诈骗 → 形象即时警惕
         AlarmBus.events.onEach { onExternalFraud(it) }.launchIn(viewModelScope)
         // App 被诈骗事件冷启动 / 刚打开时,读取近 2 分钟内的待处理事件
