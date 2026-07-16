@@ -17,6 +17,8 @@ import org.json.JSONObject
 
 enum class Screen { Home, Settings, Login }
 
+data class Choice(val label: String, val speech: String, val action: org.json.JSONObject?)
+
 data class UiState(
     val caption: String = "小灵在这儿,想说什么直接说",
     val mascot: MascotState = MascotState.Idle,
@@ -30,6 +32,7 @@ data class UiState(
     val membership: String = "",     // "" / "basic" / "premium"
     val loggedIn: Boolean = false,
     val phone: String = "",
+    val choices: List<Choice> = emptyList(),   // 智能澄清:多选项(有值时 UI 显示选择按钮)
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
     val sosLabel: String = "无",
@@ -176,6 +179,17 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun process(text: String) {
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = "好的…", lastUser = text) }
 
+        // 若上一轮给了选项:先本地解析用户的语音选择("第一个/打电话"),命中即执行
+        val pending = _state.value.choices
+        if (pending.isNotEmpty()) {
+            val chosen = resolveChoice(text, pending)
+            if (chosen != null) {
+                _state.update { it.copy(choices = emptyList()) }
+                applyReply(Reply(chosen.speech, chosen.action, "智能澄清·已选", 0.0))
+                return
+            }
+        }
+
         // 安全 + 高频指令本地即时处理,不等网络(<0.3s 秒回)
         val local = LocalSafetyNet.handle(text) ?: LocalIntents.parse(text)
         if (local != null) { applyReply(local); return }
@@ -187,6 +201,23 @@ class AppState(application: Application) : AndroidViewModel(application) {
             } ?: Reply("我先陪您聊两句。您可以说『打电话给女儿』『导航到医院』,或者让我帮您翻译。", null, "chat", 0.0)
             applyReply(reply)
         }
+    }
+
+    /** 用户点按某个选项(UI 调用) */
+    fun chooseOption(c: Choice) {
+        _state.update { it.copy(choices = emptyList()) }
+        applyReply(Reply(c.speech, c.action, "智能澄清·已选", 0.0))
+    }
+
+    /** 本地解析语音选择:序号(第一个/一)或关键词匹配 label */
+    private fun resolveChoice(text: String, opts: List<Choice>): Choice? {
+        val ord = mapOf("第一" to 0, "一" to 0, "第二" to 1, "二" to 1, "第三" to 2, "三" to 2, "第四" to 3, "四" to 3)
+        for ((k, i) in ord) if (text.contains(k) && i < opts.size) return opts[i]
+        for (o in opts) {
+            val core = o.label.replace(Regex("[给和去打的]"), "")
+            if ((core.isNotBlank() && text.contains(core)) || text.contains(o.label)) return o
+        }
+        return null
     }
 
     private fun applyReply(reply: Reply) {
@@ -206,6 +237,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
             curUtt = tts.speak(reply.speech)
             return
         }
+        // 智能澄清:多选项 → 显示按钮 + 语音报选项,不执行,等用户选
+        if (type == "CHOICES") {
+            val arr = reply.action?.optJSONArray("options")
+            val opts = ArrayList<Choice>()
+            if (arr != null) for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                opts.add(Choice(o.optString("label"), o.optString("speech"), o.optJSONObject("action")))
+            }
+            if (opts.isNotEmpty()) {
+                val prompt = reply.speech + " " + opts.mapIndexed { i, c -> "${i + 1}、${c.label}" }.joinToString(" ")
+                speaking = true
+                _state.update { it.copy(busy = false, speaking = true, mascot = MascotState.Thinking, caption = reply.speech, choices = opts) }
+                curUtt = tts.speak(prompt)
+                return
+            }
+        }
         val hint = reply.action?.let { ActionDispatcher.execute(app, it) }
         val toSay = hint ?: reply.speech
         if (type == "FRAUD_WARN") FraudStore.inc(app)
@@ -216,6 +263,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 speaking = true,
                 caption = toSay,
                 mascot = stateFor(type, reply),
+                choices = emptyList(),   // 普通回复清掉上一轮选项
                 fraudBlocked = FraudStore.count(app),
                 sosLabel = if (type == "SOS") "刚刚" else it.sosLabel
             )

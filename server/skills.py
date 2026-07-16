@@ -12,6 +12,7 @@ from models import Utterance, Reply
 from fraud_session import analyze_session
 from llm import judge_fraud, llm_translate
 from translate import parse_translate, translate_phrase, LANGS
+from clarify import clarify, resolve_choice
 
 # (name, priority, fn):priority 越小越先判,防诈/呼救优先级最高
 _REGISTRY: list[tuple[str, int, Callable[[Utterance], Optional[Reply]]]] = []
@@ -148,3 +149,19 @@ def health_remind(u: Utterance) -> Optional[Reply]:
         speech=f"好的,我会{when}提醒您,放心。",
         action={"type": "REMIND", "raw": u.text},
     )
+
+
+@skill("智能澄清", priority=50)
+def smart_clarify(u: Utterance) -> Optional[Reply]:
+    """意图模糊(有多种合理处理)时,返回多个选项让用户选,而非武断执行。
+    在确定性技能之后、大模型兜底之前;确定的指令已被前面技能处理。"""
+    # 用户正在从上一轮选项中做选择?
+    ctx = u.context or {}
+    pending = ctx.get("pending_options")
+    if pending:
+        chosen = resolve_choice(u.text, pending)
+        if chosen:
+            return Reply(speech=chosen.get("speech", "好的。"),
+                         action=chosen.get("action"), skill="智能澄清·已选")
+    return clarify(u.text)
+

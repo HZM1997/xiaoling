@@ -122,6 +122,24 @@ fun HomeScreen(vm: AppState) {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp)
                 )
             }
+            // 智能澄清:多选项 → 大按钮,老人点或语音说"第一个"皆可
+            if (ui.choices.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                ui.choices.forEachIndexed { i, c ->
+                    Surface(
+                        onClick = { vm.chooseOption(c) },
+                        shape = RoundedCornerShape(18.dp),
+                        color = AccentBlue.copy(alpha = 0.12f),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 5.dp)
+                    ) {
+                        Text(
+                            "${i + 1}、${c.label}",
+                            fontSize = 18.sp, fontWeight = FontWeight.Medium, color = AccentBlue,
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)
+                        )
+                    }
+                }
+            }
         }
 
         // 唯一入口:右上角 毛玻璃 设置按钮
