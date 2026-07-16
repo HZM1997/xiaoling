@@ -60,12 +60,13 @@ function analyze(text, caller) {
   if (redHits.length) return { risk: 0.96, level: 'high', hits: redHits, amps: amplifierHits(t) };
   const [numBase, numTag] = numAssess(caller);
   let base = numBase;
-  let bestScore = 0, allHits = [];
+  let bestScore = 0, allHits = [], matchedCats = 0;
   for (const [key, c] of Object.entries(cats)) {
     if (key === 'redline') continue;
     const hits = c.words.filter(w => t.includes(w));
     if (!hits.length) continue;
     allHits.push(...hits);
+    matchedCats += 1;
     const score = c.weight + 0.1 * (hits.length - 1);
     if (score > bestScore) bestScore = score;
   }
@@ -74,7 +75,8 @@ function analyze(text, caller) {
   for (const k of amps) risk += RULES.amplifiers.signals[k].add;
   risk -= suppressorDelta(t);
   if (numTag === 'black') risk += 0.25;
-  else if (numTag === 'white') risk = Math.min(risk, RULES.thresholds.medium - 0.01);
+  else if (numTag === 'white' && matchedCats < 2 && amps.length === 0)
+    risk = Math.min(risk, RULES.thresholds.medium - 0.01);   // 伪造官方号+多类诈骗话术不压制
   risk = Math.max(0, Math.min(risk, 0.99));
   return { risk: +risk.toFixed(2), level: levelOf(risk), hits: allHits, amps };
 }

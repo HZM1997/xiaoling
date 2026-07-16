@@ -90,6 +90,7 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
 
     # —— L1b 分类累加:取最高危类 + 命中密度 ——
     best_cat, best_score, all_hits = "", 0.0, []
+    matched_cats = 0
     for key, c in cats.items():
         if key == "redline":
             continue
@@ -97,6 +98,7 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
         if not hits:
             continue
         all_hits += hits
+        matched_cats += 1
         score = c["weight"] + 0.1 * (len(hits) - 1)
         if score > best_score:
             best_score, best_cat = score, c["label"]
@@ -112,8 +114,10 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
     # —— 号码信誉修正:黑名单加成;可信白名单在无红线时压制中危误报 ——
     if num_tag == "black":
         risk += 0.25
-    elif num_tag == "white":
-        risk = min(risk, th["medium"] - 0.01)   # 可信号码不弹高危(红线已在前面短路)
+    elif num_tag == "white" and matched_cats < 2 and not amp_hits:
+        # 可信号码仅在"无红线、命中类目<2、无放大信号"时压制,防误报;
+        # 若命中多类诈骗话术或有转账/紧迫等放大信号 → 号码疑似被伪造,不压制。
+        risk = min(risk, th["medium"] - 0.01)
 
     risk = max(0.0, min(risk, 0.99))
 

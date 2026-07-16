@@ -9,29 +9,29 @@
     public static int e(...);
     public static int wtf(...);
 }
--assumenosideeffects class java.io.PrintStream {
-    public void println(%);
-    public void print(%);
-}
 
-# 混淆时打乱代码结构,加大逆向难度
--repackageclasses ''
--allowaccessmodification
+# 保留注解(Compose/反射/序列化需要)
+-keepattributes *Annotation*, RuntimeVisible*Annotations, Signature, InnerClasses, EnclosingMethod
 
-# 保留注解(Compose/序列化需要)
--keepattributes *Annotation*, RuntimeVisible*Annotations, Signature
+# ---- ViewModel:viewModel() 靠反射调用 (Application) 构造函数,必须保留,否则启动即崩 ----
+-keep class * extends androidx.lifecycle.ViewModel { <init>(...); }
+-keep class * extends androidx.lifecycle.AndroidViewModel { <init>(...); }
+-keep class com.xiaoling.core.AppState { *; }
 
-# Kotlin
+# ---- Kotlin ----
 -dontwarn kotlin.**
 -keep class kotlin.Metadata { *; }
+-keepclassmembers class **$WhenMappings { <fields>; }
+-keepclassmembers class kotlin.Metadata { public <methods>; }
 
-# 反射用到的数据模型:仅保留字段名(供 org.json/UI 读取),类名仍可混淆
+# ---- 反射/数据模型:保留成员 ----
 -keepclassmembers class com.xiaoling.core.Reply { *; }
 -keepclassmembers class com.xiaoling.core.UiState { *; }
 
-# Picovoice Porcupine 用反射调用,保留其类与方法
+# ---- Picovoice Porcupine 用反射调用,保留其类与方法 ----
 -keep class ai.picovoice.porcupine.** { *; }
 -dontwarn ai.picovoice.porcupine.**
 
-# Compose / Coil / OkHttp 无系统级依赖;各库自带 consumer proguard 规则,无需手写。
-# WebView JS 桥若后续用 @JavascriptInterface,需在此 -keep 对应类的方法。
+# 说明:去掉了 -repackageclasses / -allowaccessmodification 这两条过激规则,
+# 它们会打乱包名与访问修饰符,破坏 ViewModel/Compose 的反射调用,导致 release 版启动崩溃。
+# Compose / Coil / OkHttp 各库自带 consumer proguard 规则,无需手写。
