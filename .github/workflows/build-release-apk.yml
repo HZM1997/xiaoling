@@ -34,7 +34,10 @@ jobs:
           gradle-version: '8.7'
 
       - name: Decode keystore
-            run: printf '%s' "${{ secrets.KEYSTORE_BASE64 }}" | base64 -di > "$RUNNER_TEMP/xl.keystore" 2>/dev/null || printf '%s' "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/xl.keystore"
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" > ks.b64
+          base64 -di ks.b64 > "$RUNNER_TEMP/xl.keystore"
+          wc -c "$RUNNER_TEMP/xl.keystore"
       - name: Build signed release APK
         env:
           XL_KEYSTORE: ${{ runner.temp }}/xl.keystore
