@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from models import Utterance, Reply
 import skills          # 导入即注册所有技能
 from llm import llm_reply
+import brain           # 大模型驱动的行为理解(智能应用体)
 import firewall        # 后端防火墙(限流/体积限制/安全头)
 
 app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.1.0")
@@ -18,15 +19,27 @@ firewall.install(app)  # 启用防火墙中间件
 
 @app.get("/health")
 def health():
-    return {"ok": True, "skills": [name for name, _, _ in skills._REGISTRY]}
+    return {"ok": True, "llm": brain.llm_gateway.available(),
+            "skills": [name for name, _, _ in skills._REGISTRY]}
 
 
 @app.post("/dialogue", response_model=Reply)
 def dialogue(u: Utterance) -> Reply:
-    """一轮对话:规则层优先(含防诈/呼救),兜底走大模型。"""
+    """
+    分层链路(快+省+智能):
+      1) 规则层:防诈/呼救/打电话/导航/翻译等 高频+安全指令,0 延迟,离线可用;
+      2) 智能大脑:规则拿不准时,大模型带 [对话上下文+用户画像+场景] 理解行为,
+         调技能 / 生成多选 / 陪伴闲聊;
+      3) 兜底:未配大模型 KEY 时退回原简易 llm/离线兜底,保证永远有温暖回应。
+    """
     r = skills.match(u)
     if r:
         return r
+    ctx = u.context or {}
+    smart = brain.understand(u.text, user_id=u.user_id,
+                             profile=ctx.get("profile"), scene=ctx.get("scene", "chat"))
+    if smart:
+        return smart
     return llm_reply(u)
 
 

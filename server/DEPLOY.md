@@ -53,6 +53,13 @@ docker build -t xiaoling-brain . && docker run -p 8000:8000 xiaoling-brain
 ---
 
 ## 部署后建议
-- **接大模型**:把 `requirements.txt` 里的 `anthropic` 取消注释、装上,并在平台配置环境变量 `ANTHROPIC_API_KEY`(或换成通义/豆包/文心的 SDK)。
-- **持久化**:当前用户库/事件是内存态,重启即清空。上线请接数据库(Postgres 等)。
+- **接大模型(智能应用体)**:配一个环境变量即启用大模型行为理解(会思考、给多选、理解上下文)。
+  用 OpenAI 兼容格式,配哪个 KEY 就用哪个(设一个即可):
+  - `DEEPSEEK_API_KEY` — 推荐:国内可直连、性价比高、支持 function calling
+  - `OPENAI_API_KEY` — GPT(gpt-4o-mini)
+  - `DASHSCOPE_API_KEY` — 阿里通义千问
+  - `ARK_API_KEY` — 火山豆包 · `MOONSHOT_API_KEY` — Kimi
+  - 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`
+  未配任何 KEY 时自动降级为规则+离线兜底,不影响运行。`GET /health` 的 `llm:true/false` 可查是否已启用。
+- **持久化**:当前用户库/会话记忆是内存态,重启即清空。上线请接数据库/Redis。
 - **安全**:登录/支付/推送目前是演示实现;生产需 JWT、支付验签、鉴权、限流(见 NATIVE.md 里的 TODO 标注)。
