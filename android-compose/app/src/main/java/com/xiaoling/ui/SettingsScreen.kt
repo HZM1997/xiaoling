@@ -203,6 +203,36 @@ private fun UserTab(
         Divider()
         RowItem("隐私政策摘要") { showText("隐私政策摘要", "我们仅收集为您提供防诈、呼救、陪伴所必需的最少信息;敏感数据尽量在本机处理;不向第三方出售您的个人信息。完整政策见官网。") }
     }
+    ProfileCard()
+}
+
+/** 个人资料:称呼/偏好/常联系人 —— 随请求传给智能大脑,让它更懂这位老人 */
+@Composable
+private fun ProfileCard() {
+    val ctx = LocalContext.current
+    var name by remember { mutableStateOf(com.xiaoling.core.Profile.name(ctx)) }
+    var prefs by remember { mutableStateOf(com.xiaoling.core.Profile.prefs(ctx)) }
+    var contacts by remember { mutableStateOf(com.xiaoling.core.Profile.contacts(ctx)) }
+    var saved by remember { mutableStateOf(false) }
+    GlassCard {
+        Text("个人资料 · 让小灵更懂您", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text("告诉小灵怎么称呼您、爱好、常联系的人,它会更贴心", fontSize = 12.sp, color = DimColor,
+            modifier = Modifier.padding(top = 2.dp, bottom = 8.dp))
+        OutlinedTextField(value = name, onValueChange = { name = it; saved = false },
+            label = { Text("称呼(如 王奶奶)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = prefs, onValueChange = { prefs = it; saved = false },
+            label = { Text("爱好(如 爱听京剧、喜欢散步)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = contacts, onValueChange = { contacts = it; saved = false },
+            label = { Text("常联系人(如 女儿小芳、老伴)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(10.dp))
+        Button(onClick = {
+            com.xiaoling.core.Profile.save(ctx, name, prefs, contacts); saved = true
+        }, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(14.dp)) {
+            Text(if (saved) "已保存 ✓" else "保存资料")
+        }
+    }
 }
 
 private fun maskPhone(p: String): String =

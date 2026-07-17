@@ -11,13 +11,18 @@ import java.net.URL
 /** 云端大脑客户端:POST /dialogue,用平台 HttpURLConnection + org.json,零额外依赖 */
 object BrainClient {
 
-    /** 在 IO 线程发请求;失败抛异常,调用方兜底到 LocalSafetyNet */
+    /** 在 IO 线程发请求;失败抛异常,调用方兜底到 LocalSafetyNet。自动附带用户画像让大脑更懂用户。 */
     suspend fun ask(ctx: Context, text: String, context: JSONObject? = null): Reply =
         withContext(Dispatchers.IO) {
+            // 合并用户画像到 context.profile,让智能大脑理解称呼/偏好/常联系人
+            val mergedCtx = (context ?: JSONObject()).apply {
+                Profile.toJson(ctx)?.let { put("profile", it) }
+            }
+            val hasCtx = mergedCtx.length() > 0
             val body = JSONObject()
-                .put("user_id", "u001")
+                .put("user_id", Settings.userId(ctx))
                 .put("text", text)
-                .apply { if (context != null) put("context", context) }
+                .apply { if (hasCtx) put("context", mergedCtx) }
                 .toString()
 
             val url = URL(Settings.brainUrl(ctx).trimEnd('/') + "/dialogue")

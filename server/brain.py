@@ -23,7 +23,12 @@ def _system_prompt(profile: dict | None, scene: str) -> str:
     p = profile or {}
     name = p.get("name", "")
     prefs = p.get("prefs", "")
-    who = f"用户{('叫' + name) if name else ''}是一位老年人。" + (f"偏好:{prefs}。" if prefs else "")
+    contacts = p.get("contacts", "")
+    who = f"用户{('叫' + name) if name else ''}是一位老年人。"
+    if prefs:
+        who += f"爱好:{prefs}。"
+    if contacts:
+        who += f"常联系的人:{contacts}(理解'女儿''老伴'等称呼时参考)。"
     return (
         "你是'小灵',老年人的贴心 AI 语音管家。目标:理解老人真正想做什么,帮他用手机。\n"
         f"{who}\n"

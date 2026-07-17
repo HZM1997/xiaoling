@@ -7,6 +7,18 @@ import com.xiaoling.BuildConfig
 object Settings {
     private const val PREF = "xiaoling"
     private const val KEY_URL = "brain_url"
+    private const val KEY_UID = "user_id"
+
+    /** 稳定的设备级用户 id,供大脑按 user_id 保留会话记忆 */
+    fun userId(ctx: Context): String {
+        val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        var id = sp.getString(KEY_UID, null)
+        if (id.isNullOrBlank()) {
+            id = "u" + java.util.UUID.randomUUID().toString().take(12)
+            sp.edit().putString(KEY_UID, id).apply()
+        }
+        return id
+    }
 
     fun brainUrl(ctx: Context): String {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
