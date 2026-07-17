@@ -63,6 +63,21 @@ object LocalIntents {
         // —— 实时翻译(离线词库即时)——
         parseTranslate(text)?.let { return it }
 
+        // —— 亲情语音留言:录制 ——
+        if (Regex("录(一?段)?留言|录(个)?语音|给.{0,4}(留言|录)").containsMatchIn(text)
+            && !Regex("发给|发送").containsMatchIn(text)) {
+            return Reply("好的,请对我说您想留的话,说完松开按钮就行。",
+                JSONObject().put("type", "RECORD_MEMO"), "录留言", 0.0)
+        }
+        // —— 亲情语音留言:发送给某人(自动匹配联系人)——
+        Regex("(?:把(?:这条|刚才的)?(?:语音|留言)?)?发(?:给|送给)\\s*(.+)").find(text)?.let { mm ->
+            val who = clean(mm.groupValues[1].replace(Regex("(的)?(语音|留言|录音)$"), ""))
+            if (who.isNotBlank()) {
+                return Reply("好的,把语音留言发给$who。",
+                    JSONObject().put("type", "SEND_MEMO").put("target", who), "发留言", 0.0)
+            }
+        }
+
         var m = Regex("(?:打(?:个)?电话给?|呼叫|拨打?给?)\\s*(.+)").find(text)
         if (m != null) {
             val name = clean(m.groupValues[1])

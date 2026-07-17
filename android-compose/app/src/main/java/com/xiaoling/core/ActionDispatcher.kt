@@ -57,7 +57,34 @@ object ActionDispatcher {
                 null
             }
             "FRAUD_WARN" -> { vibrate(app); null }
-            "PLAY", "REMIND", "SPEAK" -> null   // 仅语音播报(翻译结果由 TTS 念出)
+            "PLAY" -> {
+                // 语音影音点播:调起音乐/视频 App 搜索播放;失败退回网页搜索
+                val kw = action.optString("keyword", "戏曲")
+                val ok = view(app, Intent(Intent.ACTION_VIEW,
+                    Uri.parse("qqmusic://qq.com/ui/search?key=" + Uri.encode(kw))))
+                if (!ok) view(app, Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://www.baidu.com/s?wd=" + Uri.encode("$kw 在线播放"))))
+                null
+            }
+            "REMIND" -> {
+                // 语音提醒:解析时间并用 AlarmManager 定时;解析不出就存为下一整点提醒
+                val raw = action.optString("raw")
+                Reminders.schedule(app, raw)
+                null
+            }
+            "SEND_MEMO" -> {
+                // 亲情语音留言:把录好的语音分享给匹配到的联系人
+                val target = action.optString("target")
+                val f = VoiceMemo.lastFile
+                if (f == null || !f.exists()) {
+                    "还没有录音,先跟我说『录一段留言』吧。"
+                } else {
+                    val num = Contacts.lookup(app, target)
+                    shareAudio(app, f, num, target)
+                    null
+                }
+            }
+            "SPEAK" -> null   // 翻译结果由 TTS 念出
             else -> null
         }
     }
@@ -66,6 +93,23 @@ object ActionDispatcher {
         return try {
             ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true
         } catch (e: Exception) { false }
+    }
+
+    /** 把语音留言分享给联系人:优先带号码的分享(微信/短信里选到人),否则系统分享面板 */
+    private fun shareAudio(ctx: Context, f: java.io.File, number: String?, target: String) {
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                ctx, ctx.packageName + ".fileprovider", f)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "audio/mp4"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_TEXT, "这是给${target}的语音留言")
+                if (!number.isNullOrBlank()) putExtra("address", number)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            ctx.startActivity(Intent.createChooser(send, "发送语音留言给${target}")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) { /* 分享失败,忽略 */ }
     }
 
     private fun vibrate(ctx: Context) {

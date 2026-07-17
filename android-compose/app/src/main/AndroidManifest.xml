@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
 
     <!-- Android 11+ 必须声明,否则 SpeechRecognizer.isRecognitionAvailable()==false / 调不起拨号地图 -->
     <queries>
@@ -70,5 +72,21 @@
             android:name=".service.WakeService"
             android:foregroundServiceType="microphone"
             android:exported="false" />
+
+        <!-- 语音提醒:到点触发,语音播报+通知 -->
+        <receiver
+            android:name=".service.ReminderReceiver"
+            android:exported="false" />
+
+        <!-- 语音留言分享:FileProvider 授权其它 App 读取录音文件 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

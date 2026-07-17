@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 语音留言录音存在 App 私有 filesDir,授权分享给其它 App 读取 -->
+    <files-path name="memos" path="." />
+</paths>

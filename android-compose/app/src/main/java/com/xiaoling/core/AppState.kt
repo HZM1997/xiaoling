@@ -62,6 +62,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var speaking = false   // TTS 播报中
     @Volatile private var holding = false    // 老人正按住说话
     @Volatile private var interrupted = false // 本次按住是"打断"播报触发的(松手无新指令则恢复原播报)
+    @Volatile private var memoMode = false   // 亲情语音留言录制模式:下一次按住录音频而非识别
     @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
     private var curUtt = ""                   // 当前 TTS utteranceId(被 flush 的旧句忽略)
 
@@ -139,10 +140,20 @@ class AppState(application: Application) : AndroidViewModel(application) {
      * 并记录 interrupted:松手后若没听到新指令,就恢复原来的播报。
      */
     fun pressToTalk() {
-        if (!speech.isAvailable) {
+        if (!speech.isAvailable && !memoMode) {
             speaking = true
             _state.update { it.copy(caption = "这台手机没有语音识别,请启用「Google 语音服务」", speaking = true) }
             curUtt = tts.speak("这台手机没有语音识别,请在设置里启用谷歌语音服务。")
+            return
+        }
+        // 亲情语音留言录制:按住录音频(不做识别)
+        if (memoMode) {
+            if (speaking) { tts.stop(); speaking = false }
+            holding = true
+            val ok = VoiceMemo.startRecord(app)
+            _state.update { it.copy(listening = true, busy = false,
+                caption = if (ok) "正在录音…松开就好" else "录音没打开,请检查麦克风权限",
+                mascot = MascotState.Listening) }
             return
         }
         interrupted = speaking      // 正在播报时按住 = 打断
@@ -158,9 +169,30 @@ class AppState(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    /** 松手:收尾识别,尽快出最终结果 */
+    /** 松手:留言模式停止录音 → 回放让老人听清楚 → 再语音确认;否则收尾识别 */
     fun releaseToTalk() {
         if (!holding) return
+        if (memoMode) {
+            holding = false; memoMode = false
+            val f = VoiceMemo.stopRecord()
+            speaking = true
+            if (f != null) {
+                // 先把刚录的原声放给老人听一遍(听得清才敢发),放完再提示怎么发
+                _state.update { it.copy(listening = false, mascot = MascotState.Caring,
+                    caption = "您先听听,录得清楚吗…", speaking = true) }
+                VoiceMemo.playback(app) {
+                    val tip = "录好了。想发给谁,就跟我说『发给女儿』这样。"
+                    speaking = true
+                    _state.update { it.copy(mascot = MascotState.Caring, caption = tip, speaking = true) }
+                    curUtt = tts.speak(tip)
+                }
+            } else {
+                val tip = "没录到声音,再试一次好吗?"
+                _state.update { it.copy(listening = false, mascot = MascotState.Caring, caption = tip, speaking = true) }
+                curUtt = tts.speak(tip)
+            }
+            return
+        }
         speech.stopListening()
     }
 
@@ -240,6 +272,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
                     delay(1200)   // 每步之间留点间隔,别挤在一起
                 }
             }
+            return
+        }
+        // 亲情语音留言:进入录制模式,提示老人按住说要留的话
+        if (type == "RECORD_MEMO") {
+            memoMode = true
+            speaking = true
+            _state.update { it.copy(busy = false, speaking = true, mascot = MascotState.Listening, caption = reply.speech) }
+            curUtt = tts.speak(reply.speech)
             return
         }
         // 语音举报/信任号码:对最近一次诈骗号码操作,喂号码信誉库
@@ -437,5 +477,6 @@ class AppState(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         speech.destroy()
         tts.shutdown()
+        VoiceMemo.release()
     }
 }
