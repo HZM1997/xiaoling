@@ -6,12 +6,18 @@ import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 
-/** 系统 TTS 封装:异步 init、中文可用性判断、带 id 的说完回调(避免被 flush 的旧句误清状态) */
+/**
+ * 系统 TTS 封装:异步 init、中文可用性判断、带 id 的说完回调。
+ * 记住"上次说的话"以支持"被打断→无新指令→恢复播报"。
+ */
 class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
 
     private var ready = false
     private var tts: TextToSpeech? = null
     private var seq = 0
+    /** 最近一次正常播报的内容(供打断后恢复) */
+    @Volatile var lastSpoken: String = ""
+        private set
 
     init {
         tts = TextToSpeech(ctx.applicationContext) { status ->
@@ -38,6 +44,7 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
     /** 播报;返回本次 utteranceId。引擎报错/未就绪时立即回调 onDone,避免状态卡死。 */
     fun speak(s: String): String {
         val id = (++seq).toString()
+        if (s.isNotBlank()) lastSpoken = s
         if (ready && s.isNotBlank()) {
             val r = tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, id) ?: TextToSpeech.ERROR
             if (r == TextToSpeech.ERROR) onDone(id)
@@ -47,6 +54,10 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
         return id
     }
 
+    /** 重播上一句(打断后未识别到新指令时恢复);无历史则不动作,返回空 id */
+    fun speakLast(): String = if (lastSpoken.isNotBlank()) speak(lastSpoken) else ""
+
+    /** 立即停止当前播报(打断用) */
     fun stop() { tts?.stop() }
 
     fun shutdown() { tts?.stop(); tts?.shutdown(); tts = null }

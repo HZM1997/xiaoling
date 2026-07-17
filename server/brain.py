@@ -32,8 +32,14 @@ def _system_prompt(profile: dict | None, scene: str) -> str:
     return (
         "你是'小灵',老年人的贴心 AI 语音管家。目标:理解老人真正想做什么,帮他用手机。\n"
         f"{who}\n"
-        "原则:说话简短温暖像孙辈;能直接做的就调用工具去做;意图不明确、有多种合理做法时,"
-        "调用 offer_choices 给 2~3 个贴合他的选项让他选,不要武断替他决定;"
+        "老人说话常有这些特点,你要包容并抽取真实意图:\n"
+        "· 语序混乱(如'那个…女儿…电话'其实是想给女儿打电话);\n"
+        "· 表达不完整(如'冷'可能想让你提醒加衣或查天气);\n"
+        "· 有语气词、重复、停顿(如'就是那个啥…放个戏');\n"
+        "· 用模糊称呼(结合上面'常联系的人'理解'闺女''老头子'指谁)。\n"
+        "原则:说话简短温暖像孙辈;能确定意图就直接调用工具去做;\n"
+        "一句话里有多个意图(如'给女儿打电话再提醒我吃药')→ 依次调用 add_tasks 把多件事排好;\n"
+        "意图不明确、有多种合理做法时→调用 offer_choices 给 2~3 个贴合他的选项让他选,不要武断替他决定;\n"
         "涉及转账/验证码/公检法/中奖等要警惕诈骗;身体不适优先关心安全。\n"
         f"当前场景:{scene}。只通过调用工具回应。"
     )
@@ -85,10 +91,21 @@ _TOOLS = [
         "name": "chat", "description": "纯闲聊陪伴,无需执行动作",
         "parameters": {"type": "object", "properties": {
             "speech": {"type": "string"}}, "required": ["speech"]}}},
+    {"type": "function", "function": {
+        "name": "add_tasks",
+        "description": "一句话里包含多件事时,把它们按顺序排好依次执行(连续多指令)",
+        "parameters": {"type": "object", "properties": {
+            "speech": {"type": "string", "description": "一句话概括要做的几件事,如'好的,先给女儿打电话,再提醒您八点吃药'"},
+            "tasks": {"type": "array", "description": "2件及以上任务,按执行顺序",
+                "items": {"type": "object", "properties": {
+                    "kind": {"type": "string", "enum": ["call", "navigate", "sos", "play", "remind", "translate", "video"]},
+                    "arg": {"type": "string", "description": "参数:联系人/目的地/关键词/提醒内容/待翻译内容"},
+                    "arg2": {"type": "string", "description": "翻译目标语言 english/cantonese(仅translate用)"}}}}},
+            "required": ["speech", "tasks"]}}},
 ]
 
 
-def _kind_to_action(kind: str, arg: str) -> dict | None:
+def _kind_to_action(kind: str, arg: str, arg2: str = "") -> dict | None:
     a = (arg or "").strip()
     return {
         "call": {"type": "CALL", "target": a or "对方"},
@@ -97,6 +114,8 @@ def _kind_to_action(kind: str, arg: str) -> dict | None:
                      "uri": f"androidamap://poi?sourceApplication=xiaoling&keywords={a}&dev=0"},
         "sos": {"type": "SOS", "call": "120", "notify_family": True},
         "play": {"type": "PLAY", "keyword": a or "戏曲"},
+        "remind": {"type": "REMIND", "raw": a},
+        "translate": {"type": "SPEAK", "text": a, "lang": (arg2 or "english")},
         "chat": None,
     }.get(kind)
 
@@ -172,6 +191,14 @@ def _dispatch(name: str, a: dict) -> Reply | None:
         if opts:
             return Reply(a.get("prompt", "您想怎么做?"),
                          {"type": "CHOICES", "options": opts}, "llm:智能澄清", 0.0)
+    if name == "add_tasks":
+        steps = []
+        for tk in a.get("tasks", [])[:5]:
+            act = _kind_to_action(tk.get("kind", "chat"), tk.get("arg", ""), tk.get("arg2", ""))
+            if act is not None:
+                steps.append(act)
+        if steps:
+            return Reply(sp, {"type": "TASKS", "steps": steps}, "llm:多指令", 0.0)
     return None
 
 

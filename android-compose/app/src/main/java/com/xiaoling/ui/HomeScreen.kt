@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,31 +67,19 @@ fun HomeScreen(vm: AppState) {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         if (result[Manifest.permission.RECORD_AUDIO] == true) {
-            vm.startAuto()
+            vm.warmUpMic()
             com.xiaoling.service.WakeService.start(ctx)
         }
     }
 
-    // 生命周期驱动:App 到前台开听、退到后台停听(把麦交给 WakeService 听唤醒词,避免抢麦)
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
-        val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            when (event) {
-                androidx.lifecycle.Lifecycle.Event.ON_START -> {
-                    val granted = ContextCompat.checkSelfPermission(
-                        ctx, Manifest.permission.RECORD_AUDIO
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (granted) {
-                        vm.startAuto()
-                        com.xiaoling.service.WakeService.start(ctx)
-                    } else launcher.launch(perms)
-                }
-                androidx.lifecycle.Lifecycle.Event.ON_STOP -> vm.stopAuto()
-                else -> {}
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(obs)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(obs); vm.stopAuto() }
+    fun hasMic() = ContextCompat.checkSelfPermission(
+        ctx, Manifest.permission.RECORD_AUDIO
+    ) == PackageManager.PERMISSION_GRANTED
+
+    // 进主页:申请权限并预热识别器(不常听,等老人按住说话)
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (hasMic()) { vm.warmUpMic(); com.xiaoling.service.WakeService.start(ctx) }
+        else launcher.launch(perms)
     }
 
     Box(
@@ -140,6 +129,15 @@ fun HomeScreen(vm: AppState) {
                     }
                 }
             }
+
+            Spacer(Modifier.height(24.dp))
+            // 唯一操作:按住说话(按下→开始识别;松手→收尾)。播报中按住即打断。
+            PressToTalkButton(
+                listening = ui.listening,
+                onPress = { if (hasMic()) vm.pressToTalk() else launcher.launch(perms) },
+                onRelease = { vm.releaseToTalk() }
+            )
+            Spacer(Modifier.height(20.dp))
         }
 
         // 唯一入口:右上角 毛玻璃 设置按钮
@@ -178,6 +176,42 @@ private fun GlassSurface(
     } else {
         Surface(shape = shape, color = Color.Transparent, shadowElevation = 3.dp,
             modifier = modifier) { Box(glass) { content() } }
+    }
+}
+
+/** 按住说话大按钮:按下开始识别、松手收尾。老人只需这一个操作,不用双击/长按。 */
+@Composable
+private fun PressToTalkButton(
+    listening: Boolean,
+    onPress: () -> Unit,
+    onRelease: () -> Unit
+) {
+    val shape = RoundedCornerShape(28.dp)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(84.dp)
+            .clip(shape)
+            .background(
+                if (listening)
+                    Brush.verticalGradient(listOf(AccentGlow, AccentBlue))
+                else
+                    Brush.verticalGradient(listOf(AccentBlue, AccentBlue.copy(alpha = 0.85f)))
+            )
+            .pointerInput(Unit) {
+                androidx.compose.foundation.gestures.detectTapGestures(
+                    onPress = {
+                        onPress()
+                        try { awaitRelease() } finally { onRelease() }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            if (listening) "🎤 在听…松手结束" else "🎤 按住说话",
+            fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White
+        )
     }
 }
 

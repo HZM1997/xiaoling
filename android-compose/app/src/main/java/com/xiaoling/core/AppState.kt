@@ -59,8 +59,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private val speech = SpeechController(app)
     private val tts = Tts(app) { id -> onSpeakDone(id) }
 
-    @Volatile private var autoOn = false     // 常听开关(跨主线程/ TTS 回调线程读写)
-    @Volatile private var speaking = false   // TTS 播报中(此时不听,避免听到自己)
+    @Volatile private var speaking = false   // TTS 播报中
+    @Volatile private var holding = false    // 老人正按住说话
+    @Volatile private var interrupted = false // 本次按住是"打断"播报触发的(松手无新指令则恢复原播报)
     @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
     private var curUtt = ""                   // 当前 TTS utteranceId(被 flush 的旧句忽略)
 
@@ -129,50 +130,54 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ---------- 常听式语音(免手动) ----------
-    fun startAuto() {
-        if (autoOn) return
+    // ---------- 按住说话(单一操作) + 打断 ----------
+    /** 预热识别器(进主页时调用),让首次开听更快 */
+    fun warmUpMic() { if (speech.isAvailable) speech.warmUp() }
+
+    /**
+     * 老人按下"按住说话"大按钮。若此刻小灵正在播报 → 立即打断(停播报),
+     * 并记录 interrupted:松手后若没听到新指令,就恢复原来的播报。
+     */
+    fun pressToTalk() {
         if (!speech.isAvailable) {
-            _state.update { it.copy(caption = "这台手机未检测到语音识别,请启用「Google 语音服务」") }
+            speaking = true
+            _state.update { it.copy(caption = "这台手机没有语音识别,请启用「Google 语音服务」", speaking = true) }
+            curUtt = tts.speak("这台手机没有语音识别,请在设置里启用谷歌语音服务。")
             return
         }
-        autoOn = true
-        speech.warmUp()      // 预热识别器,首轮开听更快
-        listenOnce()
-    }
-
-    fun stopAuto() {
-        autoOn = false
-        speech.destroy()
-        _state.update { it.copy(listening = false) }
-    }
-
-    private fun listenOnce() {
-        if (!autoOn || speaking) return
-        _state.update {
-            it.copy(
-                listening = true,
-                caption = "在听…有事就跟我说",
-                mascot = if (it.mascot == MascotState.Alarm) it.mascot else MascotState.Listening
-            )
-        }
+        interrupted = speaking      // 正在播报时按住 = 打断
+        if (speaking) { tts.stop(); speaking = false }
+        holding = true
+        _state.update { it.copy(listening = true, busy = false, caption = "在听…请说",
+            mascot = if (it.mascot == MascotState.Alarm) it.mascot else MascotState.Listening) }
         speech.listen(
-            onPartial = { p ->
-                // 边说边出字:实时更新字幕,让老人看到"听到了",降低感知延迟
-                if (p.isNotBlank()) _state.update { it.copy(caption = p) }
-            },
-            onText = { t ->
-                _state.update { it.copy(listening = false) }
-                if (t.isNotBlank()) process(t) else restartSoon()
-            },
-            onError = { restartSoon() }
+            onPartial = { p -> if (holding && p.isNotBlank()) _state.update { it.copy(caption = p) } },
+            onText = { t -> holding = false; _state.update { it.copy(listening = false) }
+                if (t.isNotBlank()) { interrupted = false; process(t) } else onHeardNothing() },
+            onError = { holding = false; _state.update { it.copy(listening = false) }; onHeardNothing() }
         )
     }
 
-    private fun restartSoon() {
-        _state.update { it.copy(listening = false) }
-        if (!autoOn) return
-        viewModelScope.launch { delay(250); if (autoOn && !speaking) listenOnce() }
+    /** 松手:收尾识别,尽快出最终结果 */
+    fun releaseToTalk() {
+        if (!holding) return
+        speech.stopListening()
+    }
+
+    /** 没听清/没内容:温和语音提示,不弹冷冰冰文字。若是打断场景则恢复原播报。 */
+    private fun onHeardNothing() {
+        if (interrupted && tts.lastSpoken.isNotBlank()) {
+            interrupted = false
+            speaking = true
+            _state.update { it.copy(mascot = MascotState.Talking, speaking = true) }
+            curUtt = tts.speakLast()   // 打断但没说新指令 → 接着把原来的话说完
+            return
+        }
+        interrupted = false
+        speaking = true
+        val tip = "我没听清楚,麻烦您再说一遍好吗?"
+        _state.update { it.copy(mascot = MascotState.Caring, caption = tip, speaking = true) }
+        curUtt = tts.speak(tip)
     }
 
     // ---------- 处理:本地快通道优先(极致反应),云端硬超时兜底,保证 ≤2s ----------
@@ -222,6 +227,21 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun applyReply(reply: Reply) {
         val type = reply.action?.optString("type")
+        // 连续多指令:依次执行多个动作,一句话概括后逐个 dispatch
+        if (type == "TASKS") {
+            val steps = reply.action?.optJSONArray("steps")
+            speaking = true
+            _state.update { it.copy(busy = false, speaking = true, mascot = MascotState.Talking, caption = reply.speech) }
+            curUtt = tts.speak(reply.speech)
+            if (steps != null) viewModelScope.launch {
+                for (i in 0 until steps.length()) {
+                    val act = steps.optJSONObject(i) ?: continue
+                    try { ActionDispatcher.execute(app, act) } catch (e: Exception) {}
+                    delay(1200)   // 每步之间留点间隔,别挤在一起
+                }
+            }
+            return
+        }
         // 语音举报/信任号码:对最近一次诈骗号码操作,喂号码信誉库
         if (type == "REPORT_NUMBER" || type == "TRUST_NUMBER") {
             val num = FraudStore.lastFraudNumber(app)
@@ -286,13 +306,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onSpeakDone(id: String?) {
-        if (id != curUtt) return   // 被 flush 的旧句完成回调,忽略,避免边说边听/提前复位
+        if (id != curUtt) return   // 被 flush 的旧句完成回调,忽略
         speaking = false
         _state.update {
             val m = if (it.mascot == MascotState.Alarm) MascotState.Alarm else MascotState.Idle
             if (it.listening) it.copy(speaking = false) else it.copy(speaking = false, mascot = m)
         }
-        if (autoOn) restartSoon()
     }
 
     // ---------- 设置 / 子女端 ----------
