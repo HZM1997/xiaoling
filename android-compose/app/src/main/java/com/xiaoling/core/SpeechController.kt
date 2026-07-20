@@ -18,13 +18,22 @@ class SpeechController(private val ctx: Context) {
 
     private var recognizer: SpeechRecognizer? = null
 
-    val isAvailable: Boolean get() = SpeechRecognizer.isRecognitionAvailable(ctx)
+    val isAvailable: Boolean
+        get() = try {
+            SpeechRecognizer.isRecognitionAvailable(ctx)
+        } catch (_: Throwable) {
+            false
+        }
 
     /** 预热:提前建好识别器,首次/每轮开听更快 */
     fun warmUp() {
         if (!isAvailable) return
-        if (recognizer == null) {
-            recognizer = SpeechRecognizer.createSpeechRecognizer(ctx)
+        try {
+            if (recognizer == null) {
+                recognizer = SpeechRecognizer.createSpeechRecognizer(ctx)
+            }
+        } catch (_: Throwable) {
+            releaseRecognizer()
         }
     }
 
@@ -39,43 +48,48 @@ class SpeechController(private val ctx: Context) {
         onText: (String) -> Unit,
         onError: (Int) -> Unit
     ) {
-        if (!isAvailable) { onError(-1); return }
+        if (!isAvailable) { onError(SpeechRecognizer.ERROR_CLIENT); return }
         val partialCb = onPartial
         val textCb = onText
         val errCb = onError
-        if (recognizer == null) recognizer = SpeechRecognizer.createSpeechRecognizer(ctx)
-        recognizer?.setRecognitionListener(object : RecognitionListener {
-            override fun onResults(results: Bundle) {
-                val text = results
-                    .getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull().orEmpty()
-                textCb(text)
+        try {
+            if (recognizer == null) recognizer = SpeechRecognizer.createSpeechRecognizer(ctx)
+            recognizer?.setRecognitionListener(object : RecognitionListener {
+                override fun onResults(results: Bundle) {
+                    val text = results
+                        .getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull().orEmpty()
+                    textCb(text)
+                }
+                override fun onPartialResults(partialResults: Bundle?) {
+                    val p = partialResults
+                        ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                        ?.firstOrNull().orEmpty()
+                    if (p.isNotBlank()) partialCb(p)
+                }
+                override fun onError(error: Int) { errCb(error) }
+                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onBeginningOfSpeech() {}
+                override fun onRmsChanged(rmsdB: Float) {}
+                override fun onBufferReceived(buffer: ByteArray?) {}
+                override fun onEndOfSpeech() {}
+                override fun onEvent(eventType: Int, params: Bundle?) {}
+            })
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                // 按住说话:靠松手 stopListening() 收尾,静音阈值放宽以免老人说话间断被半途截断
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 400)
             }
-            override fun onPartialResults(partialResults: Bundle?) {
-                val p = partialResults
-                    ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                    ?.firstOrNull().orEmpty()
-                if (p.isNotBlank()) partialCb(p)
-            }
-            override fun onError(error: Int) { errCb(error) }
-            override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
-            override fun onRmsChanged(rmsdB: Float) {}
-            override fun onBufferReceived(buffer: ByteArray?) {}
-            override fun onEndOfSpeech() {}
-            override fun onEvent(eventType: Int, params: Bundle?) {}
-        })
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            // 按住说话:靠松手 stopListening() 收尾,静音阈值放宽以免老人说话间断被半途截断
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 400)
+            recognizer?.startListening(intent)
+        } catch (_: Throwable) {
+            releaseRecognizer()
+            errCb(SpeechRecognizer.ERROR_CLIENT)
         }
-        recognizer?.startListening(intent)
     }
 
     /** 松手时调用:停止采音并尽快给出最终结果(触发 onResults) */
@@ -84,5 +98,10 @@ class SpeechController(private val ctx: Context) {
     /** 取消本次识别但保留识别器复用 */
     fun cancel() { try { recognizer?.cancel() } catch (e: Exception) {} }
 
-    fun destroy() { recognizer?.destroy(); recognizer = null }
+    fun destroy() = releaseRecognizer()
+
+    private fun releaseRecognizer() {
+        try { recognizer?.destroy() } catch (_: Throwable) {}
+        recognizer = null
+    }
 }

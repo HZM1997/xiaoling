@@ -11,8 +11,8 @@ android {
         applicationId 'com.xiaoling'
         minSdk 24
         targetSdk 34
-        versionCode 7
-        versionName '1.0.7'
+        versionCode 8
+        versionName '1.0.8'
         // 云端「大脑」地址:改成你电脑的局域网 IP(App 内也可运行时覆盖)
         // 注意:内层引号必须转义,否则生成的 BuildConfig.java 编不过
         buildConfigField 'String', 'BRAIN_URL', '"http://192.168.1.20:8000"'

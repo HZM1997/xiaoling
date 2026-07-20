@@ -37,48 +37,55 @@ class WakeService : Service() {
         super.onCreate()
         try {
             startForeground(NOTIF_ID, buildNotification())
-        } catch (e: Exception) {
-            stopSelf(); return   // 未授麦克风等原因:优雅退出,不崩
+            running = true
+            // 优先离线唤醒(Picovoice):省电、不联网、误唤醒低;不可用则回退系统识别循环
+            porcupine = com.xiaoling.core.PorcupineWakeEngine(this)
+            offlineOn = porcupine?.start { if (!AppForeground.active) wakeUp() } == true
+            if (!offlineOn) loop()
+        } catch (_: Throwable) {
+            shutdownAndStop()
         }
-        running = true
-        // 优先离线唤醒(Picovoice):省电、不联网、误唤醒低;不可用则回退系统识别循环
-        porcupine = com.xiaoling.core.PorcupineWakeEngine(this)
-        offlineOn = porcupine?.start { if (!AppForeground.active) wakeUp() } == true
-        if (!offlineOn) loop()
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
+        if (running) START_STICKY else START_NOT_STICKY
 
     /** 后台监听循环:App 在前台/无识别服务时让位重试;否则听一轮,命中「小灵」就唤起 */
     private fun loop() {
         if (!running) return
-        if (AppForeground.active || !SpeechRecognizer.isRecognitionAvailable(this)) {
+        val available = try { SpeechRecognizer.isRecognitionAvailable(this) } catch (_: Throwable) { false }
+        if (AppForeground.active || !available) {
             main.postDelayed({ loop() }, 1500); return
         }
-        recognizer?.destroy()
-        recognizer = SpeechRecognizer.createSpeechRecognizer(this).also { r ->
-            r.setRecognitionListener(object : RecognitionListener {
-                override fun onResults(results: Bundle) {
-                    val hit = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                        ?.any { it.replace(" ", "").contains("小灵") } == true
-                    if (hit) wakeUp() else again(500)
-                }
-                override fun onError(error: Int) = again(700)
-                override fun onReadyForSpeech(params: Bundle?) {}
-                override fun onBeginningOfSpeech() {}
-                override fun onRmsChanged(rmsdB: Float) {}
-                override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
-                override fun onPartialResults(partialResults: Bundle?) {}
-                override fun onEvent(eventType: Int, params: Bundle?) {}
-            })
+        try {
+            releaseRecognizer()
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this).also { r ->
+                r.setRecognitionListener(object : RecognitionListener {
+                    override fun onResults(results: Bundle) {
+                        val hit = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                            ?.any { it.replace(" ", "").contains("小灵") } == true
+                        if (hit) wakeUp() else again(500)
+                    }
+                    override fun onError(error: Int) = again(700)
+                    override fun onReadyForSpeech(params: Bundle?) {}
+                    override fun onBeginningOfSpeech() {}
+                    override fun onRmsChanged(rmsdB: Float) {}
+                    override fun onBufferReceived(buffer: ByteArray?) {}
+                    override fun onEndOfSpeech() {}
+                    override fun onPartialResults(partialResults: Bundle?) {}
+                    override fun onEvent(eventType: Int, params: Bundle?) {}
+                })
+            }
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            }
+            recognizer?.startListening(intent)
+        } catch (_: Throwable) {
+            releaseRecognizer()
+            again(1500)
         }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-        }
-        try { recognizer?.startListening(intent) } catch (e: Exception) { again(1000) }
     }
 
     private fun again(delay: Long) { main.postDelayed({ loop() }, delay) }
@@ -113,9 +120,25 @@ class WakeService : Service() {
 
     override fun onDestroy() {
         running = false
-        recognizer?.destroy(); recognizer = null
-        porcupine?.stop(); porcupine = null
+        main.removeCallbacksAndMessages(null)
+        releaseRecognizer()
+        try { porcupine?.stop() } catch (_: Throwable) {}
+        porcupine = null
         super.onDestroy()
+    }
+
+    private fun releaseRecognizer() {
+        try { recognizer?.destroy() } catch (_: Throwable) {}
+        recognizer = null
+    }
+
+    private fun shutdownAndStop() {
+        running = false
+        main.removeCallbacksAndMessages(null)
+        releaseRecognizer()
+        try { porcupine?.stop() } catch (_: Throwable) {}
+        porcupine = null
+        stopSelf()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -130,7 +153,7 @@ class WakeService : Service() {
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
                     ctx.startForegroundService(i) else ctx.startService(i)
-            } catch (e: Exception) {}
+            } catch (_: Throwable) {}
         }
     }
 }
