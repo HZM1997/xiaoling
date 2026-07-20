@@ -30,6 +30,7 @@
 
     <application
         android:allowBackup="true"
+        android:name=".XiaolingApplication"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:networkSecurityConfig="@xml/network_security_config"
@@ -47,6 +48,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 崩溃信息展示页:纯代码 UI,不依赖主题/资源,避免二次崩溃 -->
+        <activity
+            android:name=".CrashActivity"
+            android:exported="false"
+            android:process=":crash" />
 
         <!-- 来电防诈:需用户把本 App 设为「来电识别/防骚扰」默认应用 -->
         <service

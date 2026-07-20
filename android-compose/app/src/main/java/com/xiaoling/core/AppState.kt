@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -63,6 +64,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var holding = false    // 老人正按住说话
     @Volatile private var interrupted = false // 本次按住是"打断"播报触发的(松手无新指令则恢复原播报)
     @Volatile private var memoMode = false   // 亲情语音留言录制模式:下一次按住录音频而非识别
+    private var memoTimeoutJob: Job? = null   // 进入留言模式后若迟迟不按住,自动取消,避免劫持下次按住说话
     @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
     private var curUtt = ""                   // 当前 TTS utteranceId(被 flush 的旧句忽略)
 
@@ -140,6 +142,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
      * 并记录 interrupted:松手后若没听到新指令,就恢复原来的播报。
      */
     fun pressToTalk() {
+        VoiceMemo.stopPlayback()          // 若正在回放刚录的留言,按下按钮先把回放停掉,避免边放边听
+        memoTimeoutJob?.cancel()          // 用户已开始操作,取消留言模式的自动超时
         if (!speech.isAvailable && !memoMode) {
             speaking = true
             _state.update { it.copy(caption = "这台手机没有语音识别,请启用「Google 语音服务」", speaking = true) }
@@ -280,6 +284,18 @@ class AppState(application: Application) : AndroidViewModel(application) {
             speaking = true
             _state.update { it.copy(busy = false, speaking = true, mascot = MascotState.Listening, caption = reply.speech) }
             curUtt = tts.speak(reply.speech)
+            // 20 秒内没按住说话就自动退出留言模式,否则下次按住会被误当成录音
+            memoTimeoutJob?.cancel()
+            memoTimeoutJob = viewModelScope.launch {
+                delay(20000)
+                if (memoMode && !holding) {
+                    memoMode = false
+                    speaking = true
+                    val t = "没听到您按住说话,留言先取消了,想留言再跟我说一声。"
+                    _state.update { it.copy(mascot = MascotState.Caring, caption = t, speaking = true) }
+                    curUtt = tts.speak(t)
+                }
+            }
             return
         }
         // 语音举报/信任号码:对最近一次诈骗号码操作,喂号码信誉库

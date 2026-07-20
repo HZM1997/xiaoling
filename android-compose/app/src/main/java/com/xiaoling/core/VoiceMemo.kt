@@ -20,6 +20,7 @@ object VoiceMemo {
 
     fun startRecord(ctx: Context): Boolean {
         stopRecord()
+        cleanupOld(ctx)   // 录新的前先删掉旧留言,避免文件长期累积
         return try {
             val f = File(ctx.filesDir, "memo_" + (System.currentTimeMillis() % 1000000) + ".m4a")
             val r = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) MediaRecorder(ctx)
@@ -41,7 +42,8 @@ object VoiceMemo {
     }
 
     fun playback(ctx: Context, onDone: () -> Unit = {}) {
-        val f = current ?: return
+        val f = current
+        if (f == null || !f.exists()) { onDone(); return }   // 没有可放的文件也要回调,避免上层卡在"播报中"
         try {
             player?.release()
             player = MediaPlayer().apply {
@@ -50,6 +52,21 @@ object VoiceMemo {
                 prepare(); start()
             }
         } catch (e: Exception) { onDone() }
+    }
+
+    /** 停止正在进行的回放(如老人回放途中按下按钮要说别的) */
+    fun stopPlayback() {
+        try { player?.stop() } catch (e: Exception) {}
+        try { player?.release() } catch (e: Exception) {}
+        player = null
+    }
+
+    /** 删除历史留言录音(只保留正在录/待发送的当前这条由调用时机保证) */
+    private fun cleanupOld(ctx: Context) {
+        try {
+            ctx.filesDir.listFiles { f -> f.name.startsWith("memo_") && f.name.endsWith(".m4a") }
+                ?.forEach { it.delete() }
+        } catch (e: Exception) { /* 清理失败忽略 */ }
     }
 
     fun release() {

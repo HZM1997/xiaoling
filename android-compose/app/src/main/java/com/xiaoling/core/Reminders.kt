@@ -18,7 +18,8 @@ object Reminders {
     fun schedule(ctx: Context, raw: String): String {
         val cal = parseTime(raw)
         val content = extractContent(raw)
-        val id = (System.currentTimeMillis() % 100000).toInt()
+        // 用提醒内容的 hash 做 request code:同一件事(如"每天八点吃药")重复说只会更新同一个闹钟,不会叠加
+        val id = content.hashCode()
 
         val intent = Intent(ctx, ReminderReceiver::class.java).apply {
             putExtra("content", content)
