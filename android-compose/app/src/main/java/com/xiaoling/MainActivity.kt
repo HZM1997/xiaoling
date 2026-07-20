@@ -1,19 +1,45 @@
 package com.xiaoling
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xiaoling.core.AppState
 import com.xiaoling.service.AppForeground
+import com.xiaoling.service.WakeService
 import com.xiaoling.ui.XiaolingApp
 
 class MainActivity : ComponentActivity() {
+    private var wakeRequest by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        acceptWakeRequest(intent)
         setContent {
             val vm: AppState = viewModel()
+            val request = wakeRequest
+            LaunchedEffect(request) {
+                if (request > 0) vm.startVoiceConversation()
+            }
             XiaolingApp(vm)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        acceptWakeRequest(intent)
+    }
+
+    private fun acceptWakeRequest(intent: Intent?) {
+        if (intent?.getBooleanExtra(WakeService.EXTRA_WAKE, false) == true) {
+            intent.removeExtra(WakeService.EXTRA_WAKE)
+            wakeRequest++
         }
     }
 

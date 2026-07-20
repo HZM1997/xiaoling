@@ -62,4 +62,10 @@ docker build -t xiaoling-brain . && docker run -p 8000:8000 xiaoling-brain
   - 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`
   未配任何 KEY 时自动降级为规则+离线兜底,不影响运行。`GET /health` 的 `llm:true/false` 可查是否已启用。
 - **持久化**:当前用户库/会话记忆是内存态,重启即清空。上线请接数据库/Redis。
+- **官方气象预警**:取得主管部门授权的数据源后设置 `OFFICIAL_WEATHER_ALERT_URL`。接口需返回
+  `{ "alerts": [{ "id", "category", "speech", "source", "url" }] }`,其中 `category` 支持
+  `typhoon/rainstorm/sandstorm/weather/earthquake`。未配置时服务返回空列表,不会生成假预警。
+- **亲情语音直发**:生产部署设置 `PUBLIC_BASE_URL=https://你的公网域名`;留言保存在
+  `FAMILY_AUDIO_DIR`(默认 `server/family_audio`)。亲人端可调用 `/family/remote/reminder` 和
+  `/family/remote/audio`,老人端会直接创建提醒或播放音频。
 - **安全**:登录/支付/推送目前是演示实现;生产需 JWT、支付验签、鉴权、限流(见 NATIVE.md 里的 TODO 标注)。

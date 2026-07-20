@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import com.xiaoling.service.AppForeground
 
 enum class Screen { Home, Settings, Login }
 
@@ -67,6 +68,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private var memoTimeoutJob: Job? = null   // 进入留言模式后若迟迟不按住,自动取消,避免劫持下次按住说话
     @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
     private var curUtt = ""                   // 当前 TTS utteranceId(被 flush 的旧句忽略)
+    @Volatile private var voiceSessionActive = false // 唤醒词进入的免手持连续对话
+    private var automaticMisses = 0
+    private var autoListenJob: Job? = null
+    private var pendingReminder = ""
+    private var pendingRemoteAudioUrl = ""
 
     /** 当前会员档位(登录跟账号,否则本地) */
     private fun tierNow(): String = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app)
@@ -81,12 +87,15 @@ class AppState(application: Application) : AndroidViewModel(application) {
         FraudStore.takePendingIfRecent(app)?.let { onExternalFraud(it) }
         // 跨设备:订阅家庭组事件(家人设备实时收到老人端的推送),断线自动重连
         subscribePush()
+        monitorOfficialAlerts()
     }
 
     private fun subscribePush() {
         viewModelScope.launch {
             while (isActive) {
-                if (isPremium()) PushClient.subscribe(app) { ev -> onFamilyEvent(ev) }   // 家人看护推送:高级会员
+                if (isPremium()) PushClient.subscribe(app) { ev ->
+                    viewModelScope.launch { onFamilyEvent(ev) }
+                }   // 家人看护推送:高级会员
                 delay(3000)   // 断线/未开通时轮询重试
             }
         }
@@ -97,6 +106,29 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (ev.optString("sender") == PushClient.deviceId(app)) return   // 忽略自己发的事件,避免自我回声
         val text = ev.optString("text").ifBlank { "家人有一条新的看护提醒" }
         val type = ev.optString("type")
+        val data = ev.optJSONObject("data")
+        when (type) {
+            "remote_reminder" -> {
+                val raw = data?.optString("raw").orEmpty().ifBlank { text }
+                val say = if (Reminders.missingPart(raw) == null) {
+                    "家人远程为您设置了提醒。" + Reminders.schedule(app, raw)
+                } else {
+                    "家人发来一条提醒,但时间或内容不完整:$text"
+                }
+                speakFamilyMessage(say)
+                return
+            }
+            "remote_audio" -> {
+                val url = data?.optString("url").orEmpty()
+                if (url.isNotBlank()) pendingRemoteAudioUrl = url
+                speakFamilyMessage(if (url.isNotBlank()) "家人给您发来一段语音,现在播放。" else "家人发来的语音地址无效。")
+                return
+            }
+            "earthquake_alert", "weather_alert", "emergency_alert" -> {
+                presentEmergency(text)
+                return
+            }
+        }
         val prefix = when (type) {
             "fraud_call", "fraud_sms" -> "家人可能遇到诈骗:"
             "sos" -> "家人发起了紧急呼救:"
@@ -105,6 +137,40 @@ class AppState(application: Application) : AndroidViewModel(application) {
         speaking = true
         _state.update { it.copy(caption = "🔔 $prefix$text", mascot = MascotState.Caring, speaking = true) }
         curUtt = tts.speak(prefix + text)
+    }
+
+    private fun speakFamilyMessage(text: String) {
+        speaking = true
+        _state.update { it.copy(caption = text, mascot = MascotState.Caring, speaking = true, busy = false) }
+        curUtt = tts.speak(text)
+    }
+
+    private fun monitorOfficialAlerts() {
+        viewModelScope.launch {
+            delay(4000)
+            while (isActive) {
+                val alert = try { OfficialAlerts.latest(app) } catch (_: Exception) { null }
+                if (alert != null && OfficialAlerts.markIfNew(app, alert)) {
+                    presentEmergency(alert.speech)
+                }
+                delay(15 * 60 * 1000L)
+            }
+        }
+    }
+
+    private fun presentEmergency(text: String) {
+        voiceSessionActive = false
+        autoListenJob?.cancel()
+        holding = false
+        speech.cancel()
+        tts.stop()
+        RemoteAudioPlayer.stop()
+        ActionDispatcher.execute(app, JSONObject().put("type", "ALERT"))
+        Notifier.warn(app, "小灵紧急预警", text, text.hashCode())
+        speaking = true
+        _state.update { it.copy(caption = text, mascot = MascotState.Alarm, listening = false, speaking = true, busy = false) }
+        curUtt = tts.speak(text)
+        scheduleAlarmReset()
     }
 
     /** 来自短信/来电的高危事件:把形象切到警惕态,并语音+震动强反馈 */
@@ -133,18 +199,33 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // ---------- 按住说话(单一操作) + 打断 ----------
+    // ---------- 唤醒即对话 + 按住说话(单一辅助操作) + 打断 ----------
     /** 预热识别器(进主页时调用),让首次开听更快 */
     fun warmUpMic() { if (speech.isAvailable) speech.warmUp() }
+
+    /** 后台听到“小灵”后直接开始免手持对话,AI 每次答完会继续听下一句。 */
+    fun startVoiceConversation() {
+        voiceSessionActive = true
+        automaticMisses = 0
+        _state.update { it.copy(screen = Screen.Home) }
+        beginListening(automatic = true)
+    }
 
     /**
      * 老人按下"按住说话"大按钮。若此刻小灵正在播报 → 立即打断(停播报),
      * 并记录 interrupted:松手后若没听到新指令,就恢复原来的播报。
      */
     fun pressToTalk() {
+        beginListening(automatic = false)
+    }
+
+    private fun beginListening(automatic: Boolean) {
+        if (holding) return
+        autoListenJob?.cancel()
         VoiceMemo.stopPlayback()          // 若正在回放刚录的留言,按下按钮先把回放停掉,避免边放边听
         memoTimeoutJob?.cancel()          // 用户已开始操作,取消留言模式的自动超时
         if (!speech.isAvailable && !memoMode) {
+            voiceSessionActive = false
             speaking = true
             _state.update { it.copy(caption = "这台手机没有语音识别,请启用「Google 语音服务」", speaking = true) }
             curUtt = tts.speak("这台手机没有语音识别,请在设置里启用谷歌语音服务。")
@@ -152,6 +233,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         // 亲情语音留言录制:按住录音频(不做识别)
         if (memoMode) {
+            if (automatic) {
+                voiceSessionActive = false
+                return
+            }
             if (speaking) { tts.stop(); speaking = false }
             holding = true
             val ok = VoiceMemo.startRecord(app)
@@ -168,8 +253,17 @@ class AppState(application: Application) : AndroidViewModel(application) {
         speech.listen(
             onPartial = { p -> if (holding && p.isNotBlank()) _state.update { it.copy(caption = p) } },
             onText = { t -> holding = false; _state.update { it.copy(listening = false) }
-                if (t.isNotBlank()) { interrupted = false; process(t) } else onHeardNothing() },
-            onError = { holding = false; _state.update { it.copy(listening = false) }; onHeardNothing() }
+                if (t.isNotBlank()) {
+                    interrupted = false
+                    automaticMisses = 0
+                    process(t)
+                } else onHeardNothing(automatic)
+            },
+            onError = {
+                holding = false
+                _state.update { it.copy(listening = false) }
+                onHeardNothing(automatic)
+            }
         )
     }
 
@@ -201,29 +295,54 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     /** 没听清/没内容:温和语音提示,不弹冷冰冰文字。若是打断场景则恢复原播报。 */
-    private fun onHeardNothing() {
+    private fun onHeardNothing(automatic: Boolean) {
         if (interrupted && tts.lastSpoken.isNotBlank()) {
             interrupted = false
             speaking = true
-            _state.update { it.copy(mascot = MascotState.Talking, speaking = true) }
+            _state.update { it.copy(caption = tts.lastSpoken, mascot = MascotState.Talking, speaking = true) }
             curUtt = tts.speakLast()   // 打断但没说新指令 → 接着把原来的话说完
             return
         }
         interrupted = false
         speaking = true
-        val tip = "我没听清楚,麻烦您再说一遍好吗?"
+        val tip = if (automatic && voiceSessionActive) {
+            automaticMisses++
+            if (automaticMisses >= 2) {
+                voiceSessionActive = false
+                "我先在这儿等您,有需要再叫小灵。"
+            } else {
+                "我没听清楚,麻烦您再说一遍好吗?"
+            }
+        } else {
+            "我没听清楚,麻烦您再说一遍好吗?"
+        }
         _state.update { it.copy(mascot = MascotState.Caring, caption = tip, speaking = true) }
         curUtt = tts.speak(tip)
     }
 
     // ---------- 处理:本地快通道优先(极致反应),云端硬超时兜底,保证 ≤2s ----------
     private fun process(text: String) {
-        _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = "好的…", lastUser = text) }
+        val spoken = LocalIntents.normalizeSpeech(text)
+        _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken, lastUser = spoken) }
+
+        // 对话式提醒:上一轮缺时间/内容时,把本轮回答补进草稿并继续判断,全程无需弹窗。
+        if (pendingReminder.isNotBlank()) {
+            val combined = "$pendingReminder $spoken".trim()
+            pendingReminder = ""
+            val missing = Reminders.missingPart(combined)
+            if (missing != null) {
+                askReminderDetail(combined, missing)
+            } else {
+                applyReply(Reply("好的,我来设置提醒。",
+                    JSONObject().put("type", "REMIND").put("raw", combined), "语音提醒", 0.0))
+            }
+            return
+        }
 
         // 若上一轮给了选项:先本地解析用户的语音选择("第一个/打电话"),命中即执行
         val pending = _state.value.choices
         if (pending.isNotEmpty()) {
-            val chosen = resolveChoice(text, pending)
+            val chosen = resolveChoice(spoken, pending)
             if (chosen != null) {
                 _state.update { it.copy(choices = emptyList()) }
                 applyReply(Reply(chosen.speech, chosen.action, "智能澄清·已选", 0.0))
@@ -232,13 +351,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
 
         // 安全 + 高频指令本地即时处理,不等网络(<0.3s 秒回)
-        val local = LocalSafetyNet.handle(text) ?: LocalIntents.parse(text)
+        val local = LocalSafetyNet.handle(spoken) ?: LocalIntents.parse(spoken)
         if (local != null) { applyReply(local); return }
+
+        if (WeatherClient.isWeatherQuery(spoken)) {
+            viewModelScope.launch {
+                val reply = withTimeoutOrNull(2300) { WeatherClient.ask(app) }
+                    ?: Reply("天气服务暂时有点慢,过一会儿我再帮您查。", null, "生活问答·天气", 0.0)
+                applyReply(reply)
+            }
+            return
+        }
 
         viewModelScope.launch {
             // 云端最多等 1.8s:whichever first。超时/失败即本地兜底,总响应 ≤2s
             val reply = withTimeoutOrNull(1800) {
-                try { BrainClient.ask(app, text) } catch (e: Exception) { null }
+                try { BrainClient.ask(app, spoken) } catch (e: Exception) { null }
             } ?: Reply("我先陪您聊两句。您可以说『打电话给女儿』『导航到医院』,或者让我帮您翻译。", null, "chat", 0.0)
             applyReply(reply)
         }
@@ -263,6 +391,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun applyReply(reply: Reply) {
         val type = reply.action?.optString("type")
+        if (type == "REMIND") {
+            val raw = reply.action?.optString("raw").orEmpty()
+            val missing = Reminders.missingPart(raw)
+            if (missing != null) {
+                askReminderDetail(raw, missing)
+                return
+            }
+        }
         // 连续多指令:依次执行多个动作,一句话概括后逐个 dispatch
         if (type == "TASKS") {
             val steps = reply.action?.optJSONArray("steps")
@@ -295,6 +431,21 @@ class AppState(application: Application) : AndroidViewModel(application) {
                     _state.update { it.copy(mascot = MascotState.Caring, caption = t, speaking = true) }
                     curUtt = tts.speak(t)
                 }
+            }
+            return
+        }
+        if (type == "SEND_MEMO") {
+            val target = reply.action?.optString("target").orEmpty().ifBlank { "家人" }
+            val file = VoiceMemo.lastFile
+            if (file == null || !file.exists()) {
+                speakFamilyMessage("还没有录音,先跟我说『录一段留言』吧。")
+                return
+            }
+            _state.update { it.copy(busy = true, caption = "正在把语音发给$target…", mascot = MascotState.Thinking) }
+            viewModelScope.launch {
+                val ok = FamilyAudioClient.send(app, file, target)
+                val say = if (ok) "已经把这条语音发给$target 了。" else "这条语音暂时没发出去,我已经保留录音,网络恢复后可以再试。"
+                speakFamilyMessage(say)
             }
             return
         }
@@ -368,10 +519,46 @@ class AppState(application: Application) : AndroidViewModel(application) {
             val m = if (it.mascot == MascotState.Alarm) MascotState.Alarm else MascotState.Idle
             if (it.listening) it.copy(speaking = false) else it.copy(speaking = false, mascot = m)
         }
+        if (pendingRemoteAudioUrl.isNotBlank()) {
+            val url = pendingRemoteAudioUrl
+            pendingRemoteAudioUrl = ""
+            RemoteAudioPlayer.play(url)
+            return
+        }
+        if (voiceSessionActive && !holding && !memoMode && AppForeground.active && _state.value.screen == Screen.Home) {
+            autoListenJob?.cancel()
+            autoListenJob = viewModelScope.launch {
+                delay(220)
+                if (voiceSessionActive && !holding && !speaking && AppForeground.active) {
+                    beginListening(automatic = true)
+                }
+            }
+        }
+    }
+
+    private fun askReminderDetail(raw: String, missing: Reminders.MissingPart) {
+        pendingReminder = raw
+        voiceSessionActive = true
+        automaticMisses = 0
+        val prompt = when (missing) {
+            Reminders.MissingPart.TIME -> "好的,您想让我什么时候提醒?"
+            Reminders.MissingPart.CONTENT -> "好的,到时候提醒您做什么?"
+        }
+        speaking = true
+        _state.update { it.copy(busy = false, speaking = true, mascot = MascotState.Caring, caption = prompt) }
+        curUtt = tts.speak(prompt)
     }
 
     // ---------- 设置 / 子女端 ----------
     fun showScreen(s: Screen) {
+        if (s != Screen.Home) {
+            voiceSessionActive = false
+            autoListenJob?.cancel()
+            if (holding) {
+                holding = false
+                speech.cancel()
+            }
+        }
         _state.update { it.copy(screen = s, fraudBlocked = FraudStore.count(app)) }
     }
 
@@ -491,8 +678,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        autoListenJob?.cancel()
         speech.destroy()
         tts.shutdown()
+        RemoteAudioPlayer.stop()
         VoiceMemo.release()
     }
 }

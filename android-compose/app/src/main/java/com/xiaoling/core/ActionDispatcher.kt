@@ -56,7 +56,7 @@ object ActionDispatcher {
                 }
                 null
             }
-            "FRAUD_WARN" -> { vibrate(app); null }
+            "FRAUD_WARN", "ALERT" -> { vibrate(app); null }
             "PLAY" -> {
                 // 语音影音点播:调起音乐/视频 App 搜索播放;失败退回网页搜索
                 val kw = action.optString("keyword", "戏曲")
@@ -70,7 +70,6 @@ object ActionDispatcher {
                 // 语音提醒:解析时间并用 AlarmManager 定时;解析不出就存为下一整点提醒
                 val raw = action.optString("raw")
                 Reminders.schedule(app, raw)
-                null
             }
             "SEND_MEMO" -> {
                 // 亲情语音留言:把录好的语音分享给匹配到的联系人

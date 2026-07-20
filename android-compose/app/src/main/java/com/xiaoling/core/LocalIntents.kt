@@ -49,7 +49,34 @@ object LocalIntents {
         return m
     }
 
+    /** 清理老人常见停顿词和口头填充,保留时间、人物、动作等有效信息。 */
+    fun normalizeSpeech(input: String): String {
+        var text = input.trim()
+            .replace('；', '，').replace(';', '，').replace(',', '，')
+            .replace(Regex("[。.!！]+$"), "")
+            .replace(Regex("^(嗯+|呃+|那个|就是|这个|你看|麻烦你?|请你?|我想让你|我想要你|你帮我|帮我)\\s*"), "")
+        text = text.replace(Regex("\\s+"), " ").trim()
+        return text.ifBlank { input.trim() }
+    }
+
+    /** 一句话含多个明确动作时在端侧直接拆成任务队列,不等待云端大模型。 */
     fun parse(text: String): Reply? {
+        val normalized = normalizeSpeech(text)
+        val parts = normalized.split(Regex("\\s*(?:然后|接着|顺便|并且|同时|还有|再)\\s*"))
+            .map { it.trim('，', ' ') }.filter { it.isNotBlank() }
+        if (parts.size >= 2) {
+            val replies = parts.map { parseSingle(it) }
+            if (replies.all { it?.action != null }) {
+                val steps = org.json.JSONArray()
+                replies.forEach { steps.put(it!!.action) }
+                val summary = replies.joinToString("然后") { it!!.speech.trimEnd('。', '.', '，', ',') }
+                return Reply(summary, JSONObject().put("type", "TASKS").put("steps", steps), "端侧连续多指令", 0.0)
+            }
+        }
+        return parseSingle(normalized)
+    }
+
+    private fun parseSingle(text: String): Reply? {
         // —— 举报诈骗号码(数据飞轮):"举报这个号码/这是骗子/拉黑这个号码" ——
         if (Regex("举报|拉黑|这是(个)?骗子|是诈骗|加入黑名单").containsMatchIn(text)) {
             return Reply("好的,正在为您举报这个号码。",
@@ -78,7 +105,9 @@ object LocalIntents {
             }
         }
 
-        var m = Regex("(?:打(?:个)?电话给?|呼叫|拨打?给?)\\s*(.+)").find(text)
+        var m = Regex("(?:给|帮我给)\\s*(.+?)\\s*(?:打|拨)(?:个)?电话").find(text)
+            ?: Regex("(.+?)\\s*(?:电话打一个|电话拨一个)").find(text)
+            ?: Regex("(?:打(?:个)?电话给?|呼叫|拨打?给?)\\s*(.+)").find(text)
         if (m != null) {
             val name = clean(m.groupValues[1])
             return Reply("好的,正在帮您给$name 打电话。",
@@ -95,13 +124,17 @@ object LocalIntents {
             }
         }
 
-        if (Regex("提醒我?.*(吃药|量血压|喝水|睡觉|起床)").containsMatchIn(text)) {
-            return Reply("好的,我会到点提醒您,放心。",
-                JSONObject().put("type", "REMIND").put("raw", text), "用药提醒", 0.0)
+        if (Regex("提醒|闹钟|别忘了|记一下").containsMatchIn(text)) {
+            return Reply("好的,我来帮您设置提醒。",
+                JSONObject().put("type", "REMIND").put("raw", text), "语音任务提醒", 0.0)
         }
 
-        if (Regex("(听|放|播放|来一?段?|唱).*(歌|戏|剧|曲|评书|相声|音乐)").containsMatchIn(text)) {
-            val kw = clean(Regex("(?:听|放|播放|来一?段?|唱)\\s*(.+)").find(text)?.groupValues?.get(1) ?: "")
+        if (Regex("(听|放|播放|来一?段?|唱).*(歌|戏|剧|曲|评书|相声|音乐)|(歌|戏|剧|曲|评书|相声|音乐).*(放|播|来一个)").containsMatchIn(text)) {
+            val kw = clean(
+                Regex("(?:听|放|播放|来一?段?|唱)\\s*(.+)").find(text)?.groupValues?.get(1)
+                    ?: Regex("(.+?)\\s*(?:放|播放|播|来一个)").find(text)?.groupValues?.get(1)
+                    ?: "戏曲"
+            )
             return Reply("好嘞,这就给您放$kw。",
                 JSONObject().put("type", "PLAY").put("keyword", kw), "听戏听歌", 0.0)
         }
@@ -142,4 +175,3 @@ object LocalIntents {
     private fun clean(s: String): String =
         s.trim().replace(Regex("[的吧呢啊,。!\\s]+$"), "")
 }
-

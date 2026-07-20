@@ -92,6 +92,12 @@ class WakeService : Service() {
 
     /** 唤醒:把 App 拉到前台并让其立即开听 */
     private fun wakeUp() {
+        // 先释放服务占用的麦克风,再让前台 ASR 接管,避免 ERROR_RECOGNIZER_BUSY。
+        releaseRecognizer()
+        if (offlineOn) {
+            try { porcupine?.stop() } catch (_: Throwable) {}
+            offlineOn = false
+        }
         val i = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             putExtra(EXTRA_WAKE, true)

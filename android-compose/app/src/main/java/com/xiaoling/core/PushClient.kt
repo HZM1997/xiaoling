@@ -33,11 +33,19 @@ object PushClient {
     }
 
     /** 上报事件(老人机侧)。best-effort,失败不影响主流程。 */
-    suspend fun emit(ctx: Context, type: String, text: String, atMs: Long) = withContext(Dispatchers.IO) {
+    suspend fun emit(
+        ctx: Context,
+        type: String,
+        text: String,
+        atMs: Long,
+        data: JSONObject? = null
+    ) = withContext(Dispatchers.IO) {
         try {
             val body = JSONObject()
                 .put("family_id", familyId(ctx)).put("sender", deviceId(ctx))
-                .put("type", type).put("text", text).put("at", atMs / 1000).toString()
+                .put("type", type).put("text", text).put("at", atMs / 1000)
+                .apply { if (data != null) put("data", data) }
+                .toString()
             val url = URL(Settings.brainUrl(ctx).trimEnd('/') + "/push/emit")
             val c = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"; doOutput = true

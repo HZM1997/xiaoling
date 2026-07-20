@@ -14,6 +14,28 @@ import java.util.Calendar
  */
 object Reminders {
 
+    enum class MissingPart { TIME, CONTENT }
+
+    fun missingPart(raw: String): MissingPart? = when {
+        !hasTime(raw) -> MissingPart.TIME
+        !hasContent(raw) -> MissingPart.CONTENT
+        else -> null
+    }
+
+    private fun hasTime(raw: String): Boolean =
+        Regex("([0-9一二三四五六七八九十]+)\\s*点").containsMatchIn(raw) ||
+            Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后").containsMatchIn(raw) ||
+            Regex("一会儿|等会儿|待会儿|今晚|明早|明晚").containsMatchIn(raw)
+
+    private fun hasContent(raw: String): Boolean {
+        val content = raw
+            .replace(Regex("提醒我?|帮我|麻烦|记得|别忘了|设置(一个)?提醒|闹钟"), "")
+            .replace(Regex("(每天|每日|明天|今天|今晚|明早|明晚|上午|下午|晚上|傍晚)?\\s*[0-9一二三四五六七八九十]+\\s*点\\s*(半|[0-9]+分?)?"), "")
+            .replace(Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后|一会儿|等会儿|待会儿"), "")
+            .replace(Regex("[，,。.!！?？的呀啊吧呢\\s]"), "")
+        return content.isNotBlank()
+    }
+
     /** 解析并排定一条提醒。返回给用户的确认话术。 */
     fun schedule(ctx: Context, raw: String): String {
         val cal = parseTime(raw)
@@ -52,6 +74,47 @@ object Reminders {
     /** 从口语解析出时间;解析不出默认下一整点。 */
     private fun parseTime(raw: String): Calendar {
         val cal = Calendar.getInstance()
+        Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后").find(raw)?.let { m ->
+            val amount = if (m.groupValues[1] == "半") 30 else
+                (m.groupValues[1].toIntOrNull() ?: cnNum(m.groupValues[1])).coerceAtLeast(1)
+            if (m.groupValues[2] == "小时") cal.add(Calendar.MINUTE, amount * 60)
+            else cal.add(Calendar.MINUTE, amount)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            return cal
+        }
+        if (Regex("一会儿|等会儿|待会儿").containsMatchIn(raw)) {
+            cal.add(Calendar.MINUTE, 10)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            return cal
+        }
+        when {
+            raw.contains("明早") -> {
+                cal.add(Calendar.DAY_OF_MONTH, 1)
+                cal.set(Calendar.HOUR_OF_DAY, 8)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                return cal
+            }
+            raw.contains("明晚") -> {
+                cal.add(Calendar.DAY_OF_MONTH, 1)
+                cal.set(Calendar.HOUR_OF_DAY, 20)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                return cal
+            }
+            raw.contains("今晚") -> {
+                cal.set(Calendar.HOUR_OF_DAY, 20)
+                cal.set(Calendar.MINUTE, 0)
+                cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.MILLISECOND, 0)
+                if (cal.timeInMillis <= System.currentTimeMillis()) cal.add(Calendar.DAY_OF_MONTH, 1)
+                return cal
+            }
+        }
         var hour = -1
         var minute = 0
         // 阿拉伯数字点
@@ -75,6 +138,7 @@ object Reminders {
         cal.set(Calendar.HOUR_OF_DAY, hour.coerceIn(0, 23))
         cal.set(Calendar.MINUTE, minute.coerceIn(0, 59))
         cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
         if (raw.contains("明天")) cal.add(Calendar.DAY_OF_MONTH, 1)
         // 已过点且非每天 → 顺延到明天
         if (cal.timeInMillis <= System.currentTimeMillis() && !raw.contains("每天")) {
@@ -84,13 +148,19 @@ object Reminders {
     }
 
     private fun extractContent(raw: String): String {
-        var s = raw.replace(Regex("提醒我?|记得|要"), "")
+        var s = raw.replace(Regex("提醒我?|帮我|麻烦|记得|别忘了|设置(一个)?提醒|闹钟"), "")
         s = s.replace(Regex("(每天|每日|明天|今天|上午|下午|晚上|傍晚)?\\s*[0-9一二三四五六七八九十]+\\s*点\\s*(半|[0-9]+分?)?"), "")
+        s = s.replace(Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后|一会儿|等会儿|待会儿"), "")
+        s = s.replace(Regex("今晚|明早|明晚"), "")
         s = s.trim().trim('，', ',', '。', '.', '的')
         return if (s.isBlank()) "该做的事" else s
     }
 
     private fun describeTime(raw: String): String {
+        Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后|一会儿|等会儿|待会儿").find(raw)?.let {
+            return it.value
+        }
+        Regex("今晚|明早|明晚").find(raw)?.let { return it.value }
         val m = Regex("(每天|明天|今天)?\\s*(上午|下午|晚上)?\\s*([0-9一二三四五六七八九十]+点(?:半)?)").find(raw)
         return m?.value?.trim() ?: "到点"
     }

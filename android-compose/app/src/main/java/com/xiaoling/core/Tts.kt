@@ -2,6 +2,8 @@ package com.xiaoling.core
 
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
@@ -15,6 +17,7 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
     private var ready = false
     private var tts: TextToSpeech? = null
     private var seq = 0
+    private val main = Handler(Looper.getMainLooper())
     /** 最近一次正常播报的内容(供打断后恢复) */
     @Volatile var lastSpoken: String = ""
         private set
@@ -47,9 +50,10 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
         if (s.isNotBlank()) lastSpoken = s
         if (ready && s.isNotBlank()) {
             val r = tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, id) ?: TextToSpeech.ERROR
-            if (r == TextToSpeech.ERROR) onDone(id)
+            if (r == TextToSpeech.ERROR) main.post { onDone(id) }
         } else {
-            onDone(id)
+            // 保持异步语义,避免调用方尚未记录 utteranceId 时完成回调已经到达。
+            main.post { onDone(id) }
         }
         return id
     }

@@ -18,9 +18,10 @@ from starlette.responses import JSONResponse, Response
 
 # ---- 配置 ----
 MAX_BODY_BYTES = 64 * 1024          # 单请求体上限 64KB(对话/登录足够)
+MAX_AUDIO_BYTES = 13 * 1024 * 1024  # 亲情留言上限 12MB + multipart 开销
 GLOBAL_RATE = (120, 60)             # 每 IP:每 60s 最多 120 次
 SENSITIVE_RATE = (10, 60)           # 敏感端点(登录/发码/支付):每 60s 最多 10 次
-SENSITIVE_PREFIXES = ("/auth/", "/pay/")
+SENSITIVE_PREFIXES = ("/auth/", "/pay/", "/family/audio/")
 # SSE 长连接端点不计体积、不限流退出
 STREAM_PREFIXES = ("/push/subscribe",)
 # 可信反代 IP 白名单(环境变量 XL_TRUSTED_PROXIES=1.2.3.4,10.0.0.1)。
@@ -81,7 +82,8 @@ class Firewall(BaseHTTPMiddleware):
         # 1) 请求体大小(靠 Content-Length 预检,非流式端点)
         if not path.startswith(STREAM_PREFIXES):
             cl = request.headers.get("content-length")
-            if cl and cl.isdigit() and int(cl) > MAX_BODY_BYTES:
+            limit = MAX_AUDIO_BYTES if path == "/family/audio/upload" else MAX_BODY_BYTES
+            if cl and cl.isdigit() and int(cl) > limit:
                 return JSONResponse({"ok": False, "error": "request too large"}, status_code=413)
 
         # 2) 限流:全局 + 敏感端点更严

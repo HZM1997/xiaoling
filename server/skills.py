@@ -26,14 +26,36 @@ def skill(name: str, priority: int = 100):
     return deco
 
 
-def match(u: Utterance) -> Optional[Reply]:
-    """按优先级依次尝试,命中即返回。"""
+def _match_one(u: Utterance) -> Optional[Reply]:
     for name, _, fn in _REGISTRY:
         r = fn(u)
         if r:
             r.skill = r.skill or name
             return r
     return None
+
+
+def _normalize_spoken(text: str) -> str:
+    """清理老人常见填充词,保留人物、时间和动作。"""
+    text = text.strip().replace("；", "，").replace(";", "，")
+    text = re.sub(r"[。.!！]+$", "", text)
+    text = re.sub(r"^(嗯+|呃+|那个|就是|这个|你看|麻烦你?|请你?|我想让你|我想要你|你帮我|帮我)\s*", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def match(u: Utterance) -> Optional[Reply]:
+    """先拆连续指令,再按优先级匹配单条口语意图。"""
+    normalized = _normalize_spoken(u.text)
+    parts = [p.strip(" ，") for p in re.split(r"\s*(?:然后|接着|顺便|并且|同时|还有|再)\s*", normalized) if p.strip(" ，")]
+    if len(parts) >= 2:
+        replies = [_match_one(u.model_copy(update={"text": p})) for p in parts]
+        if all(r is not None and r.action for r in replies):
+            concrete = [r for r in replies if r is not None]
+            speech = "然后".join(r.speech.rstrip("。.,，") for r in concrete)
+            return Reply(speech=speech,
+                         action={"type": "TASKS", "steps": [r.action for r in concrete]},
+                         skill="端侧连续多指令")
+    return _match_one(u.model_copy(update={"text": normalized}))
 
 
 # ========================= 技能定义 =========================
@@ -100,7 +122,9 @@ def translate(u: Utterance) -> Optional[Reply]:
 
 @skill("打电话", priority=10)
 def call_phone(u: Utterance) -> Optional[Reply]:
-    m = re.search(r"(?:打(?:个)?电话给?|呼叫|拨打?给?)\s*(.+)", u.text)
+    m = (re.search(r"(?:给|帮我给)\s*(.+?)\s*(?:打|拨)(?:个)?电话", u.text)
+         or re.search(r"(.+?)\s*(?:电话打一个|电话拨一个)", u.text)
+         or re.search(r"(?:打(?:个)?电话给?|呼叫|拨打?给?)\s*(.+)", u.text))
     if not m:
         return None
     target = re.sub(r"[的吧呢啊,。!]+$", "", m.group(1).strip()) or "对方"
@@ -141,7 +165,7 @@ def play_media(u: Utterance) -> Optional[Reply]:
 
 @skill("健康用药提醒", priority=40)
 def health_remind(u: Utterance) -> Optional[Reply]:
-    if not re.search(r"提醒我?.*(吃药|量血压|喝水|睡觉|起床)", u.text):
+    if not re.search(r"提醒|闹钟|别忘了|记一下", u.text):
         return None
     m = re.search(r"(每天|明天|今天)?\s*([0-9一二三四五六七八九十]+点(?:半|[0-9]+分?)?)", u.text)
     when = m.group(0).strip() if m else "到点"
@@ -164,4 +188,3 @@ def smart_clarify(u: Utterance) -> Optional[Reply]:
             return Reply(speech=chosen.get("speech", "好的。"),
                          action=chosen.get("action"), skill="智能澄清·已选")
     return clarify(u.text)
-

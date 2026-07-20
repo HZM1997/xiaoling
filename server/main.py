@@ -16,11 +16,26 @@ import firewall        # 后端防火墙(限流/体积限制/安全头)
 app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.1.0")
 firewall.install(app)  # 启用防火墙中间件
 
+# 家庭语音留言文件。生产环境建议改为对象存储并设置 PUBLIC_BASE_URL。
+import os as _os
+from pathlib import Path as _Path
+from fastapi.staticfiles import StaticFiles
+_FAMILY_AUDIO_DIR = _Path(_os.getenv("FAMILY_AUDIO_DIR", "family_audio"))
+_FAMILY_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/family/audio/files", StaticFiles(directory=str(_FAMILY_AUDIO_DIR)), name="family-audio")
+
 
 @app.get("/health")
 def health():
     return {"ok": True, "llm": brain.llm_gateway.available(),
             "skills": [name for name, _, _ in skills._REGISTRY]}
+
+
+@app.get("/alerts")
+def alerts(lat: float | None = None, lon: float | None = None):
+    """聚合已配置的官方台风/暴雨/沙尘暴预警源;未配置时返回空列表。"""
+    from alerts import collect_alerts
+    return {"alerts": collect_alerts(lat, lon)}
 
 
 @app.post("/dialogue", response_model=Reply)
@@ -129,7 +144,7 @@ def pay_notify(body: dict):
 import asyncio
 import json as _json
 from collections import defaultdict
-from fastapi import Request
+from fastapi import File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
 _subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
@@ -141,6 +156,7 @@ class Event(BaseModel):
     type: str = Field(default="", max_length=32)        # fraud_call / fraud_sms / sos / meds / sync
     text: str = Field(default="", max_length=500)
     at: int = 0
+    data: dict = Field(default_factory=dict)               # remote_reminder.raw / remote_audio.url 等扩展负载
 
 
 @app.post("/push/emit")
@@ -153,6 +169,74 @@ async def push_emit(e: Event):
         except Exception:
             pass
     return {"ok": True, "delivered": len(_subscribers.get(e.family_id, []))}
+
+
+class RemoteReminder(BaseModel):
+    family_id: str = Field(..., max_length=64)
+    sender: str = Field(default="family", max_length=64)
+    raw: str = Field(..., min_length=2, max_length=300)
+
+
+class RemoteAudio(BaseModel):
+    family_id: str = Field(..., max_length=64)
+    sender: str = Field(default="family", max_length=64)
+    url: str = Field(..., max_length=1000, pattern=r"^https?://")
+    text: str = Field(default="家人发来一段语音", max_length=200)
+
+
+@app.post("/family/remote/reminder")
+async def family_remote_reminder(item: RemoteReminder):
+    """亲人端远程创建语音提醒;老人端收到后直接写入本机 AlarmManager。"""
+    return await push_emit(Event(family_id=item.family_id, sender=item.sender,
+                                 type="remote_reminder", text=item.raw,
+                                 at=int(time.time()), data={"raw": item.raw}))
+
+
+@app.post("/family/remote/audio")
+async def family_remote_audio(item: RemoteAudio):
+    """亲人端推送音频;老人端收到后在 App 内直接播放。"""
+    return await push_emit(Event(family_id=item.family_id, sender=item.sender,
+                                 type="remote_audio", text=item.text,
+                                 at=int(time.time()), data={"url": item.url}))
+
+
+@app.post("/family/audio/upload")
+async def family_audio_upload(
+    request: Request,
+    family_id: str = Form(..., max_length=64),
+    sender: str = Form(default="", max_length=64),
+    target: str = Form(default="家人", max_length=64),
+    audio: UploadFile = File(...),
+):
+    """老人端上传留言后直接广播到家庭组,不经过系统联系人选择器。"""
+    import os
+    import uuid
+
+    folder = _FAMILY_AUDIO_DIR
+    name = f"{uuid.uuid4().hex}.m4a"
+    path = folder / name
+    total = 0
+    try:
+        with path.open("wb") as output:
+            while chunk := await audio.read(64 * 1024):
+                total += len(chunk)
+                if total > 12 * 1024 * 1024:
+                    raise ValueError("audio too large")
+                output.write(chunk)
+    except Exception:
+        path.unlink(missing_ok=True)
+        return {"ok": False, "msg": "音频上传失败"}
+    public_base = os.getenv("PUBLIC_BASE_URL", str(request.base_url).rstrip("/"))
+    url = f"{public_base}/family/audio/files/{name}"
+    result = await push_emit(Event(
+        family_id=family_id,
+        sender=sender,
+        type="remote_audio",
+        text=f"家人发来一段给{target}的语音",
+        at=int(time.time()),
+        data={"url": url, "target": target},
+    ))
+    return {"ok": True, "url": url, **result}
 
 
 # ---------- 号码举报 / 信任(数据飞轮) ----------
@@ -198,5 +282,3 @@ async def push_subscribe(family_id: str, request: Request):
                 pass
 
     return StreamingResponse(gen(), media_type="text/event-stream")
-
-

@@ -48,6 +48,17 @@ def test_health_remind():
     assert r.action and r.action["type"] == "REMIND"
 
 
+def test_elderly_reordered_call():
+    r = handle("那个 给女儿打个电话")
+    assert r.action and r.action["type"] == "CALL" and r.action["target"] == "女儿"
+
+
+def test_local_multi_command():
+    r = handle("给女儿打电话然后提醒我晚上八点吃药")
+    assert r.action and r.action["type"] == "TASKS"
+    assert [step["type"] for step in r.action["steps"]] == ["CALL", "REMIND"]
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0
