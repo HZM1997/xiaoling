@@ -11,8 +11,8 @@ android {
         applicationId 'com.xiaoling'
         minSdk 24
         targetSdk 34
-        versionCode 6
-        versionName '1.0.6'
+        versionCode 7
+        versionName '1.0.7'
         // 云端「大脑」地址:改成你电脑的局域网 IP(App 内也可运行时覆盖)
         // 注意:内层引号必须转义,否则生成的 BuildConfig.java 编不过
         buildConfigField 'String', 'BRAIN_URL', '"http://192.168.1.20:8000"'
@@ -43,8 +43,10 @@ android {
             if (System.getenv('XL_KEYSTORE')) {
                 signingConfig signingConfigs.release
             }
-            minifyEnabled true          // R8:混淆 + 优化(加大逆向难度)
-            shrinkResources true        // 去无用资源,减小体积
+            // 临时关闭 R8 混淆与资源压缩:排查真机启动闪退(release 独有崩溃多由 R8/资源裁剪引起)。
+            // 待确认 app 能正常启动后再改回 true 恢复加固。
+            minifyEnabled false         // 原 true
+            shrinkResources false       // 原 true(shrinkResources 依赖 minifyEnabled,必须一起关)
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }

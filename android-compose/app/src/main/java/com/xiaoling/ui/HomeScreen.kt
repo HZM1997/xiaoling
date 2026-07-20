@@ -79,8 +79,10 @@ fun HomeScreen(vm: AppState) {
 
     // 进主页:申请权限并预热识别器(不常听,等老人按住说话)
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        if (hasMic()) { vm.warmUpMic(); com.xiaoling.service.WakeService.start(ctx) }
-        else launcher.launch(perms)
+        try {
+            if (hasMic()) { vm.warmUpMic(); com.xiaoling.service.WakeService.start(ctx) }
+            else launcher.launch(perms)
+        } catch (e: Throwable) { /* 启动预热/服务失败不影响进主页,交由按住说话时再处理 */ }
     }
 
     Box(
