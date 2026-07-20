@@ -57,17 +57,33 @@ fun HomeScreen(vm: AppState) {
     val ui by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
 
+    val perms = arrayOf(
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.CALL_PHONE,
+        Manifest.permission.READ_CONTACTS,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.RECEIVE_SMS
+    )
     val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) {
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result[Manifest.permission.RECORD_AUDIO] == true) {
             vm.warmUpMic()
+            com.xiaoling.service.WakeService.start(ctx)
         }
     }
 
     fun hasMic() = ContextCompat.checkSelfPermission(
         ctx, Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
+
+    // 进主页:申请权限并预热识别器(不常听,等老人按住说话)
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        try {
+            if (hasMic()) { vm.warmUpMic(); com.xiaoling.service.WakeService.start(ctx) }
+            else launcher.launch(perms)
+        } catch (_: Throwable) { /* 初始化失败不影响进入主页 */ }
+    }
 
     Box(
         modifier = Modifier.fillMaxSize()
@@ -121,10 +137,7 @@ fun HomeScreen(vm: AppState) {
             // 唯一操作:按住说话(按下→开始识别;松手→收尾)。播报中按住即打断。
             PressToTalkButton(
                 listening = ui.listening,
-                onPress = {
-                    if (hasMic()) vm.pressToTalk()
-                    else launcher.launch(Manifest.permission.RECORD_AUDIO)
-                },
+                onPress = { if (hasMic()) vm.pressToTalk() else launcher.launch(perms) },
                 onRelease = { vm.releaseToTalk() }
             )
             Spacer(Modifier.height(20.dp))
