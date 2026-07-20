@@ -61,11 +61,19 @@ docker build -t xiaoling-brain . && docker run -p 8000:8000 xiaoling-brain
   - `ARK_API_KEY` — 火山豆包 · `MOONSHOT_API_KEY` — Kimi
   - 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`
   未配任何 KEY 时自动降级为规则+离线兜底,不影响运行。`GET /health` 的 `llm:true/false` 可查是否已启用。
-- **持久化**:当前用户库/会话记忆是内存态,重启即清空。上线请接数据库/Redis。
+- **会话记忆**:短期对话上下文仍保存在进程内存,多实例部署建议接 Redis。
+- **账号与永久权益**:默认使用 SQLite `xiaoling_accounts.db`;生产环境设置 `ACCOUNT_DB_PATH`
+  并把所在目录挂载到持久化磁盘。大规模部署可替换为 PostgreSQL。
 - **官方气象预警**:取得主管部门授权的数据源后设置 `OFFICIAL_WEATHER_ALERT_URL`。接口需返回
   `{ "alerts": [{ "id", "category", "speech", "source", "url" }] }`,其中 `category` 支持
   `typhoon/rainstorm/sandstorm/weather/earthquake`。未配置时服务返回空列表,不会生成假预警。
 - **亲情语音直发**:生产部署设置 `PUBLIC_BASE_URL=https://你的公网域名`;留言保存在
   `FAMILY_AUDIO_DIR`(默认 `server/family_audio`)。亲人端可调用 `/family/remote/reminder` 和
   `/family/remote/audio`,老人端会直接创建提醒或播放音频。
+- **实名认证**:生产环境必须配置合法服务商的 `REAL_NAME_VERIFY_URL` 和
+  `REAL_NAME_VERIFY_TOKEN`,并设置随机 `IDENTITY_HASH_SALT`。服务端不保存身份证明文。
+  仅开发联调时可显式设置 `REAL_NAME_DEMO=true`,正式环境禁止开启。
+- **智能体能力自动更新**:设置 HTTPS `SKILL_CATALOG_URL`、共享签名密钥
+  `SKILL_CATALOG_SIGNING_KEY`、允许调用的域名列表 `SKILL_ENDPOINT_ALLOWLIST`。管理端刷新还需
+  `AGENT_ADMIN_TOKEN`。远程目录只能声明标准 JSON 能力,不能下发或执行代码。
 - **安全**:登录/支付/推送目前是演示实现;生产需 JWT、支付验签、鉴权、限流(见 NATIVE.md 里的 TODO 标注)。

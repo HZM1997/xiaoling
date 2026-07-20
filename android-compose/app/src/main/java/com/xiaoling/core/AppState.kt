@@ -34,6 +34,12 @@ data class UiState(
     val membership: String = "",     // "" / "basic" / "premium"
     val loggedIn: Boolean = false,
     val phone: String = "",
+    val realNameVerified: Boolean = false,
+    val displayName: String = "",
+    val chatEntitlement: String = "",
+    val realNameStatus: String = "",
+    val agentCapabilityCount: Int = 0,
+    val agentRevision: String = "",
     val choices: List<Choice> = emptyList(),   // 智能澄清:多选项(有值时 UI 显示选择按钮)
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
@@ -53,7 +59,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
             live2d = Settings.live2dEnabled(app),
             membership = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app),
             loggedIn = Account.isLoggedIn(app),
-            phone = Account.phone(app)
+            phone = Account.phone(app),
+            realNameVerified = Account.realNameVerified(app),
+            displayName = Account.displayName(app),
+            chatEntitlement = Account.chatEntitlement(app)
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -88,6 +97,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         // 跨设备:订阅家庭组事件(家人设备实时收到老人端的推送),断线自动重连
         subscribePush()
         monitorOfficialAlerts()
+        refreshAgentStatus()
     }
 
     private fun subscribePush() {
@@ -155,6 +165,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 }
                 delay(15 * 60 * 1000L)
             }
+        }
+    }
+
+    private fun refreshAgentStatus() {
+        viewModelScope.launch {
+            val catalog = AgentClient.status(app) ?: return@launch
+            _state.update { it.copy(agentCapabilityCount = catalog.count, agentRevision = catalog.revision) }
         }
     }
 
@@ -620,9 +637,16 @@ class AppState(application: Application) : AndroidViewModel(application) {
             val r = AuthClient.login(app, phone, code)
             if (r != null && r.optBoolean("ok", true) && r.has("token")) {
                 val member = r.optString("membership", "")
-                Account.save(app, r.optString("token"), phone, r.optString("uid"), r.optString("family_id"), member)
+                Account.save(
+                    app, r.optString("token"), phone, r.optString("uid"), r.optString("family_id"), member,
+                    r.optBoolean("real_name_verified", false), r.optString("display_name"),
+                    r.optString("chat_entitlement")
+                )
                 _state.update {
                     it.copy(loggedIn = true, phone = phone, membership = member,
+                        realNameVerified = r.optBoolean("real_name_verified", false),
+                        displayName = r.optString("display_name"),
+                        chatEntitlement = r.optString("chat_entitlement"),
                         screen = Screen.Settings, caption = "登录成功,欢迎回来!")
                 }
             } else {
@@ -634,7 +658,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         Account.logout(app)
-        _state.update { it.copy(loggedIn = false, phone = "", membership = Membership.tier(app), live2d = false, caption = "已退出登录") }
+        _state.update { it.copy(loggedIn = false, phone = "", membership = Membership.tier(app),
+            realNameVerified = false, displayName = "", chatEntitlement = "", realNameStatus = "",
+            live2d = false, caption = "已退出登录") }
     }
 
     /**
@@ -651,10 +677,40 @@ class AppState(application: Application) : AndroidViewModel(application) {
             if (r != null && r.has("token")) {
                 val member = r.optString("membership", "")
                 val ph = r.optString("phone", "微信用户")
-                Account.save(app, r.optString("token"), ph, r.optString("uid"), r.optString("family_id"), member)
-                _state.update { it.copy(loggedIn = true, phone = ph, membership = member, screen = Screen.Settings, caption = "微信登录成功,欢迎回来!") }
+                Account.save(
+                    app, r.optString("token"), ph, r.optString("uid"), r.optString("family_id"), member,
+                    r.optBoolean("real_name_verified", false), r.optString("display_name"),
+                    r.optString("chat_entitlement")
+                )
+                _state.update { it.copy(loggedIn = true, phone = ph, membership = member,
+                    realNameVerified = r.optBoolean("real_name_verified", false),
+                    displayName = r.optString("display_name"), chatEntitlement = r.optString("chat_entitlement"),
+                    screen = Screen.Settings, caption = "微信登录成功,欢迎回来!") }
             } else {
                 _state.update { it.copy(caption = "微信登录未完成(演示需后端在线)。") }
+            }
+        }
+    }
+
+    fun verifyRealName(name: String, idNo: String) {
+        if (!Account.isLoggedIn(app)) {
+            _state.update { it.copy(realNameStatus = "请先登录账号") }
+            return
+        }
+        _state.update { it.copy(realNameStatus = "正在安全核验…") }
+        viewModelScope.launch {
+            val result = AuthClient.verifyRealName(app, name.trim(), idNo.trim().uppercase())
+            if (result?.optBoolean("verified", false) == true) {
+                val entitlement = result.optString("chat_entitlement", "lifetime_unlimited")
+                val displayName = result.optString("display_name", name.trim())
+                Account.setRealNameVerified(app, displayName, entitlement)
+                val say = "实名认证完成,已赠送永久无限畅聊陪伴。"
+                _state.update { it.copy(realNameVerified = true, displayName = displayName,
+                    chatEntitlement = entitlement, realNameStatus = say, caption = say) }
+                curUtt = tts.speak(say)
+            } else {
+                _state.update { it.copy(realNameStatus = result?.optString("msg")
+                    ?.takeIf { msg -> msg.isNotBlank() } ?: "实名认证暂时无法完成,请稍后再试。") }
             }
         }
     }

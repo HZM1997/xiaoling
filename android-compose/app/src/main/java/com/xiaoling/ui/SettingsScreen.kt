@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaoling.R
+import com.xiaoling.BuildConfig
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
 import com.xiaoling.ui.theme.AccentBlue
@@ -70,6 +71,7 @@ fun SettingsScreen(vm: AppState) {
     var tab by remember { mutableIntStateOf(0) }
     var payPlan by remember { mutableStateOf<String?>(null) }
     var dialog by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var realNameDialog by remember { mutableStateOf(false) }
 
     val roleLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -105,13 +107,14 @@ fun SettingsScreen(vm: AppState) {
                 Spacer(Modifier.height(6.dp))
                 when (tab) {
                     0 -> UserTab(ui, showText = { title, body -> dialog = title to body },
-                        onLogin = { vm.showScreen(Screen.Login) }, onLogout = { vm.logout() })
+                        onLogin = { vm.showScreen(Screen.Login) }, onLogout = { vm.logout() },
+                        onRealName = { realNameDialog = true })
                     1 -> MemberTab(ui) { payPlan = it }
                     2 -> CareTab(ui, onSync = { vm.syncFamily() }, onRole = { requestScreenRole() },
                         onLive2d = { vm.setLive2d(it) }, onUpgrade = { tab = 1 })
                 }
                 Spacer(Modifier.height(28.dp))
-                Text("小灵 · v1.0", fontSize = 12.sp, color = DimColor,
+                Text("小灵 · v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = DimColor,
                     modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
                 Spacer(Modifier.height(24.dp))
             }
@@ -134,6 +137,15 @@ fun SettingsScreen(vm: AppState) {
                 title = { Text(title) },
                 text = { Text(body, fontSize = 15.sp, lineHeight = 23.sp) },
                 confirmButton = { TextButton(onClick = { dialog = null }) { Text("知道了") } }
+            )
+        }
+        if (realNameDialog) {
+            RealNameDialog(
+                onDismiss = { realNameDialog = false },
+                onSubmit = { name, idNo ->
+                    vm.verifyRealName(name, idNo)
+                    realNameDialog = false
+                }
             )
         }
     }
@@ -166,7 +178,8 @@ private fun UserTab(
     ui: com.xiaoling.core.UiState,
     showText: (String, String) -> Unit,
     onLogin: () -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onRealName: () -> Unit
 ) {
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -196,6 +209,19 @@ private fun UserTab(
     }
     GlassCard {
         RowItem("账号与安全") { if (ui.loggedIn) showText("账号与安全", "· 手机号:" + maskPhone(ui.phone) + "\n· 登录设备管理\n· 注销账号") else onLogin() }
+        Divider()
+        RowItem(if (ui.realNameVerified) "实名认证 · 已完成" else "实名认证") {
+            if (!ui.loggedIn) onLogin()
+            else if (ui.realNameVerified) showText(
+                "实名认证",
+                "已认证用户:${ui.displayName}\n已获赠永久无限畅聊陪伴。\n证件号码不会保存在手机中。"
+            ) else onRealName()
+        }
+        if (ui.realNameStatus.isNotBlank()) {
+            Text(ui.realNameStatus, fontSize = 13.sp,
+                color = if (ui.realNameVerified) AccentBlue else DimColor,
+                modifier = Modifier.padding(vertical = 8.dp))
+        }
         Divider()
         RowItem("隐私保护设置") { showText("隐私保护设置", "· 通话/短信仅用于本机防诈判定,默认不上传\n· 麦克风仅在唤起对话时使用\n· 可随时在系统设置撤销各项权限") }
         Divider()
@@ -248,6 +274,11 @@ private fun MemberTab(ui: com.xiaoling.core.UiState, onBuy: (String) -> Unit) {
             Text("当前:" + memberLabel(ui.membership), fontSize = 14.sp, fontWeight = FontWeight.Bold,
                 color = if (ui.membership.isEmpty()) DimColor else AccentBlue)
         }
+        if (ui.chatEntitlement == "lifetime_unlimited") {
+            Spacer(Modifier.height(10.dp))
+            Text("永久无限畅聊陪伴 · 已赠送", fontSize = 17.sp, fontWeight = FontWeight.Bold,
+                color = AccentBlue, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        }
         Spacer(Modifier.height(12.dp))
         PlanCard("基础会员", "¥29.9 / 月", listOf("无限畅聊陪伴", "健康用药提醒", "来电 + 短信防诈"),
             plan = "basic", current = ui.membership == "basic", onBuy = onBuy)
@@ -256,6 +287,45 @@ private fun MemberTab(ui: com.xiaoling.core.UiState, onBuy: (String) -> Unit) {
             listOf("基础会员全部权益", "明星 / 亲人语音包", "3D 数字人形象", "亲情守护 · 家人看护", "专属人工客服"),
             plan = "premium", highlight = true, current = ui.membership == "premium", onBuy = onBuy)
     }
+}
+
+@Composable
+private fun RealNameDialog(onDismiss: () -> Unit, onSubmit: (String, String) -> Unit) {
+    var name by remember { mutableStateOf("") }
+    var idNo by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("实名认证") },
+        text = {
+            Column {
+                Text("认证成功即赠送永久无限畅聊陪伴。证件号码仅发送给已配置的合规核验服务,不会保存在手机中。",
+                    fontSize = 14.sp, lineHeight = 21.sp, color = DimColor)
+                Spacer(Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it.take(30) },
+                    label = { Text("真实姓名") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = idNo,
+                    onValueChange = { idNo = it.uppercase().filter { ch -> ch.isDigit() || ch == 'X' }.take(18) },
+                    label = { Text("身份证号码") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSubmit(name.trim(), idNo.trim()) },
+                enabled = name.trim().length >= 2 && idNo.length == 18
+            ) { Text("安全核验") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+    )
 }
 
 /* ---------------- 模块三:家人看护 ---------------- */
@@ -274,6 +344,7 @@ private fun CareTab(
         StatRow("恶意来电及短信拦截", "${ui.fraudBlocked} 次")   // 防诈拦截:免费
         StatRow("紧急呼救记录", ui.sosLabel)
         StatRow("跨设备同步", if (!premium) "高级会员" else if (ui.familySynced) "已同步 ✓" else "未同步")
+        StatRow("智能体能力", if (ui.agentCapabilityCount > 0) "${ui.agentCapabilityCount} 项 · 自动更新" else "等待服务连接")
         Spacer(Modifier.height(12.dp))
         Button(onClick = onSync, modifier = Modifier.fillMaxWidth().height(48.dp),
             shape = RoundedCornerShape(14.dp)) { Text(if (premium) "同步给家人" else "同步给家人(高级会员)", fontSize = 16.sp) }

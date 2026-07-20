@@ -21,7 +21,7 @@ MAX_BODY_BYTES = 64 * 1024          # 单请求体上限 64KB(对话/登录足�
 MAX_AUDIO_BYTES = 13 * 1024 * 1024  # 亲情留言上限 12MB + multipart 开销
 GLOBAL_RATE = (120, 60)             # 每 IP:每 60s 最多 120 次
 SENSITIVE_RATE = (10, 60)           # 敏感端点(登录/发码/支付):每 60s 最多 10 次
-SENSITIVE_PREFIXES = ("/auth/", "/pay/", "/family/audio/")
+SENSITIVE_PREFIXES = ("/auth/", "/pay/", "/family/audio/", "/agent/admin/")
 # SSE 长连接端点不计体积、不限流退出
 STREAM_PREFIXES = ("/push/subscribe",)
 # 可信反代 IP 白名单(环境变量 XL_TRUSTED_PROXIES=1.2.3.4,10.0.0.1)。

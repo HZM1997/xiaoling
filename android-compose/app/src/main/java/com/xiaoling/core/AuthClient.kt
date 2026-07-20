@@ -29,7 +29,25 @@ object AuthClient {
         post(ctx, "/auth/wx_login", JSONObject().put("code", "demo-wx-code"))
     }
 
-    private fun post(ctx: Context, path: String, body: JSONObject): JSONObject? {
+    suspend fun verifyRealName(ctx: Context, name: String, idNo: String): JSONObject? = withContext(Dispatchers.IO) {
+        post(
+            ctx,
+            "/auth/real-name/verify",
+            JSONObject()
+                .put("phone", Account.phone(ctx))
+                .put("token", Account.token(ctx))
+                .put("name", name)
+                .put("id_no", idNo),
+            acceptBusinessError = true
+        )
+    }
+
+    private fun post(
+        ctx: Context,
+        path: String,
+        body: JSONObject,
+        acceptBusinessError: Boolean = false
+    ): JSONObject? {
         return try {
             val url = URL(Settings.brainUrl(ctx).trimEnd('/') + path)
             val c = (url.openConnection() as HttpURLConnection).apply {
@@ -41,7 +59,7 @@ object AuthClient {
             val ok = c.responseCode in 200..299
             val resp = (if (ok) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() } ?: ""
             c.disconnect()
-            if (ok) JSONObject(resp).takeIf { it.optBoolean("ok", true) } else null
+            if (ok) JSONObject(resp).takeIf { acceptBusinessError || it.optBoolean("ok", true) } else null
         } catch (e: Exception) { null }
     }
 }

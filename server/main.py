@@ -5,13 +5,19 @@
 文档: http://localhost:8000/docs
 """
 from __future__ import annotations
-from fastapi import FastAPI
+import hashlib
+import hmac
+import os
+
+from fastapi import FastAPI, Request
 
 from models import Utterance, Reply
 import skills          # 导入即注册所有技能
 from llm import llm_reply
 import brain           # 大模型驱动的行为理解(智能应用体)
 import firewall        # 后端防火墙(限流/体积限制/安全头)
+import agent_registry  # 受控的签名 Skill / Agent 能力目录
+import account_store   # 账号、实名状态与永久权益持久化
 
 app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.1.0")
 firewall.install(app)  # 启用防火墙中间件
@@ -28,7 +34,25 @@ app.mount("/family/audio/files", StaticFiles(directory=str(_FAMILY_AUDIO_DIR)), 
 @app.get("/health")
 def health():
     return {"ok": True, "llm": brain.llm_gateway.available(),
-            "skills": [name for name, _, _ in skills._REGISTRY]}
+            "skills": [name for name, _, _ in skills._REGISTRY],
+            "agent_registry": agent_registry.status()}
+
+
+@app.get("/agent/catalog")
+def agent_catalog():
+    """查看当前已验证能力。端点地址被隐藏,避免泄露内部拓扑。"""
+    agent_registry.refresh(force=False)
+    return {"ok": True, **agent_registry.status()}
+
+
+@app.post("/agent/admin/refresh")
+def agent_refresh(request: Request):
+    """管理端立即刷新签名能力目录。"""
+    expected = os.getenv("AGENT_ADMIN_TOKEN", "").strip()
+    supplied = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+    if not expected or not hmac.compare_digest(expected, supplied):
+        return {"ok": False, "msg": "unauthorized"}
+    return {"ok": True, **agent_registry.refresh(force=True)}
 
 
 @app.get("/alerts")
@@ -50,6 +74,9 @@ def dialogue(u: Utterance) -> Reply:
     r = skills.match(u)
     if r:
         return r
+    evolved = agent_registry.answer(u.text)
+    if evolved:
+        return evolved
     ctx = u.context or {}
     smart = brain.understand(u.text, user_id=u.user_id,
                              profile=ctx.get("profile"), scene=ctx.get("scene", "chat"))
@@ -74,8 +101,8 @@ class Order(BaseModel):
     phone: str = Field(default="", max_length=32)
 
 
-# 内存用户库(demo):{ phone: {membership, family_id, uid} }。真实场景用数据库。
-_users: dict[str, dict] = {}
+def _stable_number(value: str, digits: int = 1000000) -> int:
+    return int(hashlib.sha256(value.encode("utf-8")).hexdigest()[:12], 16) % digits
 
 
 class SendCode(BaseModel):
@@ -98,12 +125,16 @@ def auth_login(r: LoginReq):
     """手机号 + 验证码登录/注册。demo:验证码 1234 即通过。会员/家庭组跟账号走。"""
     if r.code != "1234":
         return {"ok": False, "msg": "验证码错误(演示请输入 1234)"}
-    u = _users.setdefault(r.phone, {})
-    u.setdefault("uid", "u" + str(abs(hash(r.phone)) % 1000000))
-    u.setdefault("family_id", "fam-" + str(abs(hash(r.phone)) % 100000))
+    u = account_store.get(r.phone) or {}
+    u.setdefault("uid", "u" + str(_stable_number(r.phone)))
+    u.setdefault("family_id", "fam-" + str(_stable_number(r.phone, 100000)))
     u.setdefault("membership", "")
+    account_store.save(r.phone, u)
     return {"ok": True, "token": "demo-" + u["uid"], "uid": u["uid"],
-            "family_id": u["family_id"], "membership": u["membership"]}
+            "family_id": u["family_id"], "membership": u["membership"],
+            "real_name_verified": u.get("real_name_verified", False),
+            "display_name": u.get("display_name", ""),
+            "chat_entitlement": u.get("chat_entitlement", "")}
 
 
 class WxLogin(BaseModel):
@@ -114,12 +145,45 @@ class WxLogin(BaseModel):
 def auth_wx_login(w: WxLogin):
     """微信一键登录。真实场景:后端用 code 调微信 code2session 换 openid,再建会话。demo:返回一个微信演示账号。"""
     phone = "wx-" + (w.code[-6:] if w.code else "demo")
-    u = _users.setdefault(phone, {})
-    u.setdefault("uid", "wx" + str(abs(hash(phone)) % 1000000))
-    u.setdefault("family_id", "fam-" + str(abs(hash(phone)) % 100000))
+    u = account_store.get(phone) or {}
+    u.setdefault("uid", "wx" + str(_stable_number(phone)))
+    u.setdefault("family_id", "fam-" + str(_stable_number(phone, 100000)))
     u.setdefault("membership", "")
+    account_store.save(phone, u)
     return {"ok": True, "token": "demo-" + u["uid"], "uid": u["uid"], "phone": phone,
-            "family_id": u["family_id"], "membership": u["membership"]}
+            "family_id": u["family_id"], "membership": u["membership"],
+            "real_name_verified": u.get("real_name_verified", False),
+            "display_name": u.get("display_name", ""),
+            "chat_entitlement": u.get("chat_entitlement", "")}
+
+
+class RealNameReq(BaseModel):
+    phone: str = Field(..., min_length=6, max_length=32)
+    token: str = Field(..., min_length=6, max_length=256)
+    name: str = Field(..., min_length=2, max_length=30)
+    id_no: str = Field(..., min_length=18, max_length=18)
+
+
+@app.post("/auth/real-name/verify")
+def real_name_verify(req: RealNameReq):
+    """调用合规实名服务;成功即永久授予无限畅聊陪伴权益。"""
+    from identity import verify
+
+    account = account_store.get(req.phone)
+    if not account or req.token != "demo-" + account.get("uid", ""):
+        return {"ok": False, "verified": False, "msg": "登录状态已失效,请重新登录"}
+    verified, message = verify(req.name, req.id_no)
+    if not verified:
+        return {"ok": False, "verified": False, "msg": message}
+    salt = os.getenv("IDENTITY_HASH_SALT", "xiaoling-change-in-production")
+    account["identity_hash"] = hashlib.sha256((salt + req.id_no.upper()).encode("utf-8")).hexdigest()
+    account["real_name_verified"] = True
+    account["display_name"] = req.name
+    account["chat_entitlement"] = "lifetime_unlimited"
+    account_store.save(req.phone, account)
+    return {"ok": True, "verified": True, "display_name": req.name,
+            "chat_entitlement": "lifetime_unlimited",
+            "msg": "实名认证完成,已赠送永久无限畅聊陪伴"}
 
 
 @app.post("/pay/create")
@@ -127,7 +191,9 @@ def pay_create(o: Order):
     """下单:真实场景这里调微信统一下单/支付宝下单,返回 prepay_id/orderInfo 给客户端拉起收银台。"""
     price = "29.9" if o.plan == "basic" else "299"
     if o.phone:                       # 已登录 → 会员跟账号走(服务器端记录)
-        _users.setdefault(o.phone, {}).update(membership=o.plan)
+        account = account_store.get(o.phone) or {}
+        account["membership"] = o.plan
+        account_store.save(o.phone, account)
     return {"ok": True, "orderId": f"XL{int(time.time())}", "plan": o.plan,
             "method": o.method, "amount": price}
 
@@ -144,7 +210,7 @@ def pay_notify(body: dict):
 import asyncio
 import json as _json
 from collections import defaultdict
-from fastapi import File, Form, Request, UploadFile
+from fastapi import File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 
 _subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)

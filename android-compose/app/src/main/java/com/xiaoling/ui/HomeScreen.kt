@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +22,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateColorAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -28,6 +43,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -85,41 +101,68 @@ fun HomeScreen(vm: AppState) {
         }
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color(0xFFF7F8FC))
     ) {
+        val compact = maxHeight < 700.dp
+        val horizontalPadding = if (compact) 18.dp else 24.dp
+        val topPadding = if (compact) 54.dp else 68.dp
         Column(
-            modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = 68.dp, bottom = 26.dp),
+            modifier = Modifier.fillMaxSize().padding(
+                start = horizontalPadding,
+                end = horizontalPadding,
+                top = topPadding,
+                bottom = if (compact) 18.dp else 26.dp
+            ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            if (ui.live2d) {
-                Avatar3DView(
-                    ui.mascot,
-                    ui.speaking,
-                    Modifier.fillMaxWidth().weight(1f).padding(horizontal = 4.dp)
-                )
-            } else {
-                Avatar(
-                    ui.mascot,
-                    Modifier.fillMaxWidth().weight(1f).padding(horizontal = 4.dp)
-                )
+            Crossfade(
+                targetState = ui.live2d,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                animationSpec = tween(420),
+                label = "avatar-mode"
+            ) { live3d ->
+                if (live3d) {
+                    Avatar3DView(
+                        ui.mascot,
+                        ui.speaking,
+                        Modifier.fillMaxSize().padding(horizontal = 4.dp)
+                    )
+                } else {
+                    Avatar(
+                        ui.mascot,
+                        Modifier.fillMaxSize().padding(horizontal = 4.dp)
+                    )
+                }
             }
 
-            Text(
-                text = ui.caption,
-                color = InkColor,
-                fontSize = 28.sp,
-                lineHeight = 36.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 108.dp).padding(horizontal = 4.dp, vertical = 8.dp)
-            )
+            AnimatedContent(
+                targetState = ui.caption,
+                transitionSpec = {
+                    (slideInVertically { it / 4 } + fadeIn(tween(180))) togetherWith
+                        (slideOutVertically { -it / 5 } + fadeOut(tween(140)))
+                },
+                label = "dialogue-caption"
+            ) { caption ->
+                Text(
+                    text = caption,
+                    color = InkColor,
+                    fontSize = if (compact) 24.sp else 28.sp,
+                    lineHeight = if (compact) 32.sp else 36.sp,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
+                    maxLines = if (compact) 2 else 3,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                        .heightIn(min = if (compact) 76.dp else 108.dp)
+                        .padding(horizontal = 4.dp, vertical = 8.dp)
+                )
+            }
 
             Spacer(Modifier.height(12.dp))
             MicrophoneButton(
                 listening = ui.listening,
+                compact = compact,
                 onPress = {
                     if (hasMic()) vm.pressToTalk() else launcher.launch(permissions)
                 },
@@ -144,13 +187,30 @@ fun HomeScreen(vm: AppState) {
 @Composable
 private fun MicrophoneButton(
     listening: Boolean,
+    compact: Boolean,
     onPress: () -> Unit,
     onRelease: () -> Unit
 ) {
-    val fill = if (listening) Color(0xFFE05252) else AccentBlue
+    val fill by animateColorAsState(
+        targetValue = if (listening) Color(0xFFE05252) else AccentBlue,
+        animationSpec = tween(180),
+        label = "mic-color"
+    )
+    val size by animateDpAsState(
+        targetValue = if (listening) (if (compact) 88.dp else 98.dp) else (if (compact) 80.dp else 92.dp),
+        animationSpec = tween(220),
+        label = "mic-size"
+    )
+    val pulse by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
+        initialValue = 0.98f,
+        targetValue = if (listening) 1.05f else 1f,
+        animationSpec = infiniteRepeatable(tween(620), RepeatMode.Reverse),
+        label = "mic-scale"
+    )
     Box(
         modifier = Modifier
-            .size(92.dp)
+            .size(size)
+            .graphicsLayer { scaleX = pulse; scaleY = pulse }
             .shadow(10.dp, CircleShape)
             .clip(CircleShape)
             .background(fill)

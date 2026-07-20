@@ -25,3 +25,7 @@ class Reply(BaseModel):
     )
     skill: str = Field(default="", description="命中的技能名,便于日志与埋点")
     risk: float = Field(default=0.0, description="风险分(防诈场景用),0~1")
+    sources: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="资讯来源、发布时间与链接;客户端可按需展示或播报",
+    )
