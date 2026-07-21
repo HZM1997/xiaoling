@@ -1,7 +1,0 @@
-{
-  "appId": "com.xiaoling.demo",
-  "appName": "小灵",
-  "webDir": "www",
-  "backgroundColor": "#0d1117",
-  "android": { "allowMixedContent": true }
-}

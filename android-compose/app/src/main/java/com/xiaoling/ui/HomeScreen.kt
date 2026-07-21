@@ -31,6 +31,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xiaoling.R
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
@@ -61,6 +65,7 @@ import com.xiaoling.ui.theme.InkColor
 fun HomeScreen(vm: AppState) {
     val ui by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     var micGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
@@ -72,26 +77,40 @@ fun HomeScreen(vm: AppState) {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         micGranted = granted
-        if (granted) {
-            vm.warmUpMic()
-            WakeService.start(ctx)
-            vm.startVoiceConversation()
-        } else {
+        if (!granted) {
             vm.onMicrophonePermissionDenied()
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(micGranted) {
         if (micGranted) {
+            // 首页由 App 自己持续收音,后台唤醒服务让出麦克风。
+            WakeService.pause(ctx)
             vm.warmUpMic()
-            WakeService.start(ctx)
+            vm.startVoiceConversation()
         } else {
             micLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
-    val showCaption = ui.listening || ui.speaking || ui.busy || ui.micFeedback.isNotBlank()
+    DisposableEffect(lifecycleOwner, micGranted) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> if (micGranted) {
+                    WakeService.pause(ctx)
+                    vm.startVoiceConversation()
+                }
+                Lifecycle.Event.ON_PAUSE -> vm.pauseVoiceConversation()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
     val visibleCaption = ui.micFeedback.ifBlank { ui.caption }
+    val showCaption = visibleCaption.isNotBlank() &&
+        (ui.listening || ui.speaking || ui.busy || ui.micFeedback.isNotBlank())
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color.White)
     ) {
@@ -147,7 +166,7 @@ fun HomeScreen(vm: AppState) {
 
             Spacer(Modifier.height(if (showCaption) 8.dp else 14.dp))
             MicrophoneButton(
-                listening = ui.listening,
+                listening = ui.micPressed,
                 onPress = {
                     if (micGranted) {
                         WakeService.pause(ctx)

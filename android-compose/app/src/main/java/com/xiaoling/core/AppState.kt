@@ -27,6 +27,7 @@ data class UiState(
     val caption: String = "小灵在这儿,想说什么直接说",
     val mascot: MascotState = MascotState.Idle,
     val listening: Boolean = false,
+    val micPressed: Boolean = false,
     val speaking: Boolean = false,
     val busy: Boolean = false,
     val micFeedback: String = "",
@@ -78,6 +79,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var speaking = false   // TTS 播报中
     @Volatile private var holding = false    // 老人正按住说话
     @Volatile private var recognitionActive = false
+    @Volatile private var currentSpeechDetected = false
     @Volatile private var listenSession = 0L
     private var pressStartedAt = 0L
     private var speechTimeoutJob: Job? = null
@@ -95,8 +97,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val QUICK_TAP_MS = 320L
-        const val RESULT_TIMEOUT_MS = 3000L
-        const val AUTO_LISTEN_TIMEOUT_MS = 10000L
+        const val RESULT_TIMEOUT_MS = 3500L
+        const val AUTO_LISTEN_TIMEOUT_MS = 15000L
     }
 
     /** 当前会员档位(登录跟账号,否则本地) */
@@ -250,7 +252,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         voiceSessionActive = false
         val tip = "请允许小灵使用麦克风,我才能听见您说话。再次按麦克风可以重新授权。"
         speaking = true
-        _state.update { it.copy(caption = tip, listening = false, speaking = true, busy = false, mascot = MascotState.Caring) }
+        _state.update { it.copy(caption = tip, listening = false, micPressed = false,
+            speaking = true, busy = false, mascot = MascotState.Caring) }
         curUtt = tts.speak(tip)
     }
 
@@ -260,6 +263,20 @@ class AppState(application: Application) : AndroidViewModel(application) {
         automaticMisses = 0
         _state.update { it.copy(screen = Screen.Home) }
         beginListening(automatic = true)
+    }
+
+    /** 退到手机桌面时释放前台识别器,让后台唤醒服务立即接管同一个麦克风。 */
+    fun pauseVoiceConversation() {
+        voiceSessionActive = false
+        autoListenJob?.cancel()
+        if (recognitionActive || holding) cancelActiveRecognition()
+        if (speaking) {
+            curUtt = ""
+            tts.stop()
+            speaking = false
+        }
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false,
+            busy = false, micFeedback = "", caption = "", mascot = MascotState.Idle) }
     }
 
     /**
@@ -303,7 +320,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             holding = true
             pressStartedAt = SystemClock.elapsedRealtime()
             val ok = VoiceMemo.startRecord(app)
-            _state.update { it.copy(listening = true, busy = false,
+            _state.update { it.copy(listening = true, micPressed = true, busy = false,
                 speaking = false, micFeedback = "",
                 caption = if (ok) "正在录音…松开就好" else "录音没打开,请检查麦克风权限",
                 mascot = MascotState.Listening) }
@@ -313,31 +330,38 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (speaking) { tts.stop(); speaking = false }
         holding = !automatic
         recognitionActive = true
+        currentSpeechDetected = false
         pressStartedAt = if (automatic) 0L else SystemClock.elapsedRealtime()
         val session = ++listenSession
-        _state.update { it.copy(listening = true, speaking = false, busy = false,
-            micFeedback = "", caption = "在听…请说",
+        _state.update { it.copy(listening = true, micPressed = !automatic, speaking = false, busy = false,
+            micFeedback = "", caption = if (automatic) "" else "在听…请说",
             mascot = if (it.mascot == MascotState.Alarm) it.mascot else MascotState.Listening) }
         speech.listen(
             onPartial = { p ->
                 if (session == listenSession && recognitionActive && p.isNotBlank()) {
+                    currentSpeechDetected = true
                     _state.update { it.copy(caption = p) }
                 }
             },
+            onSpeechStart = {
+                if (session == listenSession && recognitionActive) currentSpeechDetected = true
+            },
             onText = { t ->
+                val detected = currentSpeechDetected || t.isNotBlank()
                 if (!finishRecognition(session)) return@listen
                 if (t.isNotBlank()) {
                     interrupted = false
                     automaticMisses = 0
                     process(t)
-                } else onHeardNothing(automatic)
+                } else onHeardNothing(automatic, detected)
             },
             onError = { error ->
+                val detected = currentSpeechDetected
                 if (!finishRecognition(session)) return@listen
                 if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                     onMicrophonePermissionDenied()
                 } else {
-                    onHeardNothing(automatic)
+                    onHeardNothing(automatic, detected)
                 }
             }
         )
@@ -358,7 +382,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             speaking = true
             if (f != null) {
                 // 先把刚录的原声放给老人听一遍(听得清才敢发),放完再提示怎么发
-                _state.update { it.copy(listening = false, mascot = MascotState.Caring,
+                _state.update { it.copy(listening = false, micPressed = false, mascot = MascotState.Caring,
                     caption = "您先听听,录得清楚吗…", speaking = true) }
                 VoiceMemo.playback(app) {
                     val tip = "录好了。想发给谁,就跟我说『发给女儿』这样。"
@@ -368,7 +392,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 }
             } else {
                 val tip = "没录到声音,再试一次好吗?"
-                _state.update { it.copy(listening = false, mascot = MascotState.Caring, caption = tip, speaking = true) }
+                _state.update { it.copy(listening = false, micPressed = false,
+                    mascot = MascotState.Caring, caption = tip, speaking = true) }
                 curUtt = tts.speak(tip)
             }
             return
@@ -384,7 +409,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (!recognitionActive) return
 
         // 松手立即结束红色按钮状态,无需等待 OEM SpeechRecognizer 回调。
-        _state.update { it.copy(listening = false, speaking = false, busy = true,
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false, busy = true,
             micFeedback = "", caption = "正在识别…", mascot = MascotState.Thinking) }
         speech.stopListening()
         speechTimeoutJob?.cancel()
@@ -398,7 +423,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (session != listenSession || !recognitionActive) return false
         speechTimeoutJob?.cancel()
         recognitionActive = false
-        _state.update { it.copy(listening = false, busy = false) }
+        _state.update { it.copy(listening = false, micPressed = false, busy = false) }
         return true
     }
 
@@ -408,8 +433,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         recognitionActive = false
         holding = false
         speech.cancel()
-        _state.update { it.copy(listening = false, busy = false) }
-        onHeardNothing(automatic)
+        _state.update { it.copy(listening = false, micPressed = false, busy = false) }
+        onHeardNothing(automatic, currentSpeechDetected)
     }
 
     private fun cancelActiveRecognition(updateUi: Boolean = true) {
@@ -419,7 +444,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         holding = false
         speech.cancel()
         if (updateUi) {
-            _state.update { it.copy(listening = false, busy = false) }
+            _state.update { it.copy(listening = false, micPressed = false, busy = false) }
         }
     }
 
@@ -433,7 +458,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         interrupted = false
         val feedback = if (resumeInterrupted) "已取消,继续刚才的播报" else "已取消"
-        _state.update { it.copy(listening = false, speaking = false, busy = false,
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false, busy = false,
             micFeedback = feedback, mascot = MascotState.Idle) }
         micFeedbackJob?.cancel()
         micFeedbackJob = viewModelScope.launch {
@@ -450,7 +475,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     /** 没听清/没内容:温和语音提示,不弹冷冰冰文字。若是打断场景则恢复原播报。 */
-    private fun onHeardNothing(automatic: Boolean) {
+    private fun onHeardNothing(automatic: Boolean, speechDetected: Boolean = true) {
         if (interrupted && tts.lastSpoken.isNotBlank()) {
             interrupted = false
             speaking = true
@@ -460,12 +485,25 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         interrupted = false
+        if (automatic && voiceSessionActive && !speechDetected) {
+            // 无人说话只是监听窗口自然结束,不要反复播报打扰;立即开启下一轮。
+            _state.update { it.copy(listening = false, micPressed = false, speaking = false,
+                busy = false, micFeedback = "", caption = "", mascot = MascotState.Idle) }
+            autoListenJob?.cancel()
+            autoListenJob = viewModelScope.launch {
+                delay(180)
+                if (voiceSessionActive && !holding && !recognitionActive && !speaking &&
+                    AppForeground.active && _state.value.screen == Screen.Home) {
+                    beginListening(automatic = true)
+                }
+            }
+            return
+        }
         speaking = true
         val tip = if (automatic && voiceSessionActive) {
             automaticMisses++
-            if (automaticMisses >= 2) {
-                voiceSessionActive = false
-                "我先在这儿等您,有需要再叫小灵。"
+            if (automaticMisses % 3 == 0) {
+                "声音有点轻,您靠近一点再说一遍好吗?"
             } else {
                 "我没听清楚,麻烦您再说一遍好吗?"
             }
@@ -477,9 +515,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
         curUtt = tts.speak(tip)
     }
 
-    // ---------- 处理:本地快通道优先(极致反应),云端硬超时兜底,保证 ≤2s ----------
+    // ---------- 处理:本地快通道优先,模型请求限时,连续失败快速熔断 ----------
     private fun process(text: String) {
         val spoken = LocalIntents.normalizeSpeech(text)
+        val previousUser = _state.value.lastUser
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken,
             lastUser = spoken, online = NetworkStatus.isOnline(app)) }
 
@@ -522,11 +561,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
-            // 云端最多等 1.8s:whichever first。超时/失败即本地兜底,总响应 ≤2s
-            val reply = withTimeoutOrNull(1800) {
-                try { BrainClient.ask(app, spoken) } catch (e: Exception) { null }
-            } ?: Reply("我先陪您聊两句。您可以说『打电话给女儿』『导航到医院』,或者让我帮您翻译。", null, "chat", 0.0)
-            applyReply(reply)
+            // 本地快通道即时返回;需要大模型时给流畅对话留出合理窗口。连续失败会由客户端熔断,
+            // 后续轮次直接走本地动态陪伴,避免每句话都等待不可达服务。
+            val reply = if (NetworkStatus.isOnline(app)) {
+                withTimeoutOrNull(5500) {
+                    try { BrainClient.ask(app, spoken) } catch (_: Exception) { null }
+                }
+            } else null
+            applyReply(reply ?: LocalCompanion.reply(spoken, previousUser))
         }
     }
 

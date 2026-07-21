@@ -2,7 +2,7 @@
 
 > 生成方式:多维度只读审查(编译正确性 / 运行时逻辑 / 后端 / 安全 / 一致性 / 死代码 6 个维度覆盖)。
 > 审查范围:**活跃工程** `xiaoling/android-compose/`(原生 App)+ `xiaoling/server/`(后端)。
-> 不含:`xiaoling/android/`(旧 XML 骨架,com.jingling 包)、`xiaoling-src/`(去敏副本)——这两个是历史遗留,不参与构建。
+> 当前仅审计 `android-compose/` 与 `server/`;旧 XML、网页和 WebView 工程已删除。
 >
 > 结论概览:**未发现会导致编译失败或崩溃的 BLOCKER/HIGH 问题**。以下均为 MEDIUM 及以下的优化项、DEMO 待替换项、LOW 清理项。逐条可改。
 
@@ -84,10 +84,9 @@
 
 | 目录 | 说明 | 建议 |
 |---|---|---|
-| `xiaoling/android/`(com.jingling) | 最早的 XML 骨架 App | 已被 android-compose 取代,可删或保留作参考 |
+| 旧 XML Android 骨架 | 已被 android-compose 取代 | 已删除 |
 | `xiaoling-src/` | 早期去敏源码副本 | 与主库重复,建议删除避免混淆 |
-| `xiaoling/mobile/` | Capacitor WebView 封装(网页套壳) | 与原生 App 定位不同,保留则明确其用途 |
-| `xiaoling/demo/`、`deck/` | 网页演示 + 路演稿 | 保留(非 App 代码) |
+| 旧 Capacitor/Web 演示/路演稿 | 不参与原生 App | 已删除 |
 
 ---
 

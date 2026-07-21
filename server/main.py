@@ -13,13 +13,12 @@ from fastapi import FastAPI, Request
 
 from models import Utterance, Reply
 import skills          # 导入即注册所有技能
-from llm import llm_reply
-import brain           # 大模型驱动的行为理解(智能应用体)
 import firewall        # 后端防火墙(限流/体积限制/安全头)
 import agent_registry  # 受控的签名 Skill / Agent 能力目录
 import account_store   # 账号、实名状态与永久权益持久化
+from agent_runtime import runtime
 
-app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.1.0")
+app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.2.0")
 firewall.install(app)  # 启用防火墙中间件
 
 # 家庭语音留言文件。生产环境建议改为对象存储并设置 PUBLIC_BASE_URL。
@@ -33,9 +32,16 @@ app.mount("/family/audio/files", StaticFiles(directory=str(_FAMILY_AUDIO_DIR)), 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "llm": brain.llm_gateway.available(),
+    status = runtime.status()
+    return {"ok": True, "llm": status["models"]["available"],
             "skills": [name for name, _, _ in skills._REGISTRY],
-            "agent_registry": agent_registry.status()}
+            "agent_registry": agent_registry.status(), "runtime": status}
+
+
+@app.get("/runtime/status")
+def runtime_status():
+    """长驻运行时状态;不返回记忆正文或模型密钥。"""
+    return {"ok": True, **runtime.status()}
 
 
 @app.get("/agent/catalog")
@@ -71,18 +77,7 @@ def dialogue(u: Utterance) -> Reply:
          调技能 / 生成多选 / 陪伴闲聊;
       3) 兜底:未配大模型 KEY 时退回原简易 llm/离线兜底,保证永远有温暖回应。
     """
-    r = skills.match(u)
-    if r:
-        return r
-    evolved = agent_registry.answer(u.text)
-    if evolved:
-        return evolved
-    ctx = u.context or {}
-    smart = brain.understand(u.text, user_id=u.user_id,
-                             profile=ctx.get("profile"), scene=ctx.get("scene", "chat"))
-    if smart:
-        return smart
-    return llm_reply(u)
+    return runtime.process(u)
 
 
 # 供 CLI / 测试 直接进程内调用,免起服务

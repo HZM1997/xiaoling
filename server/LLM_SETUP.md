@@ -20,9 +20,10 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 **云端部署**(Render/Railway/Fly,见 DEPLOY.md):在平台的「Environment / 环境变量」里加
 `DEEPSEEK_API_KEY = sk-你的key`,重新部署即可。
 
-> 换别家:改成对应变量即可,一个就够:
+> 换别家:改成对应变量即可;也可以同时配置多个,主模型失败时会按顺序回退:
 > `OPENAI_API_KEY`(GPT) / `DASHSCOPE_API_KEY`(通义) / `ARK_API_KEY`(豆包) / `MOONSHOT_API_KEY`(Kimi)。
 > 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`。
+> 可用 `XL_LLM_PROVIDERS=qwen,deepseek,openai` 指定优先级。
 
 ## 三、验证是否启用成功
 ```bash
@@ -45,7 +46,8 @@ curl http://localhost:8000/health
 ## 五、成本与降级(放心)
 - **分层省钱**:防诈/呼救/打电话/导航/翻译等高频+安全指令**仍走规则**(0 成本、离线、快),
   只有开放式对话才调大模型。所以账单很小。
-- **超时降级**:大模型 6 秒不回就退回规则/兜底,不会卡住,更不影响呼救/防诈。
+- **超时降级**:多个模型共享 6 秒总时限,超时后走动态本地兜底,不会卡住,更不影响呼救/防诈。
+- **持久记忆**:相关偏好和近期对话存入 SQLite,重启服务后仍可召回;身份证、验证码等敏感内容会过滤。
 - **隐私**:大模型跑在你自己的后端,请求由你的后端转发;不把用户数据交给第三方 App。
 
 ## 六、常见问题

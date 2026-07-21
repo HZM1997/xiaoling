@@ -6,6 +6,7 @@
   - 国内落地把 _call_anthropic 换成 通义/豆包/文心 的 Function-Calling 即可,结构不变。
 """
 from __future__ import annotations
+import hashlib
 import os
 
 from models import Utterance, Reply
@@ -38,11 +39,11 @@ _SYSTEM = ("你是老年人的贴心手机精灵'小灵'。说话简短、温暖
            "遇到闲聊就用 intent=chat,好好陪老人说话。")
 
 
-def llm_reply(u: Utterance) -> Reply:
+def llm_reply(u: Utterance, runtime_context: dict | None = None) -> Reply:
     try:
         data = _call_anthropic(u.text)
     except Exception:
-        return _offline_fallback(u)      # 没网/没KEY/没装库 → 降级
+        return _offline_fallback(u, runtime_context)      # 没网/没KEY/没装库 → 降级
     intent = data.get("intent", "chat")
     slots = data.get("slots", {}) or {}
     action = None
@@ -71,13 +72,30 @@ def _call_anthropic(text: str) -> dict:
     return {"speech": "我没太听清,您再说一遍好吗?", "intent": "unknown"}
 
 
-def _offline_fallback(u: Utterance) -> Reply:
-    """无大模型时的兜底:保证系统永远有温暖回应,不白屏。"""
-    return Reply(
-        speech="我在听着呢。您可以跟我说『打电话给女儿』『导航到医院』,"
-               "或者陪我聊聊天。有需要随时喊我。",
-        skill="offline_fallback",
-    )
+def _offline_fallback(u: Utterance, runtime_context: dict | None = None) -> Reply:
+    """无可用模型时按当前话题生成短回复,避免每轮重复同一句。"""
+    text = " ".join(u.text.strip().split())[:36]
+    if any(word in text for word in ("你好", "您好", "在吗")):
+        speech = "在呢,您慢慢说,我一直听着。"
+    elif any(word in text for word in ("孤单", "寂寞", "睡不着", "陪我")):
+        speech = "我陪着您。今天有什么事一直放在心里?"
+    elif any(word in text for word in ("不开心", "难过", "担心", "烦")):
+        speech = "听起来这件事让您不好受。您慢慢讲,我在听。"
+    elif "我喜欢" in text or "我爱听" in text or "我爱看" in text:
+        speech = "记住了。以后聊到这方面,我会先照顾您的喜好。"
+    elif any(word in text for word in ("什么", "怎么", "为什么", "多少", "哪里", "哪儿")):
+        speech = f"您问的是“{text}”。我现在没拿到可靠资料,不想随口说错。稍后我再认真帮您查。"
+    else:
+        recent = (runtime_context or {}).get("recent_turns") or []
+        seed = f"{u.user_id}:{text}:{len(recent)}".encode("utf-8")
+        index = int(hashlib.sha256(seed).hexdigest()[:8], 16) % 4
+        speech = (
+            f"我听见您说“{text}”了。您是想聊聊它,还是要我帮您办件事?",
+            f"好,这句话我记下了。关于“{text}”,您再多说一点好吗?",
+            f"我在认真听。您说的“{text}”,最想让我帮您解决哪一部分?",
+            f"明白一些了。您可以接着说“{text}”后面要做什么。",
+        )[index]
+    return Reply(speech=speech, skill="offline:contextual")
 
 
 # ---------- 防诈二次研判(仅规则中危时调用,降误报) ----------

@@ -124,4 +124,4 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper(或用 Android Stud
 ## 后续(可选,需额外依赖)
 - **常驻语音唤醒词**(说「小灵小灵」免点按):接 Picovoice Porcupine(需 AccessKey + 依赖)或自训 KWS + 常驻前台服务。
 - **来电内容级防诈**:Android 不开放第三方读取通话音频,需厂商/系统级能力,普通 App 做不到。
-- **Live2D 精致形象**:在原生里用 WebView 承载 `demo/live2d.js` + 模型,或用 GL 渲染;较重,按需接。
+- **3D 精致形象**:当前由原生 App 内置轻量页面承载;完整模型资源按需下发,避免扩大基础 APK。

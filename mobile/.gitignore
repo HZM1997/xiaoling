@@ -1,7 +1,0 @@
-# Capacitor 生成物 / 依赖(CI 会重新生成)
-node_modules/
-www/
-android/
-ios/
-.gradle/
-*.keystore
