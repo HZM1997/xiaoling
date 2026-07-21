@@ -2,10 +2,14 @@ package com.xiaoling.core
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import androidx.core.content.ContextCompat
+import android.Manifest
 
 /**
  * 系统语音识别封装(中文),支持「按住说话」交互:
@@ -20,17 +24,23 @@ class SpeechController(private val ctx: Context) {
 
     val isAvailable: Boolean
         get() = try {
-            SpeechRecognizer.isRecognitionAvailable(ctx)
+            hasPermission && (
+                SpeechRecognizer.isRecognitionAvailable(ctx) ||
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx))
+                )
         } catch (_: Throwable) {
             false
         }
+
+    val hasPermission: Boolean
+        get() = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     /** 预热:提前建好识别器,首次/每轮开听更快 */
     fun warmUp() {
         if (!isAvailable) return
         try {
             if (recognizer == null) {
-                recognizer = SpeechRecognizer.createSpeechRecognizer(ctx)
+                recognizer = createRecognizer()
             }
         } catch (_: Throwable) {
             releaseRecognizer()
@@ -48,12 +58,13 @@ class SpeechController(private val ctx: Context) {
         onText: (String) -> Unit,
         onError: (Int) -> Unit
     ) {
+        if (!hasPermission) { onError(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS); return }
         if (!isAvailable) { onError(SpeechRecognizer.ERROR_CLIENT); return }
         val partialCb = onPartial
         val textCb = onText
         val errCb = onError
         try {
-            if (recognizer == null) recognizer = SpeechRecognizer.createSpeechRecognizer(ctx)
+            if (recognizer == null) recognizer = createRecognizer()
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle) {
                     val text = results
@@ -80,6 +91,8 @@ class SpeechController(private val ctx: Context) {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx))
                 // 按住说话:靠松手 stopListening() 收尾,静音阈值放宽以免老人说话间断被半途截断
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200)
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
@@ -99,6 +112,15 @@ class SpeechController(private val ctx: Context) {
     fun cancel() { try { recognizer?.cancel() } catch (e: Exception) {} }
 
     fun destroy() = releaseRecognizer()
+
+    private fun createRecognizer(): SpeechRecognizer {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(ctx)) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(ctx)
+        }
+    }
 
     private fun releaseRecognizer() {
         try { recognizer?.destroy() } catch (_: Throwable) {}

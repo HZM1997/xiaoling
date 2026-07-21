@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -53,13 +54,16 @@ class WakeService : Service() {
     /** 后台监听循环:App 在前台/无识别服务时让位重试;否则听一轮,命中「小灵」就唤起 */
     private fun loop() {
         if (!running) return
-        val available = try { SpeechRecognizer.isRecognitionAvailable(this) } catch (_: Throwable) { false }
+        val available = try {
+            SpeechRecognizer.isRecognitionAvailable(this) ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
+        } catch (_: Throwable) { false }
         if (AppForeground.active || !available) {
             main.postDelayed({ loop() }, 1500); return
         }
         try {
             releaseRecognizer()
-            recognizer = SpeechRecognizer.createSpeechRecognizer(this).also { r ->
+            recognizer = createRecognizer().also { r ->
                 r.setRecognitionListener(object : RecognitionListener {
                     override fun onResults(results: Bundle) {
                         val hit = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -80,6 +84,8 @@ class WakeService : Service() {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(this@WakeService))
             }
             recognizer?.startListening(intent)
         } catch (_: Throwable) {
@@ -136,6 +142,21 @@ class WakeService : Service() {
     private fun releaseRecognizer() {
         try { recognizer?.destroy() } catch (_: Throwable) {}
         recognizer = null
+    }
+
+    private fun createRecognizer(): SpeechRecognizer {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+        } else {
+            SpeechRecognizer.createSpeechRecognizer(this)
+        }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // 用户划掉任务后保留守护服务;系统回收后由 START_STICKY 恢复。
+        if (running) again(300)
+        super.onTaskRemoved(rootIntent)
     }
 
     private fun shutdownAndStop() {

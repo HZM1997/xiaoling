@@ -208,6 +208,8 @@ private fun UserTab(
         }
     }
     GlassCard {
+        StatRow("服务状态", if (ui.online) "在线" else "离线 · 本地可用")
+        Divider()
         RowItem("账号与安全") { if (ui.loggedIn) showText("账号与安全", "· 手机号:" + maskPhone(ui.phone) + "\n· 登录设备管理\n· 注销账号") else onLogin() }
         Divider()
         RowItem(if (ui.realNameVerified) "实名认证 · 已完成" else "实名认证") {
@@ -280,7 +282,7 @@ private fun MemberTab(ui: com.xiaoling.core.UiState, onBuy: (String) -> Unit) {
                 color = AccentBlue, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         }
         Spacer(Modifier.height(12.dp))
-        PlanCard("基础会员", "¥29.9 / 月", listOf("无限畅聊陪伴", "健康用药提醒", "来电 + 短信防诈"),
+        PlanCard("基础会员", "¥29.9 / 月", listOf("无限畅聊陪伴 · 实名免费", "健康用药提醒", "来电 + 短信防诈"),
             plan = "basic", current = ui.membership == "basic", onBuy = onBuy)
         Spacer(Modifier.height(12.dp))
         PlanCard("高级会员", "¥299 / 年",
@@ -298,9 +300,6 @@ private fun RealNameDialog(onDismiss: () -> Unit, onSubmit: (String, String) -> 
         title = { Text("实名认证") },
         text = {
             Column {
-                Text("认证成功即赠送永久无限畅聊陪伴。证件号码仅发送给已配置的合规核验服务,不会保存在手机中。",
-                    fontSize = 14.sp, lineHeight = 21.sp, color = DimColor)
-                Spacer(Modifier.height(10.dp))
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it.take(30) },
@@ -322,7 +321,7 @@ private fun RealNameDialog(onDismiss: () -> Unit, onSubmit: (String, String) -> 
             TextButton(
                 onClick = { onSubmit(name.trim(), idNo.trim()) },
                 enabled = name.trim().length >= 2 && idNo.length == 18
-            ) { Text("安全核验") }
+            ) { Text("绑定") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
     )

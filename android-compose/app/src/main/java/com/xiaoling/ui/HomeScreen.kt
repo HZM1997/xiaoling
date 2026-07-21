@@ -2,11 +2,20 @@ package com.xiaoling.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -15,35 +24,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -57,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaoling.R
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
+import com.xiaoling.service.WakeService
 import com.xiaoling.ui.theme.AccentBlue
 import com.xiaoling.ui.theme.InkColor
 
@@ -64,107 +61,95 @@ import com.xiaoling.ui.theme.InkColor
 fun HomeScreen(vm: AppState) {
     val ui by vm.state.collectAsStateWithLifecycle()
     val ctx = LocalContext.current
-    val permissions = buildList {
-        add(Manifest.permission.RECORD_AUDIO)
-        add(Manifest.permission.CALL_PHONE)
-        add(Manifest.permission.READ_CONTACTS)
-        add(Manifest.permission.ACCESS_FINE_LOCATION)
-        add(Manifest.permission.RECEIVE_SMS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            add(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }.toTypedArray()
+    var micGranted by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
+                PackageManager.PERMISSION_GRANTED
+        )
+    }
 
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { result ->
-        if (result[Manifest.permission.RECORD_AUDIO] == true) {
+    val micLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        micGranted = granted
+        if (granted) {
             vm.warmUpMic()
-            com.xiaoling.service.WakeService.start(ctx)
+            WakeService.start(ctx)
+            vm.startVoiceConversation()
+        } else {
+            vm.onMicrophonePermissionDenied()
         }
     }
 
-    fun hasMic() = ContextCompat.checkSelfPermission(
-        ctx, Manifest.permission.RECORD_AUDIO
-    ) == PackageManager.PERMISSION_GRANTED
-
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        try {
-            if (hasMic()) {
-                vm.warmUpMic()
-                com.xiaoling.service.WakeService.start(ctx)
-            } else {
-                launcher.launch(permissions)
-            }
-        } catch (_: Throwable) {
-            // 初始化失败不阻塞首页;按住麦克风时还能再次尝试。
+    LaunchedEffect(Unit) {
+        if (micGranted) {
+            vm.warmUpMic()
+            WakeService.start(ctx)
+        } else {
+            micLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
 
+    val showCaption = ui.listening || ui.speaking || ui.busy
     BoxWithConstraints(
-        modifier = Modifier.fillMaxSize().background(Color(0xFFF7F8FC))
+        modifier = Modifier.fillMaxSize().background(Color.White)
     ) {
         val compact = maxHeight < 700.dp
-        val horizontalPadding = if (compact) 18.dp else 24.dp
-        val topPadding = if (compact) 54.dp else 68.dp
         Column(
             modifier = Modifier.fillMaxSize().padding(
-                start = horizontalPadding,
-                end = horizontalPadding,
-                top = topPadding,
-                bottom = if (compact) 18.dp else 26.dp
+                start = if (compact) 16.dp else 22.dp,
+                end = if (compact) 16.dp else 22.dp,
+                top = if (compact) 50.dp else 62.dp,
+                bottom = if (compact) 18.dp else 24.dp
             ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Crossfade(
                 targetState = ui.live2d,
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                animationSpec = tween(420),
+                animationSpec = tween(360),
                 label = "avatar-mode"
             ) { live3d ->
                 if (live3d) {
-                    Avatar3DView(
-                        ui.mascot,
-                        ui.speaking,
-                        Modifier.fillMaxSize().padding(horizontal = 4.dp)
-                    )
+                    Avatar3DView(ui.mascot, ui.speaking, Modifier.fillMaxSize())
                 } else {
-                    Avatar(
-                        ui.mascot,
-                        Modifier.fillMaxSize().padding(horizontal = 4.dp)
+                    Avatar(ui.mascot, Modifier.fillMaxSize())
+                }
+            }
+
+            AnimatedVisibility(
+                visible = showCaption,
+                enter = fadeIn(tween(150)) + expandVertically(expandFrom = Alignment.CenterVertically),
+                exit = fadeOut(tween(120)) + shrinkVertically(shrinkTowards = Alignment.CenterVertically)
+            ) {
+                AnimatedContent(
+                    targetState = ui.caption,
+                    transitionSpec = {
+                        (slideInVertically { it / 5 } + fadeIn(tween(150))) togetherWith
+                            (slideOutVertically { -it / 6 } + fadeOut(tween(110)))
+                    },
+                    label = "dialogue-caption"
+                ) { caption ->
+                    Text(
+                        text = caption,
+                        color = InkColor,
+                        fontSize = if (compact) 23.sp else 27.sp,
+                        lineHeight = if (compact) 30.sp else 35.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center,
+                        maxLines = if (compact) 2 else 3,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
                     )
                 }
             }
 
-            AnimatedContent(
-                targetState = ui.caption,
-                transitionSpec = {
-                    (slideInVertically { it / 4 } + fadeIn(tween(180))) togetherWith
-                        (slideOutVertically { -it / 5 } + fadeOut(tween(140)))
-                },
-                label = "dialogue-caption"
-            ) { caption ->
-                Text(
-                    text = caption,
-                    color = InkColor,
-                    fontSize = if (compact) 24.sp else 28.sp,
-                    lineHeight = if (compact) 32.sp else 36.sp,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center,
-                    maxLines = if (compact) 2 else 3,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth()
-                        .heightIn(min = if (compact) 76.dp else 108.dp)
-                        .padding(horizontal = 4.dp, vertical = 8.dp)
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (showCaption) 8.dp else 14.dp))
             MicrophoneButton(
                 listening = ui.listening,
-                compact = compact,
                 onPress = {
-                    if (hasMic()) vm.pressToTalk() else launcher.launch(permissions)
+                    if (micGranted) vm.pressToTalk()
+                    else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 },
                 onRelease = vm::releaseToTalk
             )
@@ -172,13 +157,13 @@ fun HomeScreen(vm: AppState) {
 
         IconButton(
             onClick = { vm.showScreen(Screen.Settings) },
-            modifier = Modifier.align(Alignment.TopEnd).padding(14.dp).size(52.dp)
+            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp)
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_settings),
                 contentDescription = "设置",
                 tint = InkColor,
-                modifier = Modifier.size(30.dp)
+                modifier = Modifier.size(28.dp)
             )
         }
     }
@@ -187,34 +172,14 @@ fun HomeScreen(vm: AppState) {
 @Composable
 private fun MicrophoneButton(
     listening: Boolean,
-    compact: Boolean,
     onPress: () -> Unit,
     onRelease: () -> Unit
 ) {
-    val fill by animateColorAsState(
-        targetValue = if (listening) Color(0xFFE05252) else AccentBlue,
-        animationSpec = tween(180),
-        label = "mic-color"
-    )
-    val size by animateDpAsState(
-        targetValue = if (listening) (if (compact) 88.dp else 98.dp) else (if (compact) 80.dp else 92.dp),
-        animationSpec = tween(220),
-        label = "mic-size"
-    )
-    val pulse by rememberInfiniteTransition(label = "mic-pulse").animateFloat(
-        initialValue = 0.98f,
-        targetValue = if (listening) 1.05f else 1f,
-        animationSpec = infiniteRepeatable(tween(620), RepeatMode.Reverse),
-        label = "mic-scale"
-    )
     Box(
         modifier = Modifier
-            .size(size)
-            .graphicsLayer { scaleX = pulse; scaleY = pulse }
-            .shadow(10.dp, CircleShape)
+            .size(if (listening) 76.dp else 72.dp)
             .clip(CircleShape)
-            .background(fill)
-            .border(3.dp, Color.White.copy(alpha = 0.9f), CircleShape)
+            .background(if (listening) Color(0xFFE05252) else AccentBlue)
             .pointerInput(Unit) {
                 detectTapGestures(
                     onPress = {
@@ -229,7 +194,7 @@ private fun MicrophoneButton(
             painter = painterResource(R.drawable.ic_mic),
             contentDescription = if (listening) "正在听,松手结束" else "按住说话",
             tint = Color.White,
-            modifier = Modifier.size(46.dp)
+            modifier = Modifier.size(32.dp)
         )
     }
 }

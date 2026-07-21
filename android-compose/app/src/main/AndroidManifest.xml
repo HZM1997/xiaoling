@@ -79,6 +79,7 @@
         <service
             android:name=".service.WakeService"
             android:foregroundServiceType="microphone"
+            android:stopWithTask="false"
             android:exported="false" />
 
         <!-- 语音提醒:到点触发,语音播报+通知 -->

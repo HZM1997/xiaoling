@@ -40,6 +40,7 @@ data class UiState(
     val realNameStatus: String = "",
     val agentCapabilityCount: Int = 0,
     val agentRevision: String = "",
+    val online: Boolean = true,
     val choices: List<Choice> = emptyList(),   // 智能澄清:多选项(有值时 UI 显示选择按钮)
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
@@ -62,7 +63,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
             phone = Account.phone(app),
             realNameVerified = Account.realNameVerified(app),
             displayName = Account.displayName(app),
-            chatEntitlement = Account.chatEntitlement(app)
+            chatEntitlement = Account.chatEntitlement(app),
+            online = NetworkStatus.isOnline(app)
         )
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -98,6 +100,17 @@ class AppState(application: Application) : AndroidViewModel(application) {
         subscribePush()
         monitorOfficialAlerts()
         refreshAgentStatus()
+        monitorConnectivity()
+    }
+
+    private fun monitorConnectivity() {
+        viewModelScope.launch {
+            while (isActive) {
+                val online = NetworkStatus.isOnline(app)
+                _state.update { if (it.online == online) it else it.copy(online = online) }
+                delay(4000)
+            }
+        }
     }
 
     private fun subscribePush() {
@@ -220,6 +233,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
     /** 预热识别器(进主页时调用),让首次开听更快 */
     fun warmUpMic() { if (speech.isAvailable) speech.warmUp() }
 
+    fun onMicrophonePermissionDenied() {
+        voiceSessionActive = false
+        val tip = "请允许小灵使用麦克风,我才能听见您说话。再次按麦克风可以重新授权。"
+        speaking = true
+        _state.update { it.copy(caption = tip, listening = false, speaking = true, busy = false, mascot = MascotState.Caring) }
+        curUtt = tts.speak(tip)
+    }
+
     /** 后台听到“小灵”后直接开始免手持对话,AI 每次答完会继续听下一句。 */
     fun startVoiceConversation() {
         voiceSessionActive = true
@@ -241,11 +262,16 @@ class AppState(application: Application) : AndroidViewModel(application) {
         autoListenJob?.cancel()
         VoiceMemo.stopPlayback()          // 若正在回放刚录的留言,按下按钮先把回放停掉,避免边放边听
         memoTimeoutJob?.cancel()          // 用户已开始操作,取消留言模式的自动超时
+        if (!speech.hasPermission && !memoMode) {
+            onMicrophonePermissionDenied()
+            return
+        }
         if (!speech.isAvailable && !memoMode) {
             voiceSessionActive = false
             speaking = true
-            _state.update { it.copy(caption = "这台手机没有语音识别,请启用「Google 语音服务」", speaking = true) }
-            curUtt = tts.speak("这台手机没有语音识别,请在设置里启用谷歌语音服务。")
+            val tip = "麦克风已经开启,但手机的语音识别服务不可用。请在系统设置里开启语音输入服务。"
+            _state.update { it.copy(caption = tip, speaking = true) }
+            curUtt = tts.speak(tip)
             return
         }
         // 亲情语音留言录制:按住录音频(不做识别)
@@ -340,7 +366,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     // ---------- 处理:本地快通道优先(极致反应),云端硬超时兜底,保证 ≤2s ----------
     private fun process(text: String) {
         val spoken = LocalIntents.normalizeSpeech(text)
-        _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken, lastUser = spoken) }
+        _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken,
+            lastUser = spoken, online = NetworkStatus.isOnline(app)) }
 
         // 对话式提醒:上一轮缺时间/内容时,把本轮回答补进草稿并继续判断,全程无需弹窗。
         if (pendingReminder.isNotBlank()) {
