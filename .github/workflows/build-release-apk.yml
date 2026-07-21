@@ -6,6 +6,7 @@ name: Build Release APK
 on:
   workflow_dispatch:
   push:
+    branches: ['fix/redmi-voice-v1.0.12-ci']
     tags: ['v*']
 
 jobs:
