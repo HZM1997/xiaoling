@@ -1,6 +1,8 @@
 package com.xiaoling.core
 
 import android.app.Application
+import android.os.SystemClock
+import android.speech.SpeechRecognizer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
@@ -27,6 +29,7 @@ data class UiState(
     val listening: Boolean = false,
     val speaking: Boolean = false,
     val busy: Boolean = false,
+    val micFeedback: String = "",
     val screen: Screen = Screen.Home,
     val lastUser: String = "",
     val brainUrl: String = "",
@@ -74,6 +77,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     @Volatile private var speaking = false   // TTS 播报中
     @Volatile private var holding = false    // 老人正按住说话
+    @Volatile private var recognitionActive = false
+    @Volatile private var listenSession = 0L
+    private var pressStartedAt = 0L
+    private var speechTimeoutJob: Job? = null
+    private var micFeedbackJob: Job? = null
     @Volatile private var interrupted = false // 本次按住是"打断"播报触发的(松手无新指令则恢复原播报)
     @Volatile private var memoMode = false   // 亲情语音留言录制模式:下一次按住录音频而非识别
     private var memoTimeoutJob: Job? = null   // 进入留言模式后若迟迟不按住,自动取消,避免劫持下次按住说话
@@ -84,6 +92,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private var autoListenJob: Job? = null
     private var pendingReminder = ""
     private var pendingRemoteAudioUrl = ""
+
+    private companion object {
+        const val QUICK_TAP_MS = 320L
+        const val RESULT_TIMEOUT_MS = 3000L
+        const val AUTO_LISTEN_TIMEOUT_MS = 10000L
+    }
 
     /** 当前会员档位(登录跟账号,否则本地) */
     private fun tierNow(): String = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app)
@@ -191,8 +205,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun presentEmergency(text: String) {
         voiceSessionActive = false
         autoListenJob?.cancel()
-        holding = false
-        speech.cancel()
+        cancelActiveRecognition(updateUi = false)
         tts.stop()
         RemoteAudioPlayer.stop()
         ActionDispatcher.execute(app, JSONObject().put("type", "ALERT"))
@@ -259,7 +272,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun beginListening(automatic: Boolean) {
         if (holding) return
+        if (recognitionActive) {
+            if (automatic) return
+            cancelActiveRecognition()
+        }
         autoListenJob?.cancel()
+        speechTimeoutJob?.cancel()
+        micFeedbackJob?.cancel()
         VoiceMemo.stopPlayback()          // 若正在回放刚录的留言,按下按钮先把回放停掉,避免边放边听
         memoTimeoutJob?.cancel()          // 用户已开始操作,取消留言模式的自动超时
         if (!speech.hasPermission && !memoMode) {
@@ -282,32 +301,52 @@ class AppState(application: Application) : AndroidViewModel(application) {
             }
             if (speaking) { tts.stop(); speaking = false }
             holding = true
+            pressStartedAt = SystemClock.elapsedRealtime()
             val ok = VoiceMemo.startRecord(app)
             _state.update { it.copy(listening = true, busy = false,
+                speaking = false, micFeedback = "",
                 caption = if (ok) "正在录音…松开就好" else "录音没打开,请检查麦克风权限",
                 mascot = MascotState.Listening) }
             return
         }
         interrupted = speaking      // 正在播报时按住 = 打断
         if (speaking) { tts.stop(); speaking = false }
-        holding = true
-        _state.update { it.copy(listening = true, busy = false, caption = "在听…请说",
+        holding = !automatic
+        recognitionActive = true
+        pressStartedAt = if (automatic) 0L else SystemClock.elapsedRealtime()
+        val session = ++listenSession
+        _state.update { it.copy(listening = true, speaking = false, busy = false,
+            micFeedback = "", caption = "在听…请说",
             mascot = if (it.mascot == MascotState.Alarm) it.mascot else MascotState.Listening) }
         speech.listen(
-            onPartial = { p -> if (holding && p.isNotBlank()) _state.update { it.copy(caption = p) } },
-            onText = { t -> holding = false; _state.update { it.copy(listening = false) }
+            onPartial = { p ->
+                if (session == listenSession && recognitionActive && p.isNotBlank()) {
+                    _state.update { it.copy(caption = p) }
+                }
+            },
+            onText = { t ->
+                if (!finishRecognition(session)) return@listen
                 if (t.isNotBlank()) {
                     interrupted = false
                     automaticMisses = 0
                     process(t)
                 } else onHeardNothing(automatic)
             },
-            onError = {
-                holding = false
-                _state.update { it.copy(listening = false) }
-                onHeardNothing(automatic)
+            onError = { error ->
+                if (!finishRecognition(session)) return@listen
+                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    onMicrophonePermissionDenied()
+                } else {
+                    onHeardNothing(automatic)
+                }
             }
         )
+        if (automatic && session == listenSession && recognitionActive) {
+            speechTimeoutJob = viewModelScope.launch {
+                delay(AUTO_LISTEN_TIMEOUT_MS)
+                timeoutRecognition(session, automatic = true)
+            }
+        }
     }
 
     /** 松手:留言模式停止录音 → 回放让老人听清楚 → 再语音确认;否则收尾识别 */
@@ -334,7 +373,80 @@ class AppState(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+        holding = false
+        val session = listenSession
+        val heldFor = SystemClock.elapsedRealtime() - pressStartedAt
+        if (heldFor < QUICK_TAP_MS) {
+            cancelQuickTap()
+            return
+        }
+        // 某些识别服务会在手指松开前就返回终态;此时结果已经进入处理链,无需再次 stop。
+        if (!recognitionActive) return
+
+        // 松手立即结束红色按钮状态,无需等待 OEM SpeechRecognizer 回调。
+        _state.update { it.copy(listening = false, speaking = false, busy = true,
+            micFeedback = "", caption = "正在识别…", mascot = MascotState.Thinking) }
         speech.stopListening()
+        speechTimeoutJob?.cancel()
+        speechTimeoutJob = viewModelScope.launch {
+            delay(RESULT_TIMEOUT_MS)
+            timeoutRecognition(session, automatic = false)
+        }
+    }
+
+    private fun finishRecognition(session: Long): Boolean {
+        if (session != listenSession || !recognitionActive) return false
+        speechTimeoutJob?.cancel()
+        recognitionActive = false
+        _state.update { it.copy(listening = false, busy = false) }
+        return true
+    }
+
+    private fun timeoutRecognition(session: Long, automatic: Boolean) {
+        if (session != listenSession || !recognitionActive) return
+        listenSession++
+        recognitionActive = false
+        holding = false
+        speech.cancel()
+        _state.update { it.copy(listening = false, busy = false) }
+        onHeardNothing(automatic)
+    }
+
+    private fun cancelActiveRecognition(updateUi: Boolean = true) {
+        listenSession++
+        speechTimeoutJob?.cancel()
+        recognitionActive = false
+        holding = false
+        speech.cancel()
+        if (updateUi) {
+            _state.update { it.copy(listening = false, busy = false) }
+        }
+    }
+
+    private fun cancelQuickTap() {
+        val resumeInterrupted = interrupted && tts.lastSpoken.isNotBlank()
+        cancelActiveRecognition(updateUi = false)
+        if (speaking) {
+            curUtt = ""
+            tts.stop()
+            speaking = false
+        }
+        interrupted = false
+        val feedback = if (resumeInterrupted) "已取消,继续刚才的播报" else "已取消"
+        _state.update { it.copy(listening = false, speaking = false, busy = false,
+            micFeedback = feedback, mascot = MascotState.Idle) }
+        micFeedbackJob?.cancel()
+        micFeedbackJob = viewModelScope.launch {
+            delay(650)
+            if (resumeInterrupted && !recognitionActive && !speaking) {
+                speaking = true
+                _state.update { it.copy(micFeedback = "", caption = tts.lastSpoken,
+                    mascot = MascotState.Talking, speaking = true) }
+                curUtt = tts.speakLast()
+            } else {
+                _state.update { it.copy(micFeedback = "") }
+            }
+        }
     }
 
     /** 没听清/没内容:温和语音提示,不弹冷冰冰文字。若是打断场景则恢复原播报。 */
@@ -342,7 +454,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (interrupted && tts.lastSpoken.isNotBlank()) {
             interrupted = false
             speaking = true
-            _state.update { it.copy(caption = tts.lastSpoken, mascot = MascotState.Talking, speaking = true) }
+            _state.update { it.copy(caption = tts.lastSpoken, mascot = MascotState.Talking,
+                listening = false, busy = false, micFeedback = "", speaking = true) }
             curUtt = tts.speakLast()   // 打断但没说新指令 → 接着把原来的话说完
             return
         }
@@ -359,7 +472,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         } else {
             "我没听清楚,麻烦您再说一遍好吗?"
         }
-        _state.update { it.copy(mascot = MascotState.Caring, caption = tip, speaking = true) }
+        _state.update { it.copy(mascot = MascotState.Caring, caption = tip,
+            listening = false, busy = false, micFeedback = "", speaking = true) }
         curUtt = tts.speak(tip)
     }
 
@@ -569,11 +683,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
             RemoteAudioPlayer.play(url)
             return
         }
-        if (voiceSessionActive && !holding && !memoMode && AppForeground.active && _state.value.screen == Screen.Home) {
+        if (voiceSessionActive && !holding && !recognitionActive && !memoMode &&
+            AppForeground.active && _state.value.screen == Screen.Home) {
             autoListenJob?.cancel()
             autoListenJob = viewModelScope.launch {
                 delay(220)
-                if (voiceSessionActive && !holding && !speaking && AppForeground.active) {
+                if (voiceSessionActive && !holding && !recognitionActive && !speaking && AppForeground.active) {
                     beginListening(automatic = true)
                 }
             }
@@ -598,10 +713,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (s != Screen.Home) {
             voiceSessionActive = false
             autoListenJob?.cancel()
-            if (holding) {
-                holding = false
-                speech.cancel()
-            }
+            if (recognitionActive || holding) cancelActiveRecognition()
         }
         _state.update { it.copy(screen = s, fraudBlocked = FraudStore.count(app)) }
     }
@@ -762,6 +874,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         autoListenJob?.cancel()
+        speechTimeoutJob?.cancel()
+        micFeedbackJob?.cancel()
+        memoTimeoutJob?.cancel()
         speech.destroy()
         tts.shutdown()
         RemoteAudioPlayer.stop()
