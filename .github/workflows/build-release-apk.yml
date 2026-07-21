@@ -58,9 +58,18 @@ jobs:
           XL_KEY_PASS: ${{ secrets.KEY_PASS }}
         run: gradle assembleRelease --no-daemon --stacktrace
 
-      - name: Upload release APK
+      - name: Prepare transfer-safe release files
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.11-release.apk
+          sha256sum xiaoling-v1.0.11-release.apk | tee xiaoling-v1.0.11-release.apk.sha256
+          zip -j xiaoling-v1.0.11-release.zip xiaoling-v1.0.11-release.apk xiaoling-v1.0.11-release.apk.sha256
+
+      - name: Upload release APK and ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-release-apk
-          path: android-compose/app/build/outputs/apk/release/app-release.apk
+          name: xiaoling-v1.0.11-release
+          path: |
+            android-compose/xiaoling-v1.0.11-release.apk
+            android-compose/xiaoling-v1.0.11-release.zip
+            android-compose/xiaoling-v1.0.11-release.apk.sha256
           if-no-files-found: error
