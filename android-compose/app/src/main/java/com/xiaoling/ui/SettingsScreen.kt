@@ -184,7 +184,7 @@ private fun UserTab(
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Image(
-                painter = painterResource(R.drawable.avatar),
+                painter = painterResource(R.drawable.avatar_clean),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 alignment = Alignment.TopCenter,
