@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -13,8 +14,10 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.speech.RecognitionListener
+import android.speech.RecognitionService
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.xiaoling.MainActivity
 
@@ -106,9 +109,9 @@ class WakeService : Service() {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "zh-CN")
+                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(this@WakeService))
             }
             recognizer?.startListening(intent)
         } catch (_: Throwable) {
@@ -168,7 +171,30 @@ class WakeService : Service() {
     }
 
     private fun createRecognizer(): SpeechRecognizer {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        val configured = try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.VOICE_RECOGNITION_SERVICE)
+                ?.takeIf { it.isNotBlank() }
+                ?.let(ComponentName::unflattenFromString)
+        } catch (_: Throwable) {
+            null
+        }
+        val discovered = try {
+            @Suppress("DEPRECATION")
+            packageManager.queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
+                .mapNotNull { info ->
+                    info.serviceInfo?.let { ComponentName(it.packageName, it.name) }
+                }
+        } catch (_: Throwable) {
+            emptyList()
+        }
+        val services = buildList {
+            if (configured != null && (discovered.isEmpty() || configured in discovered)) add(configured)
+            addAll(discovered)
+        }.distinct()
+        val service = services.firstOrNull()
+        return if (service != null) {
+            SpeechRecognizer.createSpeechRecognizer(this, service)
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
             SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
         } else {
