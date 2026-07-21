@@ -90,7 +90,8 @@ fun HomeScreen(vm: AppState) {
         }
     }
 
-    val showCaption = ui.listening || ui.speaking || ui.busy
+    val showCaption = ui.listening || ui.speaking || ui.busy || ui.micFeedback.isNotBlank()
+    val visibleCaption = ui.micFeedback.ifBlank { ui.caption }
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color.White)
     ) {
@@ -123,7 +124,7 @@ fun HomeScreen(vm: AppState) {
                 exit = fadeOut(tween(120)) + shrinkVertically(shrinkTowards = Alignment.CenterVertically)
             ) {
                 AnimatedContent(
-                    targetState = ui.caption,
+                    targetState = visibleCaption,
                     transitionSpec = {
                         (slideInVertically { it / 5 } + fadeIn(tween(150))) togetherWith
                             (slideOutVertically { -it / 6 } + fadeOut(tween(110)))
@@ -148,7 +149,10 @@ fun HomeScreen(vm: AppState) {
             MicrophoneButton(
                 listening = ui.listening,
                 onPress = {
-                    if (micGranted) vm.pressToTalk()
+                    if (micGranted) {
+                        WakeService.pause(ctx)
+                        vm.pressToTalk()
+                    }
                     else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 },
                 onRelease = vm::releaseToTalk
@@ -177,7 +181,7 @@ private fun MicrophoneButton(
 ) {
     Box(
         modifier = Modifier
-            .size(if (listening) 76.dp else 72.dp)
+            .size(72.dp)
             .clip(CircleShape)
             .background(if (listening) Color(0xFFE05252) else AccentBlue)
             .pointerInput(Unit) {
