@@ -9,6 +9,9 @@ on:
     branches: ['fix/auto-voice-v1.0.13-ci']
     tags: ['v*']
 
+permissions:
+  contents: write
+
 jobs:
   release-apk:
     runs-on: ubuntu-latest
@@ -64,6 +67,22 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.13-release.apk
           sha256sum xiaoling-v1.0.13-release.apk | tee xiaoling-v1.0.13-release.apk.sha256
           zip -j xiaoling-v1.0.13-release.zip xiaoling-v1.0.13-release.apk xiaoling-v1.0.13-release.apk.sha256
+
+      - name: Publish delivery branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
+          cp xiaoling-v1.0.13-release.zip xiaoling-v1.0.13-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cd "$RUNNER_TEMP/xiaoling-delivery"
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b artifacts/xiaoling-v1.0.13
+          git add .
+          git commit -m "Publish signed Xiaoling v1.0.13"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin artifacts/xiaoling-v1.0.13
 
       - name: Upload transfer-safe release ZIP
         uses: actions/upload-artifact@v4
