@@ -60,16 +60,16 @@ jobs:
 
       - name: Prepare transfer-safe release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.11-release.apk
-          sha256sum xiaoling-v1.0.11-release.apk | tee xiaoling-v1.0.11-release.apk.sha256
-          zip -j xiaoling-v1.0.11-release.zip xiaoling-v1.0.11-release.apk xiaoling-v1.0.11-release.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.12-release.apk
+          sha256sum xiaoling-v1.0.12-release.apk | tee xiaoling-v1.0.12-release.apk.sha256
+          zip -j xiaoling-v1.0.12-release.zip xiaoling-v1.0.12-release.apk xiaoling-v1.0.12-release.apk.sha256
 
       - name: Upload release APK and ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-v1.0.11-release
+          name: xiaoling-v1.0.12-release
           path: |
-            android-compose/xiaoling-v1.0.11-release.apk
-            android-compose/xiaoling-v1.0.11-release.zip
-            android-compose/xiaoling-v1.0.11-release.apk.sha256
+            android-compose/xiaoling-v1.0.12-release.apk
+            android-compose/xiaoling-v1.0.12-release.zip
+            android-compose/xiaoling-v1.0.12-release.apk.sha256
           if-no-files-found: error
