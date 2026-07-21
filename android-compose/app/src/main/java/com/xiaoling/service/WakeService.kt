@@ -39,17 +39,40 @@ class WakeService : Service() {
         try {
             startForeground(NOTIF_ID, buildNotification())
             running = true
-            // 优先离线唤醒(Picovoice):省电、不联网、误唤醒低;不可用则回退系统识别循环
-            porcupine = com.xiaoling.core.PorcupineWakeEngine(this)
-            offlineOn = porcupine?.start { if (!AppForeground.active) wakeUp() } == true
-            if (!offlineOn) loop()
         } catch (_: Throwable) {
             shutdownAndStop()
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-        if (running) START_STICKY else START_NOT_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!running) return START_NOT_STICKY
+        if (intent?.action == ACTION_PAUSE || AppForeground.active) {
+            pauseWakeEngine()
+        } else {
+            restartWakeEngine()
+        }
+        return START_STICKY
+    }
+
+    /** 前后台切换时先释放上一轮识别,避免守护服务和主页 ASR 同时占用麦克风。 */
+    private fun pauseWakeEngine() {
+        main.removeCallbacksAndMessages(null)
+        releaseRecognizer()
+        if (offlineOn) {
+            try { porcupine?.stop() } catch (_: Throwable) {}
+        }
+        porcupine = null
+        offlineOn = false
+    }
+
+    private fun restartWakeEngine() {
+        pauseWakeEngine()
+        if (!running || AppForeground.active) return
+        // 优先离线唤醒(Picovoice):省电、不联网、误唤醒低;不可用则回退系统识别循环
+        porcupine = com.xiaoling.core.PorcupineWakeEngine(this)
+        offlineOn = porcupine?.start { if (!AppForeground.active) wakeUp() } == true
+        if (!offlineOn) loop()
+    }
 
     /** 后台监听循环:App 在前台/无识别服务时让位重试;否则听一轮,命中「小灵」就唤起 */
     private fun loop() {
@@ -176,11 +199,22 @@ class WakeService : Service() {
         const val EXTRA_WAKE = "wake_and_listen"
 
         fun start(ctx: Context) {
-            val i = Intent(ctx, WakeService::class.java)
+            val i = Intent(ctx, WakeService::class.java).setAction(ACTION_RESUME)
             try {
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
                     ctx.startForegroundService(i) else ctx.startService(i)
             } catch (_: Throwable) {}
         }
+
+        fun pause(ctx: Context) {
+            val i = Intent(ctx, WakeService::class.java).setAction(ACTION_PAUSE)
+            try {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
+                    ctx.startForegroundService(i) else ctx.startService(i)
+            } catch (_: Throwable) {}
+        }
+
+        private const val ACTION_RESUME = "com.xiaoling.action.RESUME_WAKE"
+        private const val ACTION_PAUSE = "com.xiaoling.action.PAUSE_WAKE"
     }
 }

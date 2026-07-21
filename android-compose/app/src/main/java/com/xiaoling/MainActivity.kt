@@ -47,7 +47,13 @@ class MainActivity : ComponentActivity() {
     }
 
     // App 在前台时,常驻服务让位(由 App 自己听);退到后台时,服务接管监听唤醒词
-    override fun onStart() { super.onStart(); AppForeground.active = true }
+    override fun onStart() {
+        super.onStart()
+        AppForeground.active = true
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            WakeService.pause(this)
+        }
+    }
     override fun onStop() {
         AppForeground.active = false
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
