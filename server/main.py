@@ -9,13 +9,15 @@ import hashlib
 import hmac
 import os
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, File, Form, UploadFile
+from starlette.concurrency import run_in_threadpool
 
 from models import Utterance, Reply
 import skills          # 导入即注册所有技能
 import firewall        # 后端防火墙(限流/体积限制/安全头)
 import agent_registry  # 受控的签名 Skill / Agent 能力目录
 import account_store   # 账号、实名状态与永久权益持久化
+import asr_gateway
 from agent_runtime import runtime
 
 app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.2.0")
@@ -33,7 +35,8 @@ app.mount("/family/audio/files", StaticFiles(directory=str(_FAMILY_AUDIO_DIR)), 
 @app.get("/health")
 def health():
     status = runtime.status()
-    return {"ok": True, "llm": status["models"]["available"],
+    return {"ok": True, "api_version": "0.2.0", "llm": status["models"]["available"],
+            "asr": asr_gateway.available(),
             "skills": [name for name, _, _ in skills._REGISTRY],
             "agent_registry": agent_registry.status(), "runtime": status}
 
@@ -66,6 +69,21 @@ def alerts(lat: float | None = None, lon: float | None = None):
     """聚合已配置的官方台风/暴雨/沙尘暴预警源;未配置时返回空列表。"""
     from alerts import collect_alerts
     return {"alerts": collect_alerts(lat, lon)}
+
+
+@app.post("/asr")
+async def speech_to_text(audio: UploadFile = File(...)):
+    """系统 ASR 不可用时的云端中文转写兜底;单轮音频上限 1 MiB。"""
+    data = await audio.read(1024 * 1024 + 1)
+    if not data or len(data) > 1024 * 1024:
+        return {"ok": False, "text": "", "error": "invalid_audio"}
+    text = await run_in_threadpool(
+        asr_gateway.transcribe,
+        data,
+        audio.filename or "speech.wav",
+        audio.content_type or "audio/wav",
+    )
+    return {"ok": bool(text), "text": text or ""}
 
 
 @app.post("/dialogue", response_model=Reply)
@@ -205,7 +223,6 @@ def pay_notify(body: dict):
 import asyncio
 import json as _json
 from collections import defaultdict
-from fastapi import File, Form, UploadFile
 from fastapi.responses import StreamingResponse
 
 _subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)

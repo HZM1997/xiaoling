@@ -31,6 +31,8 @@ data class UiState(
     val speaking: Boolean = false,
     val busy: Boolean = false,
     val micFeedback: String = "",
+    val asrReady: Boolean = false,
+    val asrStatus: String = "等待语音识别",
     val screen: Screen = Screen.Home,
     val lastUser: String = "",
     val brainUrl: String = "",
@@ -45,6 +47,10 @@ data class UiState(
     val agentCapabilityCount: Int = 0,
     val agentRevision: String = "",
     val online: Boolean = true,
+    val aiServiceReachable: Boolean = false,
+    val aiModelAvailable: Boolean = false,
+    val aiAsrAvailable: Boolean = false,
+    val aiServiceStatus: String = "正在检测 AI 服务",
     val choices: List<Choice> = emptyList(),   // 智能澄清:多选项(有值时 UI 显示选择按钮)
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
@@ -80,6 +86,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var holding = false    // 老人正按住说话
     @Volatile private var recognitionActive = false
     @Volatile private var currentSpeechDetected = false
+    @Volatile private var currentRecognizerReady = false
+    private var recognitionEngineFailures = 0
     @Volatile private var listenSession = 0L
     private var pressStartedAt = 0L
     private var speechTimeoutJob: Job? = null
@@ -116,6 +124,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         subscribePush()
         monitorOfficialAlerts()
         refreshAgentStatus()
+        refreshAiServiceStatus()
         monitorConnectivity()
     }
 
@@ -192,7 +201,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 if (alert != null && OfficialAlerts.markIfNew(app, alert)) {
                     presentEmergency(alert.speech)
                 }
-                delay(15 * 60 * 1000L)
+                delay(5 * 60 * 1000L)
             }
         }
     }
@@ -201,6 +210,27 @@ class AppState(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val catalog = AgentClient.status(app) ?: return@launch
             _state.update { it.copy(agentCapabilityCount = catalog.count, agentRevision = catalog.revision) }
+        }
+    }
+
+    fun refreshAiServiceStatus() {
+        viewModelScope.launch {
+            val health = BrainClient.health(app)
+            val message = when {
+                !health.reachable -> "AI 服务未连接"
+                !health.modelAvailable -> "服务已连接,但未配置大模型"
+                !health.asrAvailable -> "模型已连接,但云端语音识别未配置"
+                health.providers.isNotBlank() -> "智能对话已连接 · ${health.providers}"
+                else -> "智能对话已连接"
+            }
+            _state.update {
+                it.copy(
+                    aiServiceReachable = health.reachable,
+                    aiModelAvailable = health.modelAvailable,
+                    aiAsrAvailable = health.asrAvailable,
+                    aiServiceStatus = message
+                )
+            }
         }
     }
 
@@ -253,6 +283,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         val tip = "请允许小灵使用麦克风,我才能听见您说话。再次按麦克风可以重新授权。"
         speaking = true
         _state.update { it.copy(caption = tip, listening = false, micPressed = false,
+            asrReady = false, asrStatus = "麦克风权限未开启",
             speaking = true, busy = false, mascot = MascotState.Caring) }
         curUtt = tts.speak(tip)
     }
@@ -306,7 +337,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
             voiceSessionActive = false
             speaking = true
             val tip = "麦克风已经开启,但手机的语音识别服务不可用。请在系统设置里开启语音输入服务。"
-            _state.update { it.copy(caption = tip, speaking = true) }
+            _state.update { it.copy(caption = tip, speaking = true,
+                asrReady = false, asrStatus = "手机没有可用的语音识别服务") }
             curUtt = tts.speak(tip)
             return
         }
@@ -331,6 +363,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         holding = !automatic
         recognitionActive = true
         currentSpeechDetected = false
+        currentRecognizerReady = false
         pressStartedAt = if (automatic) 0L else SystemClock.elapsedRealtime()
         val session = ++listenSession
         _state.update { it.copy(listening = true, micPressed = !automatic, speaking = false, busy = false,
@@ -341,6 +374,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 if (session == listenSession && recognitionActive && p.isNotBlank()) {
                     currentSpeechDetected = true
                     _state.update { it.copy(caption = p) }
+                }
+            },
+            onReady = {
+                if (session == listenSession && recognitionActive) {
+                    currentRecognizerReady = true
+                    recognitionEngineFailures = 0
+                    _state.update { it.copy(asrReady = true, asrStatus = "语音识别已就绪") }
                 }
             },
             onSpeechStart = {
@@ -360,6 +400,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 if (!finishRecognition(session)) return@listen
                 if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
                     onMicrophonePermissionDenied()
+                } else if (automatic && !detected && isRecognitionEngineError(error)) {
+                    onRecognitionEngineFailure()
                 } else {
                     onHeardNothing(automatic, detected)
                 }
@@ -434,7 +476,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         holding = false
         speech.cancel()
         _state.update { it.copy(listening = false, micPressed = false, busy = false) }
-        onHeardNothing(automatic, currentSpeechDetected)
+        if (automatic && !currentRecognizerReady) onRecognitionEngineFailure()
+        else onHeardNothing(automatic, currentSpeechDetected)
     }
 
     private fun cancelActiveRecognition(updateUi: Boolean = true) {
@@ -515,6 +558,29 @@ class AppState(application: Application) : AndroidViewModel(application) {
         curUtt = tts.speak(tip)
     }
 
+    private fun isRecognitionEngineError(error: Int): Boolean =
+        error == SpeechRecognizer.ERROR_CLIENT ||
+            error == SpeechRecognizer.ERROR_SERVER ||
+            error == SpeechRecognizer.ERROR_NETWORK ||
+            error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
+            error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ||
+            (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+                error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
+
+    private fun onRecognitionEngineFailure() {
+        recognitionEngineFailures++
+        _state.update { it.copy(asrReady = false, asrStatus = "正在切换语音识别服务") }
+        if (recognitionEngineFailures % 3 != 0) {
+            onHeardNothing(automatic = true, speechDetected = false)
+            return
+        }
+        val tip = "我正在重新连接手机的语音识别,请稍等一下再说。"
+        speaking = true
+        _state.update { it.copy(caption = tip, listening = false, micPressed = false,
+            speaking = true, busy = false, mascot = MascotState.Caring) }
+        curUtt = tts.speak(tip)
+    }
+
     // ---------- 处理:本地快通道优先,模型请求限时,连续失败快速熔断 ----------
     private fun process(text: String) {
         val spoken = LocalIntents.normalizeSpeech(text)
@@ -548,7 +614,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
 
         // 安全 + 高频指令本地即时处理,不等网络(<0.3s 秒回)
-        val local = LocalSafetyNet.handle(spoken) ?: LocalIntents.parse(spoken)
+        val safety = LocalSafetyNet.handle(spoken)
+        val parsed = LocalIntents.parse(spoken)
+        // 在线闲聊必须交给智能体。端侧 chat 只在断网时兜底,否则会永远重复同一句。
+        val local = safety ?: parsed?.takeUnless { it.skill == "chat" && NetworkStatus.isOnline(app) }
         if (local != null) { applyReply(local); return }
 
         if (WeatherClient.isWeatherQuery(spoken)) {
@@ -762,7 +831,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     fun setBrainUrl(url: String) {
         Settings.setBrainUrl(app, url)
-        _state.update { it.copy(brainUrl = Settings.brainUrl(app)) }
+        _state.update { it.copy(brainUrl = Settings.brainUrl(app), aiServiceStatus = "正在检测 AI 服务") }
+        refreshAiServiceStatus()
     }
 
     /** 举报号码为诈骗(拉黑)或标为可信(加白),喂养号码信誉库 —— 数据飞轮 */

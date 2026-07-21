@@ -2,11 +2,16 @@ package com.xiaoling.core
 
 /** 云端暂不可用时的轻量陪伴回复,避免重复固定宣传话术。 */
 object LocalCompanion {
+    private val sequence = java.util.concurrent.atomic.AtomicInteger()
+
     fun reply(text: String, previousUser: String = ""): Reply {
         val compact = text.trim().replace(Regex("\\s+"), " ").take(28)
         val speech = when {
-            Regex("你好|您好|在吗|小灵").containsMatchIn(compact) ->
-                "在呢,您慢慢说,我一直听着。"
+            Regex("你好|您好|在吗|小灵").containsMatchIn(compact) -> listOf(
+                "在呢,您慢慢说,我一直听着。",
+                "您好,我在这儿。今天想聊点什么?",
+                "听见了,您说吧,我陪着您。"
+            )[sequence.getAndIncrement().mod(3)]
             Regex("孤单|寂寞|想聊天|陪我|睡不着").containsMatchIn(compact) ->
                 "我陪着您。今天有什么事一直放在心里?"
             Regex("不开心|生气|难过|烦|担心").containsMatchIn(compact) ->
@@ -32,6 +37,7 @@ object LocalCompanion {
             "我在认真听。您说的“$subject”,最想让我帮您解决哪一部分?",
             "明白一些了。您可以接着说“$subject”后面要做什么。"
         )
-        return options[(text.hashCode() and Int.MAX_VALUE) % options.size]
+        val turn = sequence.getAndIncrement()
+        return options[((text.hashCode() xor turn) and Int.MAX_VALUE) % options.size]
     }
 }

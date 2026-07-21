@@ -50,7 +50,7 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper(或用 Android Stud
    (或零依赖 Node 版:`cd demo && node xiaoling.js --serve`)
 2. 手机与电脑**同一 WiFi**;查电脑局域网 IP;**防火墙放行 8000**。
 3. App 里进「家人看护」页 → 填服务器地址 `http://<电脑IP>:8000` → 保存。
-   (也可改 `app/build.gradle` 里的 `BRAIN_URL` 默认值后重新出包。)
+   (Release 通过环境变量 `XL_BRAIN_URL` 注入公网地址;设置页可运行时覆盖。)
 4. 回主页点「点我说话」,说:「打电话给张三」「导航到人民医院」「我胸口疼」→ 验证语音回应 + 真实拉起拨号/地图/120。
 5. **关掉服务器**再说「我胸口疼」或「让你屏幕共享…」→ 本地兜底仍拨 120 / 弹红色防诈警告。
 
@@ -73,14 +73,10 @@ gradle wrapper --gradle-version 8.7   # 首次生成 wrapper(或用 Android Stud
 > 家庭组 id 现为占位 `family-100086`,接账号体系后与真实家庭组绑定。
 
 ## 退出后瞬间唤起 / 离线语音唤起
-- `WakeService` 是**常驻前台服务**,退出 App 回主屏后**在后台持续听唤醒词「小灵」**(用系统语音识别),听到就把 App 拉到前台并开始对话。App 在前台时服务**让位**(由 App 自己听),避免抢麦。
+- `WakeService` 是**常驻前台服务**,退出 App 回主屏后优先用 Porcupine 在本机持续听唤醒词「小灵」,命中后把 App 拉到前台。App 在前台时服务让位,避免抢麦。
 - 说明:①用系统识别的"唤醒"需较新的 Google 语音服务、且会耗电/个别机型有提示音;②部分厂商定制系统需手动把 App 加入「自启动/后台保活」白名单,否则后台服务会被杀。
-- **真·离线唤醒(推荐,更省电/不联网/误唤醒低)**:App 已内置 **Picovoice Porcupine** 可插拔引擎,填齐三要素即自动启用(否则回退系统识别唤醒):
-  1. 到 `console.picovoice.ai` 免费注册拿 **AccessKey**,填到 `core/WakeConfig.kt` 的 `ACCESS_KEY`(或运行时 SharedPreferences `pv_access_key`);
-  2. 控制台用中文训练唤醒词「小灵」→ 下载 `.ppn` 放 `assets/wake/xiaoling_zh.ppn`;
-  3. 下载中文模型 `porcupine_params_zh.pv` 放 `assets/wake/porcupine_params_zh.pv`。
-  三要素齐全,`WakeService` 优先走离线唤醒;缺任一则静默回退,不影响构建。
-- 唤醒**离线可用**(依赖端侧识别);唤起后复杂对话若离线,走本地快通道/兜底。
+- **真·离线唤醒**:Release CI 必须注入 Porcupine AccessKey、中文参数模型和训练好的“小灵” `.ppn`;缺任一项就拒绝发布。
+- 唤醒词检测离线可用;唤起后复杂自由对话仍需要联网模型,断网时保留呼救、防诈等本地快通道。
 
 ## 老人端 / 家人端(一个 App 两种视图)
 「设置 → 用户信息 → 使用身份」切换:

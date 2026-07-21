@@ -14,6 +14,72 @@ object BrainClient {
     @Volatile private var consecutiveFailures = 0
     @Volatile private var retryAfterElapsed = 0L
 
+    data class Health(
+        val reachable: Boolean,
+        val modelAvailable: Boolean,
+        val asrAvailable: Boolean,
+        val providers: String = ""
+    )
+
+    suspend fun health(ctx: Context): Health = withContext(Dispatchers.IO) {
+        val base = Settings.brainUrl(ctx).trim().trimEnd('/')
+        if (base.isBlank()) return@withContext Health(false, false, false)
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL("$base/health").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 1800
+                readTimeout = 2500
+                setRequestProperty("Accept", "application/json")
+            }
+            if (connection.responseCode !in 200..299) return@withContext Health(false, false, false)
+            val json = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+            val models = json.optJSONObject("runtime")?.optJSONObject("models")
+            val providers = models?.optJSONArray("providers")
+            val names = buildList {
+                if (providers != null) for (index in 0 until providers.length()) {
+                    providers.optString(index).takeIf(String::isNotBlank)?.let(::add)
+                }
+            }.joinToString(" / ")
+            Health(true, json.optBoolean("llm", false), json.optBoolean("asr", false), names)
+        } catch (_: Exception) {
+            Health(false, false, false)
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
+    fun transcribeWav(ctx: Context, wav: ByteArray): String? {
+        val base = Settings.brainUrl(ctx).trim().trimEnd('/')
+        if (base.isBlank() || wav.isEmpty()) return null
+        val boundary = "----xiaoling-${System.currentTimeMillis()}"
+        var connection: HttpURLConnection? = null
+        return try {
+            connection = (URL("$base/asr").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 1800
+                readTimeout = 20000
+                setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                setRequestProperty("Accept", "application/json")
+            }
+            connection.outputStream.use { output ->
+                output.write(("--$boundary\r\n" +
+                    "Content-Disposition: form-data; name=\"audio\"; filename=\"speech.wav\"\r\n" +
+                    "Content-Type: audio/wav\r\n\r\n").toByteArray(Charsets.UTF_8))
+                output.write(wav)
+                output.write("\r\n--$boundary--\r\n".toByteArray(Charsets.US_ASCII))
+            }
+            if (connection.responseCode !in 200..299) return null
+            val json = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+            json.optString("text").trim().ifBlank { null }
+        } catch (_: Exception) {
+            null
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
     /** 在 IO 线程发请求;失败抛异常,调用方兜底到 LocalSafetyNet。自动附带用户画像让大脑更懂用户。 */
     suspend fun ask(ctx: Context, text: String, context: JSONObject? = null): Reply =
         withContext(Dispatchers.IO) {

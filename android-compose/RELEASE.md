@@ -1,6 +1,6 @@
 # 出可上架的签名 Release APK
 
-Release 包 = **R8 混淆 + 资源压缩 + 去日志 + 强制 HTTPS**,可上架应用商店(debug 包只能自测)。
+Release 包使用正式签名、生产 AI 服务和离线“小灵”唤醒资源;debug 包只用于编译自测。
 
 ## 一、创建签名密钥库(keystore)—— 只做一次,妥善保管
 > ⚠️ keystore 和密码是**机密**,别提交到仓库、别发给任何人。丢了就无法给已上架 App 出更新。
@@ -20,11 +20,16 @@ keytool -genkeypair -v -keystore xiaoling.keystore \
    base64 -w0 xiaoling.keystore > ks.b64      # 内容就是一长串
    # (macOS 用 base64 -i xiaoling.keystore -o ks.b64)
    ```
-2. GitHub 仓库 → **Settings → Secrets and variables → Actions → New repository secret**,建 4 个:
+2. GitHub 仓库 → **Settings → Secrets and variables → Actions → New repository secret**,配置:
    - `KEYSTORE_BASE64` = `ks.b64` 里的整串内容
    - `KS_PASS` = 密钥库口令
    - `KEY_ALIAS` = `xiaoling`(上面 -alias 的值)
-   - `KEY_PASS` = 密钥口令
+    - `KEY_PASS` = 密钥口令
+    - `BRAIN_URL` = 已部署且 `/health` 返回 `llm:true, asr:true` 的公网 HTTPS 地址
+    - `PORCUPINE_ACCESS_KEY` = Picovoice AccessKey
+    - `PORCUPINE_KEYWORD_BASE64` = 训练好的“小灵”中文 `.ppn` 的 base64
+    - `PORCUPINE_MODEL_URL` = 中文参数模型的固定 HTTPS 下载地址
+    - `PORCUPINE_MODEL_SHA256` = 上述参数模型的 SHA-256
 3. Actions → **Build Release APK** → Run workflow → 跑完在 Artifacts 下载 **`xiaoling-release-apk`**(即 `app-release.apk`)。这就是签名版,可安装/上架。
 
 > 没配 Secrets 时:该工作流的解码步骤会产出空 keystore,`assembleRelease` 会出**未签名**包(能验证编译,但不能安装)。所以务必配好 4 个 Secret 再出正式包。
@@ -42,12 +47,12 @@ export XL_KEY_PASS=你的密钥口令
 (Windows PowerShell 用 `$env:XL_KEYSTORE="..."` 逐个设置。)
 
 ## 四、Release 版做了哪些加固 + 瘦身
-- **R8 混淆 + 完整模式**:类/方法名打乱、更激进裁剪(`fullMode`),加大逆向难度并减小体积。
+- **R8 当前关闭**:此前真机发生 Release 启动闪退,在完整真机冒烟前不重新开启激进裁剪。
 - **去日志**:剥离所有 `Log.*` / `println`,防运行时信息泄漏。
-- **资源压缩**:`shrinkResources` 去无用资源;`resConfigs "zh"` 只留中文字符串。
+- **中文资源限定**:`resConfigs "zh"` 只保留中文字符串;资源压缩随 R8 暂时关闭。
 - **只打 ARM 架构**:`abiFilters armeabi-v7a/arm64-v8a`,去掉模拟器用的 x86 native 库。
-- **默认不打包 Porcupine**:离线唤醒库含多架构 native `.so`,体积大且需 Key;默认注释掉,运行时回退系统识别唤醒。需要时在 `app/build.gradle` 取消注释。
-- **强制 HTTPS**:release 的 `network_security_config` 禁明文,只走 HTTPS(debug 仍允许明文,方便连电脑联调)。
+- **离线唤醒**:正式包打入 Porcupine ARM native 库、中文参数模型和“小灵”关键词模型;CI 会逐项校验。
+- **生产 HTTPS 硬校验**:Release CI 只接受可公开访问且真实提供 LLM/ASR 的 HTTPS 服务。
 - **登录页防截屏/录屏**:`FLAG_SECURE`,防手机号/验证码被截取。
 
 > 想进一步减小"单个用户下载的体积":上 Google Play 用 `bundleRelease` 出 AAB,Play 会按用户机型只下发对应架构;国内商店发 APK 时,上面这些优化已把体积压到较小。

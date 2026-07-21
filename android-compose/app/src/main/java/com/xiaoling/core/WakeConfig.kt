@@ -1,6 +1,7 @@
 package com.xiaoling.core
 
 import android.content.Context
+import com.xiaoling.BuildConfig
 
 /**
  * 离线唤醒配置。默认空 → 用系统识别唤醒(在线);填入 Picovoice AccessKey + 中文模型/关键词
@@ -13,16 +14,13 @@ import android.content.Context
  *  4. 把 AccessKey 填到下面 ACCESS_KEY(或运行时 SharedPreferences 覆盖)。
  */
 object WakeConfig {
-    // ← 填你的 Picovoice AccessKey;留空则不启用离线唤醒
-    const val ACCESS_KEY = ""
-
     const val KEYWORD_ASSET = "wake/xiaoling_zh.ppn"
     const val MODEL_ASSET = "wake/porcupine_params_zh.pv"
 
     fun accessKey(ctx: Context): String {
         val ov = ctx.getSharedPreferences("xiaoling", Context.MODE_PRIVATE)
             .getString("pv_access_key", null)
-        return if (!ov.isNullOrBlank()) ov else ACCESS_KEY
+        return if (!ov.isNullOrBlank()) ov else BuildConfig.PORCUPINE_ACCESS_KEY
     }
 
     /** 三要素齐全(key + 两个 asset 存在)才认为可用 */

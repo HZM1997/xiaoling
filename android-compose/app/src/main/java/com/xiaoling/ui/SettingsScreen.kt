@@ -108,7 +108,8 @@ fun SettingsScreen(vm: AppState) {
                 when (tab) {
                     0 -> UserTab(ui, showText = { title, body -> dialog = title to body },
                         onLogin = { vm.showScreen(Screen.Login) }, onLogout = { vm.logout() },
-                        onRealName = { realNameDialog = true })
+                        onRealName = { realNameDialog = true },
+                        onBrainUrl = vm::setBrainUrl, onTestBrain = vm::refreshAiServiceStatus)
                     1 -> MemberTab(ui) { payPlan = it }
                     2 -> CareTab(ui, onSync = { vm.syncFamily() }, onRole = { requestScreenRole() },
                         onLive2d = { vm.setLive2d(it) }, onUpgrade = { tab = 1 })
@@ -179,7 +180,9 @@ private fun UserTab(
     showText: (String, String) -> Unit,
     onLogin: () -> Unit,
     onLogout: () -> Unit,
-    onRealName: () -> Unit
+    onRealName: () -> Unit,
+    onBrainUrl: (String) -> Unit,
+    onTestBrain: () -> Unit
 ) {
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -225,13 +228,55 @@ private fun UserTab(
                 modifier = Modifier.padding(vertical = 8.dp))
         }
         Divider()
-        RowItem("隐私保护设置") { showText("隐私保护设置", "· 通话/短信仅用于本机防诈判定,默认不上传\n· 麦克风仅在唤起对话时使用\n· 可随时在系统设置撤销各项权限") }
+        RowItem("隐私保护设置") { showText("隐私保护设置", "· 通话/短信仅用于本机防诈判定,默认不上传\n· 麦克风仅在唤起和连续对话时使用\n· 系统识别连续失败时,仅将本轮语音加密发送到已配置的自建 AI 服务转写\n· 可随时在系统设置撤销各项权限") }
         Divider()
         RowItem("意见反馈") { showText("意见反馈", "感谢您的使用!反馈请发送至 feedback@xiaoling.ai,我们会认真对待每一条建议。") }
         Divider()
         RowItem("隐私政策摘要") { showText("隐私政策摘要", "我们仅收集为您提供防诈、呼救、陪伴所必需的最少信息;敏感数据尽量在本机处理;不向第三方出售您的个人信息。完整政策见官网。") }
     }
+    AiServiceCard(ui, onBrainUrl, onTestBrain)
     ProfileCard()
+}
+
+@Composable
+private fun AiServiceCard(
+    ui: com.xiaoling.core.UiState,
+    onSave: (String) -> Unit,
+    onTest: () -> Unit
+) {
+    var url by remember(ui.brainUrl) { mutableStateOf(ui.brainUrl) }
+    GlassCard {
+        Text("AI 智能服务", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Text(
+            "语音识别 · ${ui.asrStatus}",
+            fontSize = 13.sp,
+            color = if (ui.asrReady) AccentBlue else Color(0xFFB5473C),
+            modifier = Modifier.padding(top = 3.dp)
+        )
+        Text(
+            ui.aiServiceStatus,
+            fontSize = 13.sp,
+            color = if (ui.aiModelAvailable) AccentBlue else Color(0xFFB5473C),
+            modifier = Modifier.padding(top = 3.dp, bottom = 8.dp)
+        )
+        OutlinedTextField(
+            value = url,
+            onValueChange = { url = it.trim().take(240) },
+            label = { Text("AI 服务地址") },
+            placeholder = { Text("https://您的服务域名") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onTest, modifier = Modifier.weight(1f)) { Text("重新检测") }
+            Button(
+                onClick = { onSave(url) },
+                enabled = url.startsWith("http://") || url.startsWith("https://"),
+                modifier = Modifier.weight(1f)
+            ) { Text("保存并连接") }
+        }
+    }
 }
 
 /** 个人资料:称呼/偏好/常联系人 —— 随请求传给智能大脑,让它更懂这位老人 */

@@ -25,6 +25,9 @@ class SpeechController(private val ctx: Context) {
 
     private var recognizer: SpeechRecognizer? = null
     private var recognizerAttempt = 0
+    private val cloud = CloudAsrRecorder(ctx)
+    private var systemMisses = 0
+    private var preferCloud = false
 
     private val standardAvailable: Boolean
         get() = try { SpeechRecognizer.isRecognitionAvailable(ctx) } catch (_: Throwable) { false }
@@ -37,8 +40,14 @@ class SpeechController(private val ctx: Context) {
             false
         }
 
+    private val systemAvailable: Boolean
+        get() = recognitionServices().isNotEmpty() || standardAvailable || onDeviceAvailable
+
+    private val cloudAvailable: Boolean
+        get() = Settings.brainUrl(ctx).isNotBlank() && NetworkStatus.isOnline(ctx)
+
     val isAvailable: Boolean
-        get() = hasPermission && (recognitionServices().isNotEmpty() || standardAvailable || onDeviceAvailable)
+        get() = hasPermission && (systemAvailable || cloudAvailable)
 
     val hasPermission: Boolean
         get() = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
@@ -47,7 +56,7 @@ class SpeechController(private val ctx: Context) {
     fun warmUp() {
         if (!isAvailable) return
         try {
-            if (recognizer == null) {
+            if (systemAvailable && recognizer == null) {
                 recognizer = createRecognizer()
             }
         } catch (_: Throwable) {
@@ -63,6 +72,7 @@ class SpeechController(private val ctx: Context) {
      */
     fun listen(
         onPartial: (String) -> Unit = {},
+        onReady: () -> Unit = {},
         onSpeechStart: () -> Unit = {},
         onText: (String) -> Unit,
         onError: (Int) -> Unit
@@ -70,15 +80,39 @@ class SpeechController(private val ctx: Context) {
         if (!hasPermission) { onError(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS); return }
         if (!isAvailable) { onError(SpeechRecognizer.ERROR_CLIENT); return }
         val partialCb = onPartial
+        val readyCb = onReady
         val speechStartCb = onSpeechStart
         val textCb = onText
         val errCb = onError
         var lastPartial = ""
+        if ((!systemAvailable || preferCloud) && cloudAvailable) {
+            val started = cloud.start(
+                onReady = readyCb,
+                onSpeechStart = speechStartCb,
+                onText = { text ->
+                    preferCloud = false
+                    systemMisses = 0
+                    textCb(text)
+                },
+                onError = { error ->
+                    preferCloud = false
+                    errCb(error)
+                }
+            )
+            if (started) return
+        }
         try {
             if (recognizer == null) recognizer = createRecognizer()
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle) {
-                    textCb(bestCandidate(results))
+                    val text = bestCandidate(results)
+                    if (text.isBlank()) {
+                        systemMisses++
+                        if (systemMisses >= 2 && cloudAvailable) preferCloud = true
+                    } else {
+                        systemMisses = 0
+                    }
+                    textCb(text)
                 }
                 override fun onPartialResults(partialResults: Bundle?) {
                     val p = partialResults?.let(::bestCandidate).orEmpty()
@@ -93,11 +127,17 @@ class SpeechController(private val ctx: Context) {
                             error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) &&
                         lastPartial.count { !it.isWhitespace() } >= 2) {
                         releaseRecognizer()
+                        systemMisses = 0
                         textCb(lastPartial)
                         return
                     }
                     // MIUI 的识别服务在取消、超时或断网后可能留下失效实例;下次重新创建更可靠。
                     releaseRecognizer()
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH ||
+                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                        systemMisses++
+                        if (systemMisses >= 2 && cloudAvailable) preferCloud = true
+                    }
                     if (error == SpeechRecognizer.ERROR_CLIENT ||
                         error == SpeechRecognizer.ERROR_SERVER ||
                         error == SpeechRecognizer.ERROR_NETWORK ||
@@ -106,10 +146,11 @@ class SpeechController(private val ctx: Context) {
                             error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED)
                     ) {
                         advanceRecognitionService()
+                        if (cloudAvailable) preferCloud = true
                     }
                     errCb(error)
                 }
-                override fun onReadyForSpeech(params: Bundle?) {}
+                override fun onReadyForSpeech(params: Bundle?) { readyCb() }
                 override fun onBeginningOfSpeech() { speechStartCb() }
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
@@ -141,22 +182,31 @@ class SpeechController(private val ctx: Context) {
             recognizer?.startListening(intent)
         } catch (_: Throwable) {
             releaseRecognizer()
+            if (cloudAvailable) preferCloud = true
             errCb(SpeechRecognizer.ERROR_CLIENT)
         }
     }
 
     /** 松手时调用:停止采音并尽快给出最终结果(触发 onResults) */
     fun stopListening() {
+        if (cloud.isActive) {
+            cloud.stopListening()
+            return
+        }
         try { recognizer?.stopListening() } catch (_: Throwable) { releaseRecognizer() }
     }
 
     /** 取消后销毁实例,避免 MIUI 把下一次识别继续绑定到已失效会话。 */
     fun cancel() {
+        cloud.cancel()
         try { recognizer?.cancel() } catch (_: Throwable) {}
         releaseRecognizer()
     }
 
-    fun destroy() = releaseRecognizer()
+    fun destroy() {
+        cloud.cancel()
+        releaseRecognizer()
+    }
 
     private fun bestCandidate(results: Bundle): String {
         val candidates = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)

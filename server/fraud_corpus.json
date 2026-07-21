@@ -1,7 +1,19 @@
 {
   "note": "防诈引擎评测语料。label: high(应判高危) / medium(应预警) / safe(正常,不应误报)。scene: incoming_call/sms。多句用 turns 表示一通电话的多轮铺垫。",
-  "version": "2026.07.15",
+  "version": "2026.07.21",
   "cases": [
+    {
+      "text": "公安让您先取现金交给上门骑手,再购买黄金邮寄到指定地址",
+      "caller": "0086",
+      "label": "high",
+      "cat": "线下取现黄金诈骗"
+    },
+    {
+      "text": "我是你孙子,视频里就是我,现在开启NFC碰一碰把手机贴近银行卡",
+      "caller": "170",
+      "label": "high",
+      "cat": "AI冒充亲友NFC盗刷"
+    },
     {
       "text": "您好我是公检法的,您涉嫌洗钱,需要把钱转到安全账户配合调查",
       "caller": "+81 90",

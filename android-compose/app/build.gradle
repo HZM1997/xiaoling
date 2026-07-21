@@ -11,11 +11,11 @@ android {
         applicationId 'com.xiaoling'
         minSdk 24
         targetSdk 34
-        versionCode 13
-        versionName '1.0.13'
-        // 云端「大脑」地址:改成你电脑的局域网 IP(App 内也可运行时覆盖)
-        // 注意:内层引号必须转义,否则生成的 BuildConfig.java 编不过
-        buildConfigField 'String', 'BRAIN_URL', '"http://192.168.1.20:8000"'
+        versionCode 14
+        versionName '1.0.14'
+        // Release 由 CI 注入公网 HTTPS 服务;本地调试也可通过环境变量覆盖。
+        buildConfigField 'String', 'BRAIN_URL', groovy.json.JsonOutput.toJson(System.getenv('XL_BRAIN_URL') ?: '')
+        buildConfigField 'String', 'PORCUPINE_ACCESS_KEY', groovy.json.JsonOutput.toJson(System.getenv('XL_PORCUPINE_ACCESS_KEY') ?: '')
         vectorDrawables { useSupportLibrary true }
         // 只保留主流真机架构(x86/x86_64 基本只有模拟器用),减小 native 库体积
         ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }
@@ -89,8 +89,6 @@ dependencies {
 
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 
-    // 离线唤醒词(可选,默认不打包以减小体积):Picovoice Porcupine 含多架构 native 库,
-    // 体积较大且需 AccessKey。PorcupineWakeEngine 用纯反射调用,不打包时自动回退系统识别唤醒。
-    // 需要真离线唤醒时,取消下一行注释并按 NATIVE.md 配置 AccessKey + 模型即可。
-    // implementation 'ai.picovoice:porcupine-android:3.0.3'
+    // 真正离线的“小灵”关键词检测。Release 构建必须同时注入 AccessKey、中文参数和关键词模型。
+    implementation 'ai.picovoice:porcupine-android:3.0.3'
 }

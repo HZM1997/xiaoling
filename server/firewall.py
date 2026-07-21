@@ -82,7 +82,7 @@ class Firewall(BaseHTTPMiddleware):
         # 1) 请求体大小(靠 Content-Length 预检,非流式端点)
         if not path.startswith(STREAM_PREFIXES):
             cl = request.headers.get("content-length")
-            limit = MAX_AUDIO_BYTES if path == "/family/audio/upload" else MAX_BODY_BYTES
+            limit = MAX_AUDIO_BYTES if path == "/family/audio/upload" else (1024 * 1024 + 8192 if path == "/asr" else MAX_BODY_BYTES)
             if cl and cl.isdigit() and int(cl) > limit:
                 return JSONResponse({"ok": False, "error": "request too large"}, status_code=413)
 

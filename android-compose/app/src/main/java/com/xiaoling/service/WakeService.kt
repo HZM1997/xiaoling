@@ -33,7 +33,9 @@ class WakeService : Service() {
 
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
+    private var recognizerAttempt = 0
     @Volatile private var running = false
+    @Volatile private var wakeTriggered = false
     private var porcupine: com.xiaoling.core.PorcupineWakeEngine? = null
     @Volatile private var offlineOn = false
 
@@ -81,7 +83,7 @@ class WakeService : Service() {
     private fun loop() {
         if (!running) return
         val available = try {
-            SpeechRecognizer.isRecognitionAvailable(this) ||
+            recognitionServices().isNotEmpty() || SpeechRecognizer.isRecognitionAvailable(this) ||
                 (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
         } catch (_: Throwable) { false }
         if (AppForeground.active || !available) {
@@ -92,17 +94,28 @@ class WakeService : Service() {
             recognizer = createRecognizer().also { r ->
                 r.setRecognitionListener(object : RecognitionListener {
                     override fun onResults(results: Bundle) {
-                        val hit = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                            ?.any { it.replace(" ", "").contains("小灵") } == true
+                        val hit = containsWakeWord(results)
                         if (hit) wakeUp() else again(500)
                     }
-                    override fun onError(error: Int) = again(700)
+                    override fun onError(error: Int) {
+                        if (error == SpeechRecognizer.ERROR_CLIENT ||
+                            error == SpeechRecognizer.ERROR_SERVER ||
+                            error == SpeechRecognizer.ERROR_NETWORK ||
+                            error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT ||
+                            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                error == SpeechRecognizer.ERROR_SERVER_DISCONNECTED)) {
+                            advanceRecognizer()
+                        }
+                        again(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200 else 500)
+                    }
                     override fun onReadyForSpeech(params: Bundle?) {}
                     override fun onBeginningOfSpeech() {}
                     override fun onRmsChanged(rmsdB: Float) {}
                     override fun onBufferReceived(buffer: ByteArray?) {}
                     override fun onEndOfSpeech() {}
-                    override fun onPartialResults(partialResults: Bundle?) {}
+                    override fun onPartialResults(partialResults: Bundle?) {
+                        if (partialResults != null && containsWakeWord(partialResults)) wakeUp()
+                    }
                     override fun onEvent(eventType: Int, params: Bundle?) {}
                 })
             }
@@ -111,7 +124,16 @@ class WakeService : Service() {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "zh-CN")
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "zh-CN")
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1200)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 700)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    putStringArrayListExtra(
+                        RecognizerIntent.EXTRA_BIASING_STRINGS,
+                        arrayListOf("小灵", "小玲", "晓玲")
+                    )
+                }
             }
             recognizer?.startListening(intent)
         } catch (_: Throwable) {
@@ -120,10 +142,15 @@ class WakeService : Service() {
         }
     }
 
-    private fun again(delay: Long) { main.postDelayed({ loop() }, delay) }
+    private fun again(delay: Long) {
+        releaseRecognizer()
+        main.postDelayed({ loop() }, delay)
+    }
 
     /** 唤醒:把 App 拉到前台并让其立即开听 */
     private fun wakeUp() {
+        if (wakeTriggered || AppForeground.active) return
+        wakeTriggered = true
         // 先释放服务占用的麦克风,再让前台 ASR 接管,避免 ERROR_RECOGNIZER_BUSY。
         releaseRecognizer()
         if (offlineOn) {
@@ -135,7 +162,10 @@ class WakeService : Service() {
             putExtra(EXTRA_WAKE, true)
         }
         try { startActivity(i) } catch (e: Exception) {}
-        again(2500)   // 唤起后停一会儿,交给 App 前台自己听
+        main.postDelayed({
+            wakeTriggered = false
+            if (!AppForeground.active) loop()
+        }, 2500)
     }
 
     private fun buildNotification(): Notification {
@@ -166,11 +196,35 @@ class WakeService : Service() {
     }
 
     private fun releaseRecognizer() {
-        try { recognizer?.destroy() } catch (_: Throwable) {}
+        val current = recognizer
         recognizer = null
+        try { current?.destroy() } catch (_: Throwable) {}
     }
 
     private fun createRecognizer(): SpeechRecognizer {
+        val services = recognitionServices()
+        val standard = try { SpeechRecognizer.isRecognitionAvailable(this) } catch (_: Throwable) { false }
+        val onDevice = try {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        } catch (_: Throwable) { false }
+        val preferOnDevice = onDevice && !com.xiaoling.core.NetworkStatus.isOnline(this)
+        val creators = buildList<() -> SpeechRecognizer> {
+            if (preferOnDevice) add { SpeechRecognizer.createOnDeviceSpeechRecognizer(this@WakeService) }
+            services.forEach { service ->
+                add { SpeechRecognizer.createSpeechRecognizer(this@WakeService, service) }
+            }
+            if (standard) add { SpeechRecognizer.createSpeechRecognizer(this@WakeService) }
+            if (onDevice && !preferOnDevice) {
+                add { SpeechRecognizer.createOnDeviceSpeechRecognizer(this@WakeService) }
+            }
+        }
+        if (creators.isEmpty()) throw IllegalStateException("No speech recognition service")
+        recognizerAttempt = recognizerAttempt.mod(creators.size)
+        return creators[recognizerAttempt].invoke()
+    }
+
+    private fun recognitionServices(): List<ComponentName> {
         val configured = try {
             Settings.Secure.getString(contentResolver, "voice_recognition_service")
                 ?.takeIf { it.isNotBlank() }
@@ -188,18 +242,28 @@ class WakeService : Service() {
             emptyList()
         }
         val services = buildList {
-            if (configured != null && (discovered.isEmpty() || configured in discovered)) add(configured)
+            if (configured != null && configured in discovered) add(configured)
             addAll(discovered)
         }.distinct()
-        val service = services.firstOrNull()
-        return if (service != null) {
-            SpeechRecognizer.createSpeechRecognizer(this, service)
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-        } else {
-            SpeechRecognizer.createSpeechRecognizer(this)
-        }
+        return services
+    }
+
+    private fun advanceRecognizer() {
+        val count = recognitionServices().size +
+            (if (try { SpeechRecognizer.isRecognitionAvailable(this) } catch (_: Throwable) { false }) 1 else 0) +
+            (if (try {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+            } catch (_: Throwable) { false }) 1 else 0)
+        if (count > 1) recognizerAttempt = (recognizerAttempt + 1) % count
+    }
+
+    private fun containsWakeWord(results: Bundle): Boolean {
+        return results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            ?.any { raw ->
+                val text = raw.replace(Regex("[\\s,，。.!！?？]"), "")
+                text.contains("小灵") || text.contains("小玲") || text.contains("晓玲")
+            } == true
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {

@@ -1,12 +1,11 @@
 name: Build Release APK
 
 # 输出使用正式 keystore 签名的 release APK、ZIP 和校验文件。
-# 需要先在仓库配好 4 个 Secrets(见 android-compose/RELEASE.md):
-#   KEYSTORE_BASE64, KS_PASS, KEY_ALIAS, KEY_PASS
+# 除签名 Secrets 外,Release 还必须配置可用的 AI 服务和 Porcupine 离线唤醒资源。
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/auto-voice-v1.0.13-ci']
+    branches: ['fix/voice-agent-v1.0.14-ci']
     tags: ['v*']
 
 permissions:
@@ -49,6 +48,39 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Validate production AI service
+        env:
+          XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
+        run: |
+          python - "$XL_BRAIN_URL" <<'PY'
+          import json, sys, urllib.request
+          base = sys.argv[1].strip().rstrip("/")
+          if not base.startswith("https://"):
+              raise SystemExit("BRAIN_URL must be a public HTTPS endpoint")
+          with urllib.request.urlopen(base + "/health", timeout=25) as response:
+              health = json.load(response)
+          if not health.get("ok") or not health.get("llm") or not health.get("asr") or not health.get("runtime"):
+              raise SystemExit("AI service must provide real LLM, ASR and runtime capabilities")
+          print("AI runtime ready:", health.get("api_version", "unknown"))
+          PY
+
+      - name: Prepare offline Xiaoling wake word
+        env:
+          PV_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
+          PV_KEYWORD_BASE64: ${{ secrets.PORCUPINE_KEYWORD_BASE64 }}
+          PV_MODEL_URL: ${{ secrets.PORCUPINE_MODEL_URL }}
+          PV_MODEL_SHA256: ${{ secrets.PORCUPINE_MODEL_SHA256 }}
+        run: |
+          test -n "$PV_ACCESS_KEY"
+          test -n "$PV_KEYWORD_BASE64"
+          test -n "$PV_MODEL_URL"
+          test -n "$PV_MODEL_SHA256"
+          mkdir -p app/src/main/assets/wake
+          printf '%s' "$PV_KEYWORD_BASE64" | base64 -d > app/src/main/assets/wake/xiaoling_zh.ppn
+          curl --fail --location --retry 3 --max-time 60 "$PV_MODEL_URL" -o app/src/main/assets/wake/porcupine_params_zh.pv
+          echo "$PV_MODEL_SHA256  app/src/main/assets/wake/porcupine_params_zh.pv" | sha256sum -c -
+          test -s app/src/main/assets/wake/xiaoling_zh.ppn
+
       - name: Decode keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/xl.keystore"
@@ -60,35 +92,44 @@ jobs:
           XL_KS_PASS: ${{ secrets.KS_PASS }}
           XL_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XL_KEY_PASS: ${{ secrets.KEY_PASS }}
+          XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
+          XL_PORCUPINE_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
         run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Verify signed voice release
+        run: |
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/xiaoling_zh.ppn'
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/porcupine_params_zh.pv'
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep -E 'lib/(arm64-v8a|armeabi-v7a)/.*porcupine.*\.so'
 
       - name: Prepare transfer-safe release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.13-release.apk
-          sha256sum xiaoling-v1.0.13-release.apk | tee xiaoling-v1.0.13-release.apk.sha256
-          zip -j xiaoling-v1.0.13-release.zip xiaoling-v1.0.13-release.apk xiaoling-v1.0.13-release.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.14-release.apk
+          sha256sum xiaoling-v1.0.14-release.apk | tee xiaoling-v1.0.14-release.apk.sha256
+          zip -j xiaoling-v1.0.14-release.zip xiaoling-v1.0.14-release.apk xiaoling-v1.0.14-release.apk.sha256
 
       - name: Publish delivery branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
-          cp xiaoling-v1.0.13-release.zip xiaoling-v1.0.13-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cp xiaoling-v1.0.14-release.zip xiaoling-v1.0.14-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
           cd "$RUNNER_TEMP/xiaoling-delivery"
           git init
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b artifacts/xiaoling-v1.0.13
+          git checkout -b artifacts/xiaoling-v1.0.14
           git add .
-          git commit -m "Publish signed Xiaoling v1.0.13"
+          git commit -m "Publish signed Xiaoling v1.0.14"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force origin artifacts/xiaoling-v1.0.13
+          git push --force origin artifacts/xiaoling-v1.0.14
 
       - name: Upload transfer-safe release ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-v1.0.13-release
+          name: xiaoling-v1.0.14-release
           path: |
-            android-compose/xiaoling-v1.0.13-release.zip
-            android-compose/xiaoling-v1.0.13-release.apk.sha256
+            android-compose/xiaoling-v1.0.14-release.zip
+            android-compose/xiaoling-v1.0.14-release.apk.sha256
           if-no-files-found: error
