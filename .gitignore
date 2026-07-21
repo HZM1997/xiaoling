@@ -7,5 +7,7 @@ mobile/ios/
 *.log
 .DS_Store
 Thumbs.db
+**/__pycache__/
 server/*.db
 server/family_audio/
+android-compose/app/src/main/res/drawable/avatar_transparent.png
