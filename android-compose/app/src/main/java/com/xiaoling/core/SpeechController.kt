@@ -157,7 +157,7 @@ class SpeechController(private val ctx: Context) {
 
     private fun recognitionServices(): List<ComponentName> {
         val configured = try {
-            Settings.Secure.getString(ctx.contentResolver, Settings.Secure.VOICE_RECOGNITION_SERVICE)
+            Settings.Secure.getString(ctx.contentResolver, "voice_recognition_service")
                 ?.takeIf { it.isNotBlank() }
                 ?.let(ComponentName::unflattenFromString)
         } catch (_: Throwable) {

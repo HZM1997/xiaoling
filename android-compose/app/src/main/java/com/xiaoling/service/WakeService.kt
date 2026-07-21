@@ -172,7 +172,7 @@ class WakeService : Service() {
 
     private fun createRecognizer(): SpeechRecognizer {
         val configured = try {
-            Settings.Secure.getString(contentResolver, Settings.Secure.VOICE_RECOGNITION_SERVICE)
+            Settings.Secure.getString(contentResolver, "voice_recognition_service")
                 ?.takeIf { it.isNotBlank() }
                 ?.let(ComponentName::unflattenFromString)
         } catch (_: Throwable) {
