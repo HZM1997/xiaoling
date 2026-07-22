@@ -1,11 +1,11 @@
 package com.xiaoling.core
 
 import android.app.AlarmManager
-import android.app.AlarmClock
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.AlarmClock
 import com.xiaoling.service.ReminderReceiver
 import org.json.JSONObject
 import java.util.Calendar

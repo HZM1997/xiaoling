@@ -4,9 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.app.SearchManager
-import android.media.MediaStore
 import android.net.Uri
 import android.os.Build
+import android.provider.MediaStore
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
