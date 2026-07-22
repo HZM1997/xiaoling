@@ -5,7 +5,7 @@ name: Build Compose APK
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/voice-agent-v1.0.14-ci']
+    branches: ['fix/realtime-agent-v1.0.15-ci']
     tags: ['v*']
 
 jobs:

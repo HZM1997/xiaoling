@@ -16,6 +16,11 @@ object LocalSafetyNet {
         "上门取现金", "取现金交给骑手", "购买黄金邮寄", "邮寄黄金", "邮寄现金",
         "开启NFC碰一碰", "手机贴近银行卡", "安装远程控制软件"
     )
+    private val consultation = Regex("是不是诈骗|会不会是骗子|像不像诈骗|能不能转账|要不要转账|怎么防诈|如何防诈|反诈|有人.{0,12}(让我|叫我|要求我)|对方.{0,12}(让我|叫我|要求我)")
+    private val suspicious = listOf(
+        "转账", "汇款", "退款", "中奖", "刷单", "投资群", "陌生链接", "下载软件",
+        "共享屏幕", "银行卡", "验证码", "安全账户", "现金", "黄金", "客服", "公检法"
+    )
 
     fun handle(text: String): Reply? {
         if (sos.containsMatchIn(text)) {
@@ -31,6 +36,21 @@ object LocalSafetyNet {
             return Reply(
                 "注意!这非常像诈骗:对方提到「$hit」。千万不要转账、不要提供验证码!",
                 a, "防诈骗预警", 0.96
+            )
+        }
+        if (consultation.containsMatchIn(text)) {
+            val clues = suspicious.filter { it in text }
+            if (clues.isNotEmpty()) {
+                val a = JSONObject().put("type", "FRAUD_WARN")
+                    .put("level", "medium").put("category", "可疑话术")
+                return Reply(
+                    "先不要转账、不要给验证码、不要下载对方指定的软件。您提到${clues.take(3).joinToString("、")},风险比较高,先挂断并打官方电话或问家人核实。",
+                    a, "防诈咨询", 0.78
+                )
+            }
+            return Reply(
+                "拿不准时先做到三件事:不转账、不说验证码、不点陌生链接。把对方原话告诉我,我再帮您判断。",
+                null, "防诈咨询", 0.2
             )
         }
         return null

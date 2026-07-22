@@ -18,6 +18,8 @@ object BrainClient {
         val reachable: Boolean,
         val modelAvailable: Boolean,
         val asrAvailable: Boolean,
+        val realtimeAvailable: Boolean = false,
+        val delegationAvailable: Boolean = false,
         val providers: String = ""
     )
 
@@ -41,7 +43,15 @@ object BrainClient {
                     providers.optString(index).takeIf(String::isNotBlank)?.let(::add)
                 }
             }.joinToString(" / ")
-            Health(true, json.optBoolean("llm", false), json.optBoolean("asr", false), names)
+            val realtime = json.optJSONObject("realtime")
+            Health(
+                true,
+                json.optBoolean("llm", false),
+                json.optBoolean("asr", false),
+                realtime?.optBoolean("available", false) == true,
+                realtime?.optBoolean("delegation", false) == true,
+                names,
+            )
         } catch (_: Exception) {
             Health(false, false, false)
         } finally {

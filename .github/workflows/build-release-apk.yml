@@ -5,7 +5,7 @@ name: Build Release APK
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/voice-agent-v1.0.14-ci']
+    branches: ['fix/realtime-agent-v1.0.15-ci']
     tags: ['v*']
 
 permissions:
@@ -51,16 +51,40 @@ jobs:
       - name: Validate production AI service
         env:
           XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
+          XL_REALTIME_CLIENT_TOKEN: ${{ secrets.REALTIME_CLIENT_TOKEN }}
         run: |
           python - "$XL_BRAIN_URL" <<'PY'
-          import json, sys, urllib.request
+          import asyncio, json, os, sys, urllib.request
+          import websockets
           base = sys.argv[1].strip().rstrip("/")
           if not base.startswith("https://"):
               raise SystemExit("BRAIN_URL must be a public HTTPS endpoint")
           with urllib.request.urlopen(base + "/health", timeout=25) as response:
               health = json.load(response)
-          if not health.get("ok") or not health.get("llm") or not health.get("asr") or not health.get("runtime"):
-              raise SystemExit("AI service must provide real LLM, ASR and runtime capabilities")
+          realtime = health.get("realtime") or {}
+          if (not health.get("ok") or not health.get("llm") or not health.get("asr") or
+                  not health.get("runtime") or not realtime.get("available") or not realtime.get("delegation") or
+                  not realtime.get("delegate_model_configured")):
+              raise SystemExit("AI service must provide LLM, ASR, Realtime, delegation and persistent runtime")
+
+          async def verify_realtime():
+              headers = {}
+              token = os.getenv("XL_REALTIME_CLIENT_TOKEN", "").strip()
+              if token:
+                  headers["X-Xiaoling-Token"] = token
+              uri = "wss://" + base.removeprefix("https://") + "/realtime"
+              async with websockets.connect(uri, extra_headers=headers, open_timeout=15) as ws:
+                  await ws.send(json.dumps({"type": "session.start", "user_id": "release-check",
+                                            "context": {"scene": "release_validation"}}))
+                  for _ in range(8):
+                      event = json.loads(await asyncio.wait_for(ws.recv(), timeout=8))
+                      if event.get("type") == "session.ready":
+                          return
+                      if event.get("type") == "error":
+                          raise RuntimeError(event)
+                  raise RuntimeError("Realtime session did not become ready")
+
+          asyncio.run(verify_realtime())
           print("AI runtime ready:", health.get("api_version", "unknown"))
           PY
 
@@ -94,6 +118,7 @@ jobs:
           XL_KEY_PASS: ${{ secrets.KEY_PASS }}
           XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
           XL_PORCUPINE_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
+          XL_REALTIME_CLIENT_TOKEN: ${{ secrets.REALTIME_CLIENT_TOKEN }}
         run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Verify signed voice release
@@ -105,31 +130,31 @@ jobs:
 
       - name: Prepare transfer-safe release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.14-release.apk
-          sha256sum xiaoling-v1.0.14-release.apk | tee xiaoling-v1.0.14-release.apk.sha256
-          zip -j xiaoling-v1.0.14-release.zip xiaoling-v1.0.14-release.apk xiaoling-v1.0.14-release.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.15-release.apk
+          sha256sum xiaoling-v1.0.15-release.apk | tee xiaoling-v1.0.15-release.apk.sha256
+          zip -j xiaoling-v1.0.15-release.zip xiaoling-v1.0.15-release.apk xiaoling-v1.0.15-release.apk.sha256
 
       - name: Publish delivery branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
-          cp xiaoling-v1.0.14-release.zip xiaoling-v1.0.14-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cp xiaoling-v1.0.15-release.zip xiaoling-v1.0.15-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
           cd "$RUNNER_TEMP/xiaoling-delivery"
           git init
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b artifacts/xiaoling-v1.0.14
+          git checkout -b artifacts/xiaoling-v1.0.15
           git add .
-          git commit -m "Publish signed Xiaoling v1.0.14"
+          git commit -m "Publish signed Xiaoling v1.0.15"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force origin artifacts/xiaoling-v1.0.14
+          git push --force origin artifacts/xiaoling-v1.0.15
 
       - name: Upload transfer-safe release ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-v1.0.14-release
+          name: xiaoling-v1.0.15-release
           path: |
-            android-compose/xiaoling-v1.0.14-release.zip
-            android-compose/xiaoling-v1.0.14-release.apk.sha256
+            android-compose/xiaoling-v1.0.15-release.zip
+            android-compose/xiaoling-v1.0.15-release.apk.sha256
           if-no-files-found: error

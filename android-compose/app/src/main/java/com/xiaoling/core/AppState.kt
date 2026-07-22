@@ -50,7 +50,11 @@ data class UiState(
     val aiServiceReachable: Boolean = false,
     val aiModelAvailable: Boolean = false,
     val aiAsrAvailable: Boolean = false,
+    val aiRealtimeAvailable: Boolean = false,
+    val aiDelegationAvailable: Boolean = false,
     val aiServiceStatus: String = "正在检测 AI 服务",
+    val requestedPermissions: List<String> = emptyList(),
+    val permissionRequestId: Long = 0L,
     val choices: List<Choice> = emptyList(),   // 智能澄清:多选项(有值时 UI 显示选择按钮)
     // 子女端·看护统计
     val fraudBlocked: Int = 0,
@@ -81,6 +85,19 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private val speech = SpeechController(app)
     private val tts = Tts(app) { id -> onSpeakDone(id) }
+    private val realtime = RealtimeVoiceClient(app, object : RealtimeVoiceClient.Listener {
+        override fun onConnected(model: String) = onRealtimeConnected(model)
+        override fun onDisconnected(message: String, retryable: Boolean) = onRealtimeDisconnected(message, retryable)
+        override fun onInputSpeechStarted() = onRealtimeInputStarted()
+        override fun onInputTranscript(text: String, final: Boolean) = onRealtimeInputText(text, final)
+        override fun onOutputStarted() = onRealtimeOutputStarted()
+        override fun onOutputTranscript(text: String, final: Boolean) = onRealtimeOutputText(text, final)
+        override fun onOutputDone(text: String) = onRealtimeOutputDone(text)
+        override fun onAction(action: JSONObject) = onRealtimeAction(action)
+        override fun onDelegationStarted(task: String) = onRealtimeDelegationStarted(task)
+        override fun onDelegationCompleted(text: String) = onRealtimeDelegationCompleted(text)
+        override fun onWeakNetwork() = onRealtimeWeakNetwork()
+    })
 
     @Volatile private var speaking = false   // TTS 播报中
     @Volatile private var holding = false    // 老人正按住说话
@@ -100,8 +117,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var voiceSessionActive = false // 唤醒词进入的免手持连续对话
     private var automaticMisses = 0
     private var autoListenJob: Job? = null
+    private var realtimeConnectJob: Job? = null
+    private var realtimeCaptionJob: Job? = null
+    @Volatile private var realtimeConnecting = false
+    @Volatile private var realtimeActive = false
     private var pendingReminder = ""
     private var pendingRemoteAudioUrl = ""
+    private var pendingPermissionAction: JSONObject? = null
 
     private companion object {
         const val QUICK_TAP_MS = 320L
@@ -132,7 +154,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             while (isActive) {
                 val online = NetworkStatus.isOnline(app)
+                val changed = _state.value.online != online
                 _state.update { if (it.online == online) it else it.copy(online = online) }
+                if (changed && realtimeActive) realtime.updateContext()
                 delay(4000)
             }
         }
@@ -218,16 +242,19 @@ class AppState(application: Application) : AndroidViewModel(application) {
             val health = BrainClient.health(app)
             val message = when {
                 !health.reachable -> "AI 服务未连接"
+                !health.realtimeAvailable -> "服务已连接,但实时语音未配置"
                 !health.modelAvailable -> "服务已连接,但未配置大模型"
                 !health.asrAvailable -> "模型已连接,但云端语音识别未配置"
-                health.providers.isNotBlank() -> "智能对话已连接 · ${health.providers}"
-                else -> "智能对话已连接"
+                health.delegationAvailable && health.providers.isNotBlank() -> "实时智能对话已连接 · ${health.providers}"
+                else -> "实时智能对话已连接"
             }
             _state.update {
                 it.copy(
                     aiServiceReachable = health.reachable,
                     aiModelAvailable = health.modelAvailable,
                     aiAsrAvailable = health.asrAvailable,
+                    aiRealtimeAvailable = health.realtimeAvailable,
+                    aiDelegationAvailable = health.delegationAvailable,
                     aiServiceStatus = message
                 )
             }
@@ -293,12 +320,37 @@ class AppState(application: Application) : AndroidViewModel(application) {
         voiceSessionActive = true
         automaticMisses = 0
         _state.update { it.copy(screen = Screen.Home) }
-        beginListening(automatic = true)
+        if (realtimeActive) {
+            realtime.updateContext()
+            return
+        }
+        if (realtimeConnecting || recognitionActive) return
+        if (realtime.canConnect) {
+            realtimeConnecting = true
+            _state.update { it.copy(asrStatus = "正在连接实时语音", asrReady = false) }
+            realtime.start()
+            realtimeConnectJob?.cancel()
+            realtimeConnectJob = viewModelScope.launch {
+                delay(2800)
+                if (realtimeConnecting && !realtimeActive) {
+                    realtimeConnecting = false
+                    realtime.stop(notify = false)
+                    startLegacyVoiceFallback("实时连接较慢,已切换兼容语音")
+                }
+            }
+        } else {
+            beginListening(automatic = true)
+        }
     }
 
     /** 退到手机桌面时释放前台识别器,让后台唤醒服务立即接管同一个麦克风。 */
     fun pauseVoiceConversation() {
         voiceSessionActive = false
+        realtimeConnecting = false
+        realtimeActive = false
+        realtimeConnectJob?.cancel()
+        realtimeCaptionJob?.cancel()
+        realtime.stop(notify = false)
         autoListenJob?.cancel()
         if (recognitionActive || holding) cancelActiveRecognition()
         if (speaking) {
@@ -315,6 +367,15 @@ class AppState(application: Application) : AndroidViewModel(application) {
      * 并记录 interrupted:松手后若没听到新指令,就恢复原来的播报。
      */
     fun pressToTalk() {
+        if (realtimeActive) {
+            holding = true
+            pressStartedAt = SystemClock.elapsedRealtime()
+            realtime.beginManualInterruption()
+            speaking = false
+            _state.update { it.copy(micPressed = true, listening = true, speaking = false,
+                busy = false, micFeedback = "", caption = "在听…请说", mascot = MascotState.Listening) }
+            return
+        }
         beginListening(automatic = false)
     }
 
@@ -418,6 +479,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
     /** 松手:留言模式停止录音 → 回放让老人听清楚 → 再语音确认;否则收尾识别 */
     fun releaseToTalk() {
         if (!holding) return
+        if (realtimeActive) {
+            holding = false
+            val quick = SystemClock.elapsedRealtime() - pressStartedAt < QUICK_TAP_MS
+            realtime.endManualInterruption()
+            _state.update { it.copy(micPressed = false, listening = false,
+                micFeedback = if (quick) "已取消" else "", caption = if (quick) "" else it.caption,
+                mascot = if (it.speaking) MascotState.Talking else MascotState.Idle) }
+            if (quick) {
+                micFeedbackJob?.cancel()
+                micFeedbackJob = viewModelScope.launch {
+                    delay(650)
+                    _state.update { it.copy(micFeedback = "") }
+                }
+            }
+            return
+        }
         if (memoMode) {
             holding = false; memoMode = false
             val f = VoiceMemo.stopRecord()
@@ -677,7 +754,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             if (steps != null) viewModelScope.launch {
                 for (i in 0 until steps.length()) {
                     val act = steps.optJSONObject(i) ?: continue
-                    try { ActionDispatcher.execute(app, act) } catch (e: Exception) {}
+                    try { dispatchAction(act) } catch (e: Exception) {}
                     delay(1200)   // 每步之间留点间隔,别挤在一起
                 }
             }
@@ -749,7 +826,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 return
             }
         }
-        val hint = reply.action?.let { ActionDispatcher.execute(app, it) }
+        val hint = reply.action?.let { dispatchAction(it) }
         val toSay = hint ?: reply.speech
         if (type == "FRAUD_WARN") FraudStore.inc(app)
         speaking = true
@@ -804,6 +881,151 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    private fun onRealtimeConnected(model: String) {
+        if (!voiceSessionActive || !AppForeground.active || _state.value.screen != Screen.Home) {
+            realtime.stop(notify = false)
+            return
+        }
+        realtimeConnectJob?.cancel()
+        realtimeConnecting = false
+        realtimeActive = true
+        if (recognitionActive || holding) cancelActiveRecognition(updateUi = false)
+        speaking = false
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false, busy = false,
+            caption = "", mascot = MascotState.Idle, asrReady = true,
+            asrStatus = "实时语音已就绪 · $model") }
+    }
+
+    private fun onRealtimeDisconnected(message: String, retryable: Boolean) {
+        if (!realtimeActive && !realtimeConnecting) return
+        realtimeActive = false
+        realtimeConnecting = false
+        realtimeConnectJob?.cancel()
+        speaking = false
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false, busy = false,
+            caption = "", mascot = MascotState.Idle, asrReady = false,
+            asrStatus = if (retryable) "实时语音弱网降级" else message.take(36)) }
+        if (voiceSessionActive && AppForeground.active && _state.value.screen == Screen.Home) {
+            viewModelScope.launch {
+                delay(180)
+                if (voiceSessionActive && !realtimeActive && !realtimeConnecting && !recognitionActive) {
+                    startLegacyVoiceFallback("实时语音暂时不可用,已切换兼容语音")
+                }
+            }
+        }
+    }
+
+    private fun startLegacyVoiceFallback(status: String) {
+        if (!voiceSessionActive || recognitionActive || !AppForeground.active) return
+        _state.update { it.copy(asrStatus = status, asrReady = speech.isAvailable) }
+        beginListening(automatic = true)
+    }
+
+    private fun onRealtimeInputStarted() {
+        if (!realtimeActive) return
+        realtimeCaptionJob?.cancel()
+        tts.stop()
+        RemoteAudioPlayer.stop()
+        speaking = false
+        _state.update { it.copy(listening = true, speaking = false, busy = false,
+            caption = "在听…", mascot = MascotState.Listening) }
+    }
+
+    private fun onRealtimeInputText(text: String, final: Boolean) {
+        if (!realtimeActive || text.isBlank()) return
+        _state.update { it.copy(listening = !final, busy = final, speaking = false,
+            caption = text, lastUser = if (final) text else it.lastUser,
+            mascot = if (final) MascotState.Thinking else MascotState.Listening) }
+    }
+
+    private fun onRealtimeOutputStarted() {
+        if (!realtimeActive) return
+        speaking = true
+        _state.update { it.copy(listening = false, busy = false, speaking = true,
+            mascot = MascotState.Talking) }
+    }
+
+    private fun onRealtimeOutputText(text: String, final: Boolean) {
+        if (!realtimeActive || text.isBlank()) return
+        speaking = true
+        _state.update { it.copy(listening = false, busy = false, speaking = true,
+            caption = text, mascot = MascotState.Talking) }
+    }
+
+    private fun onRealtimeOutputDone(text: String) {
+        if (!realtimeActive) return
+        speaking = false
+        val finalText = text.ifBlank { _state.value.caption }
+        _state.update { it.copy(listening = false, busy = false, speaking = false,
+            caption = finalText, mascot = MascotState.Idle) }
+        realtimeCaptionJob?.cancel()
+        realtimeCaptionJob = viewModelScope.launch {
+            delay(1600)
+            if (realtimeActive && !speaking && !_state.value.listening && _state.value.caption == finalText) {
+                _state.update { it.copy(caption = "") }
+            }
+        }
+    }
+
+    private fun onRealtimeAction(action: JSONObject) {
+        val type = action.optString("type")
+        val hint = dispatchAction(action)
+        if (type == "FRAUD_WARN") {
+            FraudStore.inc(app)
+            _state.update { it.copy(fraudBlocked = FraudStore.count(app), mascot = MascotState.Alarm) }
+            scheduleAlarmReset()
+        }
+        if (!hint.isNullOrBlank()) {
+            _state.update { it.copy(caption = hint, mascot = MascotState.Caring) }
+        }
+    }
+
+    private fun dispatchAction(action: JSONObject): String? {
+        val permissions = ActionDispatcher.missingRuntimePermissions(app, action)
+        if (permissions.isNotEmpty()) {
+            pendingPermissionAction = JSONObject(action.toString())
+            _state.update { it.copy(requestedPermissions = permissions,
+                permissionRequestId = it.permissionRequestId + 1) }
+            return null
+        }
+        return try { ActionDispatcher.execute(app, action) }
+        catch (_: Exception) { "这个操作暂时没有执行成功。" }
+    }
+
+    fun onActionPermissionsResult(result: Map<String, Boolean>) {
+        val action = pendingPermissionAction
+        pendingPermissionAction = null
+        _state.update { it.copy(requestedPermissions = emptyList()) }
+        if (action == null) return
+        val stillMissing = ActionDispatcher.missingRuntimePermissions(app, action)
+        if (stillMissing.isNotEmpty() || result.values.any { !it }) {
+            val tip = "需要您允许电话或通知权限,我才能完成这个操作。"
+            speaking = true
+            _state.update { it.copy(caption = tip, speaking = true, mascot = MascotState.Caring) }
+            curUtt = tts.speak(tip)
+            return
+        }
+        val hint = ActionDispatcher.execute(app, action)
+        if (!hint.isNullOrBlank()) {
+            speaking = true
+            _state.update { it.copy(caption = hint, speaking = true, mascot = MascotState.Caring) }
+            curUtt = tts.speak(hint)
+        }
+    }
+
+    private fun onRealtimeDelegationStarted(task: String) {
+        _state.update { it.copy(caption = if (task.isBlank()) "复杂任务已在后台处理" else "后台正在处理:$task",
+            busy = false, mascot = MascotState.Thinking) }
+    }
+
+    private fun onRealtimeDelegationCompleted(text: String) {
+        if (text.isNotBlank()) _state.update { it.copy(caption = text, mascot = MascotState.Caring) }
+    }
+
+    private fun onRealtimeWeakNetwork() {
+        _state.update { it.copy(asrStatus = "网络较弱,正在保持实时对话") }
     }
 
     private fun askReminderDetail(raw: String, missing: Reminders.MissingPart) {
@@ -985,6 +1207,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        realtimeConnectJob?.cancel()
+        realtimeCaptionJob?.cancel()
+        realtime.destroy()
         autoListenJob?.cancel()
         speechTimeoutJob?.cancel()
         micFeedbackJob?.cancel()

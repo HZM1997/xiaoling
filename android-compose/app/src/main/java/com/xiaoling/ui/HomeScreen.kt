@@ -82,6 +82,16 @@ fun HomeScreen(vm: AppState) {
         }
     }
 
+    val actionPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result -> vm.onActionPermissionsResult(result) }
+
+    LaunchedEffect(ui.permissionRequestId) {
+        if (ui.permissionRequestId > 0L && ui.requestedPermissions.isNotEmpty()) {
+            actionPermissionLauncher.launch(ui.requestedPermissions.toTypedArray())
+        }
+    }
+
     LaunchedEffect(micGranted) {
         if (micGranted) {
             // 首页由 App 自己持续收音,后台唤醒服务让出麦克风。

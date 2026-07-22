@@ -9,6 +9,7 @@ import re
 from typing import Callable, Optional
 
 from models import Utterance, Reply
+from fraud import analyze as analyze_fraud_result
 from fraud_session import analyze_session
 from llm import judge_fraud, llm_translate
 from translate import parse_translate, translate_phrase, LANGS
@@ -75,11 +76,24 @@ def anti_fraud(u: Utterance) -> Optional[Reply]:
     """来电/短信场景:context 带 caller/scene/session_id,做多轮累积的实时研判。"""
     ctx = u.context or {}
     scene = ctx.get("scene")
-    if scene not in ("incoming_call", "sms", "incoming_sms"):
+    incoming_scene = scene in ("incoming_call", "sms", "incoming_sms")
+    consultation = bool(re.search(
+        r"是不是诈骗|会不会是骗子|像不像诈骗|能不能转账|要不要转账|怎么防诈|如何防诈|反诈|"
+        r"(?:有人|对方).{0,18}(?:让我|叫我|要求我)",
+        u.text,
+    ))
+    if not incoming_scene and not consultation:
         return None
-    # 多轮:同一通电话/短信跨句累积研判(骗子分句铺垫也能抓)
-    r = analyze_session(u.text, ctx.get("caller", ""), scene, ctx)
+    # 来电/短信走多轮累积;主动反诈咨询也进入同一规则引擎,不再被普通聊天漏掉。
+    r = analyze_session(u.text, ctx.get("caller", ""), scene, ctx) if incoming_scene else \
+        analyze_fraud_result(u.text, ctx.get("caller", ""), "voice_chat")
     if r.level == "safe":
+        if consultation:
+            return Reply(
+                speech="目前没发现明确的诈骗红线,但拿不准就先不转账、不说验证码、不点陌生链接。把对方原话再告诉我,我继续帮您判断。",
+                skill="防诈咨询",
+                risk=r.risk,
+            )
         return None
     # 中危(规则拿不准)→ 大模型二次研判,降误报;无大模型则按规则判定
     if r.level == "medium":
@@ -90,8 +104,9 @@ def anti_fraud(u: Utterance) -> Optional[Reply]:
             if verdict.get("is_fraud") and verdict.get("confidence", 0) >= 0.85:
                 r.level = "high"   # 大模型高置信确认 → 升级
     level_cn = "极高" if r.level == "high" else "较高"
+    subject = "这通电话" if incoming_scene else "您描述的情况"
     return Reply(
-        speech=(f"注意!这通电话诈骗风险{level_cn}(疑似{r.category}):{r.reason}。"
+        speech=(f"注意!{subject}诈骗风险{level_cn}(疑似{r.category}):{r.reason}。"
                 f"千万不要转账、不要提供验证码、不要按对方说的操作。"
                 f"要不要我帮您挂断,并打给您的子女核实?"),
         action={"type": "FRAUD_WARN", "level": r.level, "category": r.category,

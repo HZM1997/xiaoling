@@ -88,14 +88,21 @@ def chat(
     temperature: float = 0.5,
     max_tokens: int = 600,
     timeout: float = 6.0,
+    model_override: str | None = None,
+    provider_override: str | None = None,
 ) -> dict | None:
     """在总时限内依次尝试已配置模型;密钥只从环境变量读取。"""
     providers = _provider_configs()
+    if provider_override:
+        providers = [item for item in providers if item["name"] == provider_override]
     if not providers:
         return None
     max_providers = max(1, min(int(os.getenv("XL_LLM_MAX_PROVIDERS", "3")), len(providers)))
     deadline = time.monotonic() + max(1.0, timeout)
     for config in providers[:max_providers]:
+        config = dict(config)
+        if model_override:
+            config["model"] = model_override
         remaining = deadline - time.monotonic()
         if remaining < 0.5:
             break

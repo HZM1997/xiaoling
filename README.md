@@ -42,7 +42,9 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 `XL_MEMORY_DB` 指定持久卷路径。API 密钥、身份证号和验证码不会写入记忆库。
 
 云端 ASR 使用 `XL_ASR_KEY`、`XL_ASR_BASE_URL`、`XL_ASR_MODEL`;未单独设置时可复用
-`OPENAI_API_KEY` 和 `whisper-1`。正式包要求 `/health` 同时返回 `llm: true` 与 `asr: true`。
+`OPENAI_API_KEY` 和 `whisper-1`。全双工语音由服务端 `/realtime` 代理 GPT Realtime,复杂任务可在后台
+委派给强模型,主会话继续对话。正式包要求 LLM、ASR、Realtime、委派运行时均可用,CI 还会建立真实
+WebSocket 会话并等待 `session.ready`。
 
 ## 构建
 

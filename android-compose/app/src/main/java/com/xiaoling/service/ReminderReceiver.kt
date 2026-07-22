@@ -9,6 +9,7 @@ import android.os.Build
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import androidx.core.app.NotificationCompat
+import com.xiaoling.core.Reminders
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -20,6 +21,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val content = intent.getStringExtra("content") ?: "该做的事"
+        if (intent.getBooleanExtra("daily", false)) {
+            Reminders.rescheduleDaily(
+                ctx.applicationContext,
+                intent.getStringExtra("raw").orEmpty(),
+                content,
+                intent.getIntExtra("request_id", content.hashCode()),
+                intent.getIntExtra("hour", 8),
+                intent.getIntExtra("minute", 0),
+            )
+        }
+        Reminders.markTriggered(
+            ctx.applicationContext,
+            intent.getIntExtra("request_id", content.hashCode()),
+            intent.getBooleanExtra("daily", false),
+        )
         val say = "到时间了,该${content}啦。"
         notify(ctx.applicationContext, content)   // 通知同步弹出,最可靠的兜底
         val pending = goAsync()                    // 让系统在念完前别回收进程

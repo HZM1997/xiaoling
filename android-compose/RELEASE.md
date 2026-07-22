@@ -25,7 +25,8 @@ keytool -genkeypair -v -keystore xiaoling.keystore \
    - `KS_PASS` = 密钥库口令
    - `KEY_ALIAS` = `xiaoling`(上面 -alias 的值)
     - `KEY_PASS` = 密钥口令
-    - `BRAIN_URL` = 已部署且 `/health` 返回 `llm:true, asr:true` 的公网 HTTPS 地址
+    - `BRAIN_URL` = 已部署且 LLM、ASR、Realtime、委派运行时均可用的公网 HTTPS 地址
+    - `REALTIME_CLIENT_TOKEN` = 可选;若服务端设置了 `XL_REALTIME_CLIENT_TOKEN`,两端必须一致
     - `PORCUPINE_ACCESS_KEY` = Picovoice AccessKey
     - `PORCUPINE_KEYWORD_BASE64` = 训练好的“小灵”中文 `.ppn` 的 base64
     - `PORCUPINE_MODEL_URL` = 中文参数模型的固定 HTTPS 下载地址
@@ -47,12 +48,12 @@ export XL_KEY_PASS=你的密钥口令
 (Windows PowerShell 用 `$env:XL_KEYSTORE="..."` 逐个设置。)
 
 ## 四、Release 版做了哪些加固 + 瘦身
-- **R8 当前关闭**:此前真机发生 Release 启动闪退,在完整真机冒烟前不重新开启激进裁剪。
+- **R8 + 资源压缩**:删除未使用字节码与资源;ViewModel、Compose 和 Porcupine 反射入口已精确保留。
 - **去日志**:剥离所有 `Log.*` / `println`,防运行时信息泄漏。
-- **中文资源限定**:`resConfigs "zh"` 只保留中文字符串;资源压缩随 R8 暂时关闭。
+- **中文资源限定**:`resConfigs "zh"` 只保留中文字符串。
 - **只打 ARM 架构**:`abiFilters armeabi-v7a/arm64-v8a`,去掉模拟器用的 x86 native 库。
 - **离线唤醒**:正式包打入 Porcupine ARM native 库、中文参数模型和“小灵”关键词模型;CI 会逐项校验。
-- **生产 HTTPS 硬校验**:Release CI 只接受可公开访问且真实提供 LLM/ASR 的 HTTPS 服务。
+- **生产实时链路硬校验**:Release CI 会连接 `/realtime`,只有收到 `session.ready` 才允许发布。
 - **登录页防截屏/录屏**:`FLAG_SECURE`,防手机号/验证码被截取。
 
 > 想进一步减小"单个用户下载的体积":上 Google Play 用 `bundleRelease` 出 AAB,Play 会按用户机型只下发对应架构;国内商店发 APK 时,上面这些优化已把体积压到较小。

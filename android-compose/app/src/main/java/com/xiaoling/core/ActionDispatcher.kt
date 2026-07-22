@@ -2,12 +2,16 @@ package com.xiaoling.core
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.app.SearchManager
+import android.media.MediaStore
 import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import org.json.JSONObject
+import androidx.core.content.ContextCompat
 
 /**
  * 把大脑返回的 action 变成真实的 Android 行为(拨号/导航/呼救/防诈震动)。
@@ -15,18 +19,37 @@ import org.json.JSONObject
  */
 object ActionDispatcher {
 
+    fun missingRuntimePermissions(ctx: Context, action: JSONObject): List<String> {
+        val type = action.optString("type")
+        val missing = ArrayList<String>(2)
+        if (type == "CALL") {
+            val target = action.optString("target")
+            if (!looksLikeNumber(target) && ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
+                missing.add(android.Manifest.permission.READ_CONTACTS)
+            }
+            if (ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                missing.add(android.Manifest.permission.CALL_PHONE)
+            }
+        } else if (type == "CALL_NUMBER" || type == "SOS") {
+            if (ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+                missing.add(android.Manifest.permission.CALL_PHONE)
+            }
+        }
+        return missing.distinct()
+    }
+
     /** @return 给用户的补充提示(可为空);真正的语音由 TTS 负责 */
     fun execute(ctx: Context, action: JSONObject): String? {
         val app = ctx.applicationContext
         return when (action.optString("type")) {
             "CALL" -> {
                 val target = action.optString("target")
-                val num = Contacts.lookup(app, target)
+                val num = target.takeIf(::looksLikeNumber)?.filter { it.isDigit() || it == '+' }
+                    ?: Contacts.lookup(app, target)
                 if (num.isNullOrBlank()) {
                     "没找到联系人「$target」,您可以说全名字再试。"
                 } else {
-                    view(app, Intent(Intent.ACTION_DIAL, Uri.parse("tel:$num")))
-                    null
+                    if (call(app, num)) null else "电话没有拨出去,请检查电话权限和默认电话应用。"
                 }
             }
             "SOS" -> {
@@ -43,8 +66,7 @@ object ActionDispatcher {
             }
             "CALL_NUMBER" -> {
                 val num = action.optString("number")
-                if (num.isNotBlank()) view(app, Intent(Intent.ACTION_DIAL, Uri.parse("tel:$num")))
-                null
+                if (num.isNotBlank() && call(app, num)) null else "电话没有拨出去,请检查电话权限。"
             }
             "OPEN_URI" -> {
                 val uri = action.optString("uri")
@@ -58,13 +80,16 @@ object ActionDispatcher {
             }
             "FRAUD_WARN", "ALERT" -> { vibrate(app); null }
             "PLAY" -> {
-                // 语音影音点播:调起音乐/视频 App 搜索播放;失败退回网页搜索
                 val kw = action.optString("keyword", "戏曲")
-                val ok = view(app, Intent(Intent.ACTION_VIEW,
-                    Uri.parse("qqmusic://qq.com/ui/search?key=" + Uri.encode(kw))))
-                if (!ok) view(app, Intent(Intent.ACTION_VIEW,
-                    Uri.parse("https://www.baidu.com/s?wd=" + Uri.encode("$kw 在线播放"))))
-                null
+                val systemPlay = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
+                    putExtra(SearchManager.QUERY, kw)
+                    putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio")
+                }
+                val ok = view(app, systemPlay) ||
+                    view(app, Intent(Intent.ACTION_VIEW, Uri.parse("qqmusic://qq.com/ui/search?key=" + Uri.encode(kw)))) ||
+                    view(app, Intent(Intent.ACTION_VIEW, Uri.parse("orpheus://search/" + Uri.encode(kw)))) ||
+                    view(app, Intent(Intent.ACTION_VIEW, Uri.parse("https://m.baidu.com/s?word=" + Uri.encode("$kw 在线播放"))))
+                if (ok) null else "手机里没有找到可播放的影音应用。"
             }
             "REMIND" -> {
                 // 语音提醒:解析时间并用 AlarmManager 定时;解析不出就存为下一整点提醒
@@ -93,6 +118,19 @@ object ActionDispatcher {
             ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true
         } catch (e: Exception) { false }
     }
+
+    private fun call(ctx: Context, number: String): Boolean {
+        val uri = Uri.parse("tel:" + Uri.encode(number, "+*#"))
+        val direct = ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CALL_PHONE) == PackageManager.PERMISSION_GRANTED
+        return if (direct) {
+            view(ctx, Intent(Intent.ACTION_CALL, uri)) || view(ctx, Intent(Intent.ACTION_DIAL, uri))
+        } else {
+            view(ctx, Intent(Intent.ACTION_DIAL, uri))
+        }
+    }
+
+    private fun looksLikeNumber(value: String): Boolean =
+        value.replace(Regex("[\\s-]"), "").matches(Regex("^\\+?[0-9*#]{3,20}$"))
 
     /** 把语音留言分享给联系人:优先带号码的分享(微信/短信里选到人),否则系统分享面板 */
     private fun shareAudio(ctx: Context, f: java.io.File, number: String?, target: String) {

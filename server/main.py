@@ -9,7 +9,7 @@ import hashlib
 import hmac
 import os
 
-from fastapi import FastAPI, Request, File, Form, UploadFile
+from fastapi import FastAPI, Request, File, Form, UploadFile, WebSocket
 from starlette.concurrency import run_in_threadpool
 
 from models import Utterance, Reply
@@ -18,6 +18,7 @@ import firewall        # 后端防火墙(限流/体积限制/安全头)
 import agent_registry  # 受控的签名 Skill / Agent 能力目录
 import account_store   # 账号、实名状态与永久权益持久化
 import asr_gateway
+import realtime_gateway
 from agent_runtime import runtime
 
 app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.2.0")
@@ -37,8 +38,15 @@ def health():
     status = runtime.status()
     return {"ok": True, "api_version": "0.2.0", "llm": status["models"]["available"],
             "asr": asr_gateway.available(),
+            "realtime": realtime_gateway.status(),
             "skills": [name for name, _, _ in skills._REGISTRY],
             "agent_registry": agent_registry.status(), "runtime": status}
+
+
+@app.websocket("/realtime")
+async def realtime_voice(websocket: WebSocket):
+    """全双工语音代理。OpenAI 密钥仅保存在服务端，不下发到 APK。"""
+    await realtime_gateway.handle(websocket)
 
 
 @app.get("/runtime/status")

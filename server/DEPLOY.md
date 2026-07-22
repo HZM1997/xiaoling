@@ -56,7 +56,12 @@ docker build -t xiaoling-brain . && docker run -p 8000:8000 xiaoling-brain
 - **接大模型(智能应用体)**:配一个环境变量即启用大模型行为理解(会思考、给多选、理解上下文)。
   用 OpenAI 兼容格式,配哪个 KEY 就用哪个(设一个即可):
   - `DEEPSEEK_API_KEY` — 推荐:国内可直连、性价比高、支持 function calling
-  - `OPENAI_API_KEY` — GPT(gpt-4o-mini)
+  - `OPENAI_API_KEY` — GPT 文本、ASR 兼容入口与 Realtime 服务端鉴权
+  - `XL_REALTIME_MODEL` — Realtime 模型,默认 `gpt-realtime`
+  - `XL_REALTIME_VOICE` — Realtime 声音,默认 `marin`
+  - `XL_DELEGATE_MODEL` — 后台复杂任务使用的强模型,生产环境应显式配置
+  - `XL_DELEGATE_PROVIDER` — 可选,限定后台任务使用 `openai/deepseek/qwen/doubao/kimi/custom` 中的一个
+  - `XL_REALTIME_CLIENT_TOKEN` — 可选的 App 到自建服务 WebSocket 令牌
   - `DASHSCOPE_API_KEY` — 阿里通义千问
   - `ARK_API_KEY` — 火山豆包 · `MOONSHOT_API_KEY` — Kimi
   - 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`

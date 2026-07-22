@@ -26,7 +26,7 @@ object AppForeground { @Volatile var active = false }
 
 /**
  * 常驻前台服务:退出 App 回到主屏后,后台持续听唤醒词「小灵」,听到就把 App 拉到前台并开始对话。
- * 唤醒依赖系统语音识别(需较新的 Google 语音服务;真正离线唤醒可在此换 Picovoice/Vosk 引擎)。
+ * Release 优先使用包内 Porcupine 中文关键词模型离线检测“小灵”;资源不可用时才回退系统语音识别。
  * App 在前台时本服务让位(不占麦)。
  */
 class WakeService : Service() {

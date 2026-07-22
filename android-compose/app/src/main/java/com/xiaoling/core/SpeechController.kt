@@ -7,7 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
+import android.provider.Settings as AndroidSettings
 import android.speech.RecognitionListener
 import android.speech.RecognitionService
 import android.speech.RecognizerIntent
@@ -244,7 +244,7 @@ class SpeechController(private val ctx: Context) {
 
     private fun recognitionServices(): List<ComponentName> {
         val configured = try {
-            Settings.Secure.getString(ctx.contentResolver, "voice_recognition_service")
+            AndroidSettings.Secure.getString(ctx.contentResolver, "voice_recognition_service")
                 ?.takeIf { it.isNotBlank() }
                 ?.let(ComponentName::unflattenFromString)
         } catch (_: Throwable) {

@@ -11,11 +11,12 @@ android {
         applicationId 'com.xiaoling'
         minSdk 24
         targetSdk 34
-        versionCode 14
-        versionName '1.0.14'
+        versionCode 15
+        versionName '1.0.15'
         // Release 由 CI 注入公网 HTTPS 服务;本地调试也可通过环境变量覆盖。
         buildConfigField 'String', 'BRAIN_URL', groovy.json.JsonOutput.toJson(System.getenv('XL_BRAIN_URL') ?: '')
         buildConfigField 'String', 'PORCUPINE_ACCESS_KEY', groovy.json.JsonOutput.toJson(System.getenv('XL_PORCUPINE_ACCESS_KEY') ?: '')
+        buildConfigField 'String', 'REALTIME_CLIENT_TOKEN', groovy.json.JsonOutput.toJson(System.getenv('XL_REALTIME_CLIENT_TOKEN') ?: '')
         vectorDrawables { useSupportLibrary true }
         // 只保留主流真机架构(x86/x86_64 基本只有模拟器用),减小 native 库体积
         ndk { abiFilters 'armeabi-v7a', 'arm64-v8a' }
@@ -43,10 +44,9 @@ android {
             if (System.getenv('XL_KEYSTORE')) {
                 signingConfig signingConfigs.release
             }
-            // 临时关闭 R8 混淆与资源压缩:排查真机启动闪退(release 独有崩溃多由 R8/资源裁剪引起)。
-            // 待确认 app 能正常启动后再改回 true 恢复加固。
-            minifyEnabled false         // 原 true
-            shrinkResources false       // 原 true(shrinkResources 依赖 minifyEnabled,必须一起关)
+            // R8 删除未使用字节码/资源；反射入口已在 proguard-rules.pro 精确保留。
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
@@ -88,6 +88,7 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
 
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
 
     // 真正离线的“小灵”关键词检测。Release 构建必须同时注入 AccessKey、中文参数和关键词模型。
     implementation 'ai.picovoice:porcupine-android:3.0.3'
