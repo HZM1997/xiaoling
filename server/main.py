@@ -35,17 +35,20 @@ app.mount("/family/audio/files", StaticFiles(directory=str(_FAMILY_AUDIO_DIR)), 
 
 @app.get("/health")
 def health():
-    status = runtime.status()
-    return {"ok": True, "api_version": "0.2.0", "llm": status["models"]["available"],
-            "asr": asr_gateway.available(),
-            "realtime": realtime_gateway.status(),
+    runtime_status = runtime.status()
+    realtime_status = realtime_gateway.status()
+    cloud_asr = asr_gateway.available()
+    return {"ok": True, "api_version": "0.2.0", "llm": runtime_status["models"]["available"],
+            "asr": cloud_asr or realtime_status["available"],
+            "asr_fallback": cloud_asr,
+            "realtime": realtime_status,
             "skills": [name for name, _, _ in skills._REGISTRY],
-            "agent_registry": agent_registry.status(), "runtime": status}
+            "agent_registry": agent_registry.status(), "runtime": runtime_status}
 
 
 @app.websocket("/realtime")
 async def realtime_voice(websocket: WebSocket):
-    """全双工语音代理。OpenAI 密钥仅保存在服务端，不下发到 APK。"""
+    """全双工语音代理。所有模型密钥仅保存在服务端,不下发到 APK。"""
     await realtime_gateway.handle(websocket)
 
 

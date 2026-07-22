@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.sqrt
 
 /**
- * Realtime 全双工音频通道。OpenAI 密钥不在手机端；本类只连接小灵服务端 /realtime。
+ * Realtime 全双工音频通道。模型密钥不在手机端；本类只连接小灵服务端 /realtime。
  * 24 kHz PCM16 单声道持续上行，回答音频流式下行；本地先行打断，服务端 VAD 再校准。
  */
 class RealtimeVoiceClient(private val ctx: Context, private val listener: Listener) {

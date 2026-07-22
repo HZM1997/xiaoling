@@ -56,16 +56,36 @@ docker build -t xiaoling-brain . && docker run -p 8000:8000 xiaoling-brain
 - **接大模型(智能应用体)**:配一个环境变量即启用大模型行为理解(会思考、给多选、理解上下文)。
   用 OpenAI 兼容格式,配哪个 KEY 就用哪个(设一个即可):
   - `DEEPSEEK_API_KEY` — 推荐:国内可直连、性价比高、支持 function calling
-  - `OPENAI_API_KEY` — GPT 文本、ASR 兼容入口与 Realtime 服务端鉴权
+  - `OPENAI_API_KEY` — 可选;保留 GPT 文本、ASR 兼容入口与 Realtime 回退
   - `XL_REALTIME_MODEL` — Realtime 模型,默认 `gpt-realtime`
   - `XL_REALTIME_VOICE` — Realtime 声音,默认 `marin`
+  - `XL_REALTIME_PROVIDER` — 实时模型优先级,中国大陆建议 `qwen,openai`
+  - `DASHSCOPE_API_KEY` — 阿里云百炼 API Key,仅配置在服务端
+  - `XL_QWEN_WORKSPACE_ID` — 百炼北京地域 Workspace ID
+  - `XL_QWEN_REALTIME_MODEL` — 默认 `qwen3.5-omni-plus-realtime`
+  - `XL_QWEN_REALTIME_VOICE` — 默认 `Tina`
+  - `XL_QWEN_REALTIME_URL` — 可选;只有使用自定义百炼实时端点时才设置
   - `XL_DELEGATE_MODEL` — 后台复杂任务使用的强模型,生产环境应显式配置
   - `XL_DELEGATE_PROVIDER` — 可选,限定后台任务使用 `openai/deepseek/qwen/doubao/kimi/custom` 中的一个
   - `XL_REALTIME_CLIENT_TOKEN` — 可选的 App 到自建服务 WebSocket 令牌
-  - `DASHSCOPE_API_KEY` — 阿里通义千问
   - `ARK_API_KEY` — 火山豆包 · `MOONSHOT_API_KEY` — Kimi
   - 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`
   未配任何 KEY 时自动降级为规则+离线兜底,不影响运行。`GET /health` 的 `llm:true/false` 可查是否已启用。
+
+  国内实时语音最小配置如下。Key 不要提交到 GitHub 文件,只放 Render 的 Environment 中:
+  ```text
+  XL_REALTIME_PROVIDER=qwen,openai
+  DASHSCOPE_API_KEY=在阿里云百炼控制台创建的Key
+  XL_QWEN_WORKSPACE_ID=北京地域Workspace ID
+  XL_QWEN_REALTIME_MODEL=qwen3.5-omni-plus-realtime
+  XL_QWEN_REALTIME_VOICE=Tina
+  XL_LLM_PROVIDERS=qwen,deepseek,openai
+  XL_DELEGATE_PROVIDER=qwen
+  XL_DELEGATE_MODEL=qwen-plus
+  ```
+  仅配置千问时可以正常运行;以后取得 OpenAI Key,只需在服务端补上 `OPENAI_API_KEY`,无需重新打 APK。
+  `/health` 中 `asr:true` 表示独立 `/asr` 或 Realtime 内置 ASR 至少一路可用;
+  `asr_fallback` 单独表示兼容 `/asr` 端点是否已经配置。
 - **会话记忆**:短期对话上下文仍保存在进程内存,多实例部署建议接 Redis。
 - **账号与永久权益**:默认使用 SQLite `xiaoling_accounts.db`;生产环境设置 `ACCOUNT_DB_PATH`
   并把所在目录挂载到持久化磁盘。大规模部署可替换为 PostgreSQL。

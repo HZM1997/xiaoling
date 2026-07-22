@@ -1,12 +1,16 @@
-"""OpenAI Realtime voice proxy with local tools, memory, and background delegation."""
+"""Provider-neutral Realtime voice proxy with tools, memory, and delegation."""
 from __future__ import annotations
 
 import asyncio
+import audioop
+import base64
+import binascii
 import json
 import os
 import secrets
 from contextlib import suppress
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import websockets
 from fastapi import WebSocket, WebSocketDisconnect
@@ -75,14 +79,75 @@ _REALTIME_TOOLS = [
 ]
 
 
+def _with_model(url: str, model: str) -> str:
+    parts = urlsplit(url)
+    query = parse_qsl(parts.query, keep_blank_values=True)
+    if not any(name == "model" for name, _ in query):
+        query.append(("model", model))
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+
+def _qwen_config() -> dict[str, Any] | None:
+    key = os.getenv("DASHSCOPE_API_KEY", "").strip()
+    workspace_id = os.getenv("XL_QWEN_WORKSPACE_ID", "").strip()
+    custom_url = os.getenv("XL_QWEN_REALTIME_URL", "").strip()
+    if not key or not (workspace_id or custom_url):
+        return None
+    model = os.getenv("XL_QWEN_REALTIME_MODEL", "").strip() or "qwen3.5-omni-plus-realtime"
+    base_url = custom_url or f"wss://{workspace_id}.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+    return {
+        "name": "qwen",
+        "key": key,
+        "model": model,
+        "url": _with_model(base_url, model),
+        "headers": {"Authorization": f"Bearer {key}"},
+        "input_rate": 16000,
+    }
+
+
+def _openai_config() -> dict[str, Any] | None:
+    key = os.getenv("XL_REALTIME_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
+    if not key:
+        return None
+    model = os.getenv("XL_REALTIME_MODEL", "").strip() or "gpt-realtime"
+    base_url = os.getenv("XL_REALTIME_URL", "").strip() or "wss://api.openai.com/v1/realtime"
+    return {
+        "name": "openai",
+        "key": key,
+        "model": model,
+        "url": _with_model(base_url, model),
+        "headers": {"Authorization": f"Bearer {key}", "OpenAI-Beta": "realtime=v1"},
+        "input_rate": 24000,
+    }
+
+
+def _provider_candidates() -> list[dict[str, Any]]:
+    configured = {
+        "qwen": _qwen_config(),
+        "openai": _openai_config(),
+    }
+    requested: list[str] = []
+    for item in os.getenv("XL_REALTIME_PROVIDER", "qwen,openai").split(","):
+        name = item.strip().lower()
+        if name in configured and name not in requested:
+            requested.append(name)
+    order = requested + [name for name in ("qwen", "openai") if name not in requested]
+    return [configured[name] for name in order if configured[name] is not None]
+
+
 def available() -> bool:
-    return bool(os.getenv("XL_REALTIME_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip())
+    return bool(_provider_candidates())
 
 
 def status() -> dict[str, Any]:
+    providers = _provider_candidates()
+    primary = providers[0] if providers else None
     return {
-        "available": available(),
-        "model": os.getenv("XL_REALTIME_MODEL", "gpt-realtime"),
+        "available": bool(providers),
+        "provider": primary["name"] if primary else "unconfigured",
+        "providers": [item["name"] for item in providers],
+        "fallback_enabled": len(providers) > 1,
+        "model": primary["model"] if primary else "unconfigured",
         "delegation": llm_gateway.available(),
         "delegate_model_configured": bool(os.getenv("XL_DELEGATE_MODEL", "").strip()),
     }
@@ -101,9 +166,46 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
     )
 
 
-def _session_update(user_id: str, context: dict, latest_text: str = "", legacy: bool = False) -> dict:
+def _qwen_tools() -> list[dict]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": tool["parameters"],
+            },
+        }
+        for tool in _REALTIME_TOOLS
+    ]
+
+
+def _session_update(
+    user_id: str,
+    context: dict,
+    latest_text: str = "",
+    legacy: bool = False,
+    provider: str = "openai",
+) -> dict:
     instructions = _instructions(user_id, context, latest_text)
-    voice = os.getenv("XL_REALTIME_VOICE", "marin")
+    if provider == "qwen":
+        return {
+            "type": "session.update",
+            "session": {
+                "modalities": ["text", "audio"],
+                "voice": os.getenv("XL_QWEN_REALTIME_VOICE", "").strip() or "Tina",
+                "input_audio_format": "pcm",
+                "output_audio_format": "pcm",
+                "instructions": instructions,
+                "turn_detection": {
+                    "type": "semantic_vad",
+                    "threshold": 0.5,
+                    "silence_duration_ms": 800,
+                },
+                "tools": _qwen_tools(),
+            },
+        }
+    voice = os.getenv("XL_REALTIME_VOICE", "").strip() or "marin"
     if legacy:
         return {
             "type": "session.update",
@@ -159,12 +261,32 @@ def _session_update(user_id: str, context: dict, latest_text: str = "", legacy: 
     }
 
 
+def _resample_pcm24_to_16(encoded: str, state: Any = None) -> tuple[str, Any]:
+    try:
+        pcm = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("invalid PCM base64") from exc
+    if not pcm or len(pcm) % 2:
+        raise ValueError("invalid PCM16 frame")
+    converted, next_state = audioop.ratecv(pcm, 2, 1, 24000, 16000, state)
+    return base64.b64encode(converted).decode("ascii"), next_state
+
+
 def _safe_json(value: str) -> dict:
     try:
         parsed = json.loads(value or "{}")
         return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
+
+
+def _tool_call(event: dict) -> tuple[str, str, dict]:
+    item = event.get("item") if isinstance(event.get("item"), dict) else event
+    return (
+        str(item.get("call_id") or item.get("id") or ""),
+        str(item.get("name") or ""),
+        _safe_json(str(item.get("arguments") or "{}")),
+    )
 
 
 def _action_for(name: str, args: dict) -> tuple[dict | None, dict]:
@@ -244,12 +366,7 @@ async def handle(websocket: WebSocket) -> None:
 
     user_id = str(first.get("user_id") or "guest")[:64]
     context = first.get("context") if isinstance(first.get("context"), dict) else {}
-    key = os.getenv("XL_REALTIME_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
-    model = os.getenv("XL_REALTIME_MODEL", "gpt-realtime")
-    url = os.getenv("XL_REALTIME_URL", "wss://api.openai.com/v1/realtime").rstrip("?")
-    separator = "&" if "?" in url else "?"
-    upstream_url = f"{url}{separator}model={model}"
-    headers = {"Authorization": f"Bearer {key}", "OpenAI-Beta": "realtime=v1"}
+    candidates = _provider_candidates()
 
     send_lock = asyncio.Lock()
     client_lock = asyncio.Lock()
@@ -311,25 +428,20 @@ async def handle(websocket: WebSocket) -> None:
                     "item": {
                         "type": "message",
                         "role": "user",
-                        "content": [{"type": "input_text", "text": f"[后台任务 {job_id} 已完成]\n{result}"}],
+                        "content": [{
+                            "type": "input_text",
+                            "text": f"[后台任务 {job_id} 已完成]\n请用两三句自然中文告诉用户最重要的结果。\n{result}",
+                        }],
                     },
                 },
             )
-            await send_upstream(
-                upstream,
-                {
-                    "type": "response.create",
-                    "response": {"instructions": "后台任务刚完成。用两三句自然中文告诉用户最重要的结果，不要重复任务过程。"},
-                },
-            )
+            await send_upstream(upstream, {"type": "response.create"})
 
     async def handle_tool(upstream, item: dict) -> None:
-        call_id = str(item.get("call_id") or item.get("id") or "")
+        call_id, name, args = _tool_call(item)
         if not call_id or call_id in handled_calls:
             return
         handled_calls.add(call_id)
-        name = str(item.get("name") or "")
-        args = _safe_json(str(item.get("arguments") or "{}"))
         if name == "delegate_complex_task":
             task_text = str(args.get("task") or "").strip()[:1800]
             criteria = str(args.get("success_criteria") or "").strip()[:600]
@@ -345,132 +457,227 @@ async def handle(websocket: WebSocket) -> None:
             await send_client({"type": "tool.action", "action": action})
         await submit_tool_output(upstream, call_id, output)
 
-    try:
-        async with websockets.connect(
-            upstream_url,
-            extra_headers=headers,
-            open_timeout=12,
+    async def connect_provider(config: dict[str, Any]):
+        upstream = await websockets.connect(
+            config["url"],
+            extra_headers=config["headers"],
+            open_timeout=5,
             ping_interval=20,
             ping_timeout=20,
             max_size=4 * 1024 * 1024,
-        ) as upstream:
-            await send_upstream(upstream, _session_update(user_id, context))
+        )
+        state["legacy"] = False
+        try:
+            await send_upstream(
+                upstream,
+                _session_update(user_id, context, provider=config["name"]),
+            )
+            deadline = asyncio.get_running_loop().time() + 5.0
+            while True:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError(f"{config['name']} session handshake timed out")
+                event = json.loads(await asyncio.wait_for(upstream.recv(), timeout=remaining))
+                kind = str(event.get("type") or "")
+                if kind == "session.updated":
+                    return upstream
+                if kind == "error":
+                    error = event.get("error") if isinstance(event.get("error"), dict) else {}
+                    message = str(error.get("message") or event.get("message") or "Realtime session rejected")
+                    if config["name"] == "openai" and not state["legacy"] and "session" in message.lower():
+                        state["legacy"] = True
+                        await send_upstream(
+                            upstream,
+                            _session_update(user_id, context, legacy=True, provider="openai"),
+                        )
+                        continue
+                    raise RuntimeError(message[:300])
+        except BaseException:
+            with suppress(Exception):
+                await upstream.close()
+            raise
 
-            async def client_reader() -> None:
-                while True:
-                    incoming = await websocket.receive_json()
-                    kind = incoming.get("type")
-                    if kind == "audio.append":
-                        audio = incoming.get("audio")
-                        if isinstance(audio, str) and 0 < len(audio) <= 96_000:
-                            await send_upstream(upstream, {"type": "input_audio_buffer.append", "audio": audio})
-                    elif kind == "response.cancel":
-                        await cancel_active_response(upstream)
-                    elif kind == "conversation.text":
-                        text = str(incoming.get("text") or "").strip()[:2000]
-                        if text:
-                            await send_upstream(
-                                upstream,
-                                {
-                                    "type": "conversation.item.create",
-                                    "item": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]},
-                                },
-                            )
-                            await send_upstream(upstream, {"type": "response.create"})
-                    elif kind == "session.context":
-                        update = incoming.get("context")
-                        if isinstance(update, dict):
-                            context.update(update)
-                            await send_upstream(upstream, _session_update(user_id, context, legacy=state["legacy"]))
+    async def run_provider(upstream, config: dict[str, Any]) -> bool:
+        provider = config["name"]
+        model = config["model"]
+        handled_calls.clear()
+        state.update({
+            "response_active": False,
+            "response_cancel_pending": False,
+            "user_speaking": False,
+        })
+        await send_client({"type": "session.ready", "provider": provider, "model": model})
 
-            async def upstream_reader() -> None:
-                assistant_text: list[str] = []
-                async for raw in upstream:
-                    event = json.loads(raw)
-                    kind = str(event.get("type") or "")
-                    if kind == "session.updated":
-                        await send_client({"type": "session.ready", "model": model})
-                    elif kind == "input_audio_buffer.speech_started":
-                        state["user_speaking"] = True
-                        await send_client({"type": "input.speech_started"})
-                    elif kind == "input_audio_buffer.speech_stopped":
-                        state["user_speaking"] = False
-                        await send_client({"type": "input.speech_stopped"})
-                    elif kind in {
-                        "conversation.item.input_audio_transcription.delta",
-                        "input_audio_transcription.delta",
-                    }:
-                        delta = str(event.get("delta") or "")
-                        if delta:
-                            await send_client({"type": "input.transcript.delta", "text": delta})
-                    elif kind in {
-                        "conversation.item.input_audio_transcription.completed",
-                        "input_audio_transcription.completed",
-                    }:
-                        transcript = str(event.get("transcript") or "").strip()
-                        if transcript:
-                            runtime.memory.extract_facts(user_id, transcript)
-                            runtime.memory.record_turn(user_id, "user", transcript)
-                            await send_client({"type": "input.transcript.done", "text": transcript})
-                            await send_upstream(upstream, _session_update(user_id, context, transcript, state["legacy"]))
-                    elif kind == "response.created":
+        async def client_reader() -> None:
+            resample_state = None
+            while True:
+                incoming = await websocket.receive_json()
+                kind = incoming.get("type")
+                if kind == "audio.append":
+                    audio = incoming.get("audio")
+                    if isinstance(audio, str) and 0 < len(audio) <= 96_000:
+                        if provider == "qwen":
+                            try:
+                                audio, resample_state = _resample_pcm24_to_16(audio, resample_state)
+                            except ValueError:
+                                continue
+                        await send_upstream(upstream, {"type": "input_audio_buffer.append", "audio": audio})
+                elif kind == "response.cancel":
+                    await cancel_active_response(upstream)
+                elif kind == "conversation.text":
+                    text = str(incoming.get("text") or "").strip()[:2000]
+                    if text:
+                        await send_upstream(
+                            upstream,
+                            {
+                                "type": "conversation.item.create",
+                                "item": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]},
+                            },
+                        )
+                        await send_upstream(upstream, {"type": "response.create"})
+                elif kind == "session.context":
+                    update = incoming.get("context")
+                    if isinstance(update, dict):
+                        context.update(update)
+                        await send_upstream(
+                            upstream,
+                            _session_update(
+                                user_id,
+                                context,
+                                legacy=state["legacy"],
+                                provider=provider,
+                            ),
+                        )
+
+        async def upstream_reader() -> None:
+            assistant_text: list[str] = []
+            async for raw in upstream:
+                event = json.loads(raw)
+                kind = str(event.get("type") or "")
+                if kind == "session.updated":
+                    continue
+                elif kind == "input_audio_buffer.speech_started":
+                    state["user_speaking"] = True
+                    await send_client({"type": "input.speech_started"})
+                elif kind == "input_audio_buffer.speech_stopped":
+                    state["user_speaking"] = False
+                    await send_client({"type": "input.speech_stopped"})
+                elif kind in {
+                    "conversation.item.input_audio_transcription.delta",
+                    "input_audio_transcription.delta",
+                }:
+                    delta = str(event.get("delta") or "")
+                    if delta:
+                        await send_client({"type": "input.transcript.delta", "text": delta})
+                elif kind in {
+                    "conversation.item.input_audio_transcription.completed",
+                    "input_audio_transcription.completed",
+                }:
+                    transcript = str(event.get("transcript") or "").strip()
+                    if transcript:
+                        runtime.memory.extract_facts(user_id, transcript)
+                        runtime.memory.record_turn(user_id, "user", transcript)
+                        await send_client({"type": "input.transcript.done", "text": transcript})
+                        await send_upstream(
+                            upstream,
+                            _session_update(
+                                user_id,
+                                context,
+                                transcript,
+                                state["legacy"],
+                                provider,
+                            ),
+                        )
+                elif kind == "response.created":
+                    state["response_active"] = True
+                    state["response_cancel_pending"] = False
+                    await send_client({"type": "output.started"})
+                elif kind == "response.output_item.added":
+                    if not state["response_active"]:
                         state["response_active"] = True
-                        state["response_cancel_pending"] = False
                         await send_client({"type": "output.started"})
-                    elif kind == "response.output_item.added":
-                        if not state["response_active"]:
-                            state["response_active"] = True
-                            await send_client({"type": "output.started"})
-                    elif kind in {"response.output_audio.delta", "response.audio.delta"}:
-                        delta = event.get("delta")
-                        if isinstance(delta, str) and delta:
-                            await send_client({"type": "output.audio.delta", "audio": delta})
-                    elif kind in {"response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.text.delta"}:
-                        delta = str(event.get("delta") or "")
-                        if delta:
-                            assistant_text.append(delta)
-                            await send_client({"type": "output.transcript.delta", "text": delta})
-                    elif kind in {"response.output_audio_transcript.done", "response.audio_transcript.done", "response.text.done"}:
-                        transcript = str(event.get("transcript") or event.get("text") or "").strip()
-                        if transcript:
-                            assistant_text[:] = [transcript]
-                            await send_client({"type": "output.transcript.done", "text": transcript})
-                    elif kind == "response.function_call_arguments.done":
+                elif kind in {"response.output_audio.delta", "response.audio.delta"}:
+                    delta = event.get("delta")
+                    if isinstance(delta, str) and delta:
+                        await send_client({"type": "output.audio.delta", "audio": delta})
+                elif kind in {"response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.text.delta"}:
+                    delta = str(event.get("delta") or "")
+                    if delta:
+                        assistant_text.append(delta)
+                        await send_client({"type": "output.transcript.delta", "text": delta})
+                elif kind in {"response.output_audio_transcript.done", "response.audio_transcript.done", "response.text.done"}:
+                    transcript = str(event.get("transcript") or event.get("text") or "").strip()
+                    if transcript:
+                        assistant_text[:] = [transcript]
+                        await send_client({"type": "output.transcript.done", "text": transcript})
+                elif kind == "response.function_call_arguments.done":
+                    await handle_tool(upstream, event)
+                elif kind == "response.output_item.done":
+                    item = event.get("item") if isinstance(event.get("item"), dict) else {}
+                    if item.get("type") in {"function_call", "tool_call"}:
                         await handle_tool(upstream, event)
-                    elif kind == "response.output_item.done":
-                        item = event.get("item") if isinstance(event.get("item"), dict) else {}
-                        if item.get("type") in {"function_call", "tool_call"}:
-                            await handle_tool(upstream, item)
-                    elif kind in {"response.done", "response.cancelled"}:
+                elif kind in {"response.done", "response.cancelled"}:
+                    state["response_active"] = False
+                    state["response_cancel_pending"] = False
+                    complete = "".join(assistant_text).strip()
+                    assistant_text.clear()
+                    if complete:
+                        runtime.memory.record_turn(user_id, "assistant", complete)
+                    await send_client({"type": "output.done", "text": complete})
+                elif kind == "error":
+                    error = event.get("error") if isinstance(event.get("error"), dict) else {}
+                    message = str(error.get("message") or event.get("message") or "Realtime error")
+                    lower_message = message.lower()
+                    if "cancel" in lower_message and (
+                        "not active" in lower_message or "no active" in lower_message or "already" in lower_message
+                    ):
                         state["response_active"] = False
                         state["response_cancel_pending"] = False
-                        complete = "".join(assistant_text).strip()
-                        assistant_text.clear()
-                        if complete:
-                            runtime.memory.record_turn(user_id, "assistant", complete)
-                        await send_client({"type": "output.done", "text": complete})
-                    elif kind == "error":
-                        error = event.get("error") if isinstance(event.get("error"), dict) else {}
-                        message = str(error.get("message") or "Realtime error")
-                        lower_message = message.lower()
-                        if "cancel" in lower_message and (
-                            "not active" in lower_message or "no active" in lower_message or "already" in lower_message
-                        ):
-                            state["response_active"] = False
-                            state["response_cancel_pending"] = False
-                        elif not state["legacy"] and "session" in lower_message:
-                            state["legacy"] = True
-                            await send_upstream(upstream, _session_update(user_id, context, legacy=True))
-                        else:
-                            await send_client({"type": "error", "code": str(error.get("code") or "upstream_error"), "message": message[:300]})
+                    elif provider == "openai" and not state["legacy"] and "session" in lower_message:
+                        state["legacy"] = True
+                        await send_upstream(
+                            upstream,
+                            _session_update(user_id, context, legacy=True, provider="openai"),
+                        )
+                    else:
+                        raise RuntimeError(message[:300])
 
-            tasks = {asyncio.create_task(client_reader()), asyncio.create_task(upstream_reader())}
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for task in pending:
+        client_task = asyncio.create_task(client_reader())
+        upstream_task = asyncio.create_task(upstream_reader())
+        done, pending = await asyncio.wait({client_task, upstream_task}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        if client_task in done:
+            with suppress(WebSocketDisconnect, asyncio.CancelledError):
+                client_task.result()
+            return False
+        upstream_task.result()
+        raise ConnectionError(f"{provider} realtime connection closed")
+
+    last_error: Exception | None = None
+    try:
+        for config in candidates:
+            upstream = None
+            try:
+                upstream = await connect_provider(config)
+                client_closed = not await run_provider(upstream, config)
+                if client_closed:
+                    return
+            except WebSocketDisconnect:
+                return
+            except Exception as exc:
+                last_error = exc
+            finally:
+                if upstream is not None:
+                    with suppress(Exception):
+                        await upstream.close()
+            for task in list(background):
                 task.cancel()
-            for task in done:
-                with suppress(WebSocketDisconnect, asyncio.CancelledError):
-                    task.result()
+            background.clear()
+        message = str(last_error or "Realtime provider unavailable")[:180]
+        with suppress(Exception):
+            await send_client({"type": "error", "code": "realtime_unavailable", "message": message})
     except WebSocketDisconnect:
         pass
     except Exception as exc:
