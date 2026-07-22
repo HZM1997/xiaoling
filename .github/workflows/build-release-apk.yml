@@ -99,13 +99,16 @@ jobs:
           PY
 
       - name: Prepare offline Xiaoling wake word
-        if: ${{ secrets.PORCUPINE_ACCESS_KEY != '' && secrets.PORCUPINE_KEYWORD_BASE64 != '' && secrets.PORCUPINE_MODEL_URL != '' && secrets.PORCUPINE_MODEL_SHA256 != '' }}
         env:
           PV_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
           PV_KEYWORD_BASE64: ${{ secrets.PORCUPINE_KEYWORD_BASE64 }}
           PV_MODEL_URL: ${{ secrets.PORCUPINE_MODEL_URL }}
           PV_MODEL_SHA256: ${{ secrets.PORCUPINE_MODEL_SHA256 }}
         run: |
+          if [ -z "$PV_ACCESS_KEY" ] || [ -z "$PV_KEYWORD_BASE64" ] || [ -z "$PV_MODEL_URL" ] || [ -z "$PV_MODEL_SHA256" ]; then
+            echo "Porcupine assets are not configured; building with the system wake-word fallback."
+            exit 0
+          fi
           test -n "$PV_ACCESS_KEY"
           test -n "$PV_KEYWORD_BASE64"
           test -n "$PV_MODEL_URL"
@@ -134,10 +137,13 @@ jobs:
 
       - name: Verify signed voice release
         env:
-          HAS_PORCUPINE_ASSETS: ${{ secrets.PORCUPINE_ACCESS_KEY != '' && secrets.PORCUPINE_KEYWORD_BASE64 != '' && secrets.PORCUPINE_MODEL_URL != '' && secrets.PORCUPINE_MODEL_SHA256 != '' }}
+          PV_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
+          PV_KEYWORD_BASE64: ${{ secrets.PORCUPINE_KEYWORD_BASE64 }}
+          PV_MODEL_URL: ${{ secrets.PORCUPINE_MODEL_URL }}
+          PV_MODEL_SHA256: ${{ secrets.PORCUPINE_MODEL_SHA256 }}
         run: |
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-          if [ "$HAS_PORCUPINE_ASSETS" = "true" ]; then
+          if [ -n "$PV_ACCESS_KEY" ] && [ -n "$PV_KEYWORD_BASE64" ] && [ -n "$PV_MODEL_URL" ] && [ -n "$PV_MODEL_SHA256" ]; then
             unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/xiaoling_zh.ppn'
             unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/porcupine_params_zh.pv'
           fi
