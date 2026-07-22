@@ -1,0 +1,22 @@
+{
+  "version": "2026.07.15",
+  "note": "号码信誉库。blacklist/whitelist 可热更新(线上放数据库/Redis);gov_service 为官方服务号段(强可信);risky_segments 为可疑号段特征。",
+  "blacklist": [],
+  "whitelist": [],
+  "gov_service": [
+    "10086", "10010", "10000", "12345", "12315", "12333", "12123",
+    "95588", "95533", "95566", "95599", "95555", "95595", "96110"
+  ],
+  "risky_segments": [
+    {"prefix": "00", "reason": "疑似境外/改号来电"},
+    {"prefix": "+", "reason": "境外来电(非 +86)"},
+    {"prefix": "95", "reason": "特殊号段(常被诈骗冒用为客服)"},
+    {"prefix": "96", "reason": "特殊号段(常被诈骗冒用)"},
+    {"prefix": "1010", "reason": "疑似虚拟号段"},
+    {"prefix": "170", "reason": "虚拟运营商号段(诈骗高发)"},
+    {"prefix": "171", "reason": "虚拟运营商号段(诈骗高发)"},
+    {"prefix": "1690", "reason": "物联网/虚拟号段"},
+    {"prefix": "165", "reason": "虚拟运营商号段"},
+    {"prefix": "167", "reason": "虚拟运营商号段"}
+  ]
+}
