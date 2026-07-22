@@ -3,7 +3,6 @@ name: Build Release APK
 # 输出使用正式 keystore 签名的 release APK、ZIP 和校验文件。
 # 除签名 Secrets 外,Release 还必须配置可用的 AI 服务和 Porcupine 离线唤醒资源。
 on:
-on:
   workflow_dispatch:
     inputs:
       skip_realtime_validation:
