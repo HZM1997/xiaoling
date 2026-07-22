@@ -12,7 +12,7 @@ on:
         default: true
         type: boolean
   push:
-    branches: ['fix/realtime-agent-v1.0.15-ci']
+    branches: ['fix/realtime-agent-v1.0.15-ci', 'codex/package-v1.0.15-hotfix']
     tags: ['v*']
 
 permissions:
