@@ -1,0 +1,169 @@
+name: Build v1.0.15 Realtime APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['fix/realtime-agent-v1.0.15-ci']
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply audited v1.0.15 patch
+        run: |
+          cat realtime-v1.0.15.patch.gz.b64.part-* | base64 -d | gzip -d > "$RUNNER_TEMP/realtime-v1.0.15.patch"
+          git apply --check "$RUNNER_TEMP/realtime-v1.0.15.patch"
+          git apply "$RUNNER_TEMP/realtime-v1.0.15.patch"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - name: Test AI server
+        working-directory: server
+        run: |
+          pip install -r requirements.txt pytest
+          pytest tests -q
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK packages
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: Build debug APK
+        working-directory: android-compose
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload compile-verification APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoling-v1.0.15-debug-verification
+          path: android-compose/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Validate production AI and Realtime service
+        env:
+          XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
+          XL_REALTIME_CLIENT_TOKEN: ${{ secrets.REALTIME_CLIENT_TOKEN }}
+        run: |
+          python - "$XL_BRAIN_URL" <<'PY'
+          import asyncio, json, os, sys, urllib.request
+          import websockets
+          base = sys.argv[1].strip().rstrip("/")
+          if not base.startswith("https://"):
+              raise SystemExit("BRAIN_URL must be a public HTTPS endpoint")
+          with urllib.request.urlopen(base + "/health", timeout=25) as response:
+              health = json.load(response)
+          realtime = health.get("realtime") or {}
+          if (not health.get("ok") or not health.get("llm") or not health.get("asr") or
+                  not health.get("runtime") or not realtime.get("available") or
+                  not realtime.get("delegation") or not realtime.get("delegate_model_configured")):
+              raise SystemExit("AI service must provide LLM, ASR, Realtime, delegation and persistent runtime")
+
+          async def verify_realtime():
+              headers = {}
+              token = os.getenv("XL_REALTIME_CLIENT_TOKEN", "").strip()
+              if token:
+                  headers["X-Xiaoling-Token"] = token
+              uri = "wss://" + base.removeprefix("https://") + "/realtime"
+              async with websockets.connect(uri, extra_headers=headers, open_timeout=15) as ws:
+                  await ws.send(json.dumps({"type": "session.start", "user_id": "release-check",
+                                            "context": {"scene": "release_validation"}}))
+                  for _ in range(8):
+                      event = json.loads(await asyncio.wait_for(ws.recv(), timeout=8))
+                      if event.get("type") == "session.ready":
+                          return
+                      if event.get("type") == "error":
+                          raise RuntimeError(event)
+                  raise RuntimeError("Realtime session did not become ready")
+          asyncio.run(verify_realtime())
+          PY
+
+      - name: Prepare offline Xiaoling wake word
+        working-directory: android-compose
+        env:
+          PV_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
+          PV_KEYWORD_BASE64: ${{ secrets.PORCUPINE_KEYWORD_BASE64 }}
+          PV_MODEL_URL: ${{ secrets.PORCUPINE_MODEL_URL }}
+          PV_MODEL_SHA256: ${{ secrets.PORCUPINE_MODEL_SHA256 }}
+        run: |
+          test -n "$PV_ACCESS_KEY"
+          test -n "$PV_KEYWORD_BASE64"
+          test -n "$PV_MODEL_URL"
+          test -n "$PV_MODEL_SHA256"
+          mkdir -p app/src/main/assets/wake
+          printf '%s' "$PV_KEYWORD_BASE64" | base64 -d > app/src/main/assets/wake/xiaoling_zh.ppn
+          curl --fail --location --retry 3 --max-time 60 "$PV_MODEL_URL" -o app/src/main/assets/wake/porcupine_params_zh.pv
+          echo "$PV_MODEL_SHA256  app/src/main/assets/wake/porcupine_params_zh.pv" | sha256sum -c -
+          test -s app/src/main/assets/wake/xiaoling_zh.ppn
+
+      - name: Decode release keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/xl.keystore"
+          test -s "$RUNNER_TEMP/xl.keystore"
+
+      - name: Build signed release APK
+        working-directory: android-compose
+        env:
+          XL_KEYSTORE: ${{ runner.temp }}/xl.keystore
+          XL_KS_PASS: ${{ secrets.KS_PASS }}
+          XL_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          XL_KEY_PASS: ${{ secrets.KEY_PASS }}
+          XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
+          XL_PORCUPINE_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
+          XL_REALTIME_CLIENT_TOKEN: ${{ secrets.REALTIME_CLIENT_TOKEN }}
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Verify and package release
+        working-directory: android-compose
+        run: |
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/xiaoling_zh.ppn'
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/porcupine_params_zh.pv'
+          unzip -l app/build/outputs/apk/release/app-release.apk | grep -E 'lib/(arm64-v8a|armeabi-v7a)/.*porcupine.*\.so'
+          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.15-release.apk
+          sha256sum xiaoling-v1.0.15-release.apk | tee xiaoling-v1.0.15-release.apk.sha256
+          zip -j xiaoling-v1.0.15-release.zip xiaoling-v1.0.15-release.apk xiaoling-v1.0.15-release.apk.sha256
+
+      - name: Publish delivery branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
+          cp android-compose/xiaoling-v1.0.15-release.zip android-compose/xiaoling-v1.0.15-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cd "$RUNNER_TEMP/xiaoling-delivery"
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b artifacts/xiaoling-v1.0.15
+          git add .
+          git commit -m "Publish signed Xiaoling v1.0.15"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin artifacts/xiaoling-v1.0.15
+
+      - name: Upload transfer-safe release ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaoling-v1.0.15-release
+          path: |
+            android-compose/xiaoling-v1.0.15-release.zip
+            android-compose/xiaoling-v1.0.15-release.apk.sha256
+          if-no-files-found: error
