@@ -1,0 +1,45 @@
+diff --git a/android-compose/app/src/main/java/com/xiaoling/core/ActionDispatcher.kt b/android-compose/app/src/main/java/com/xiaoling/core/ActionDispatcher.kt
+index 9fedd2c..9242e96 100644
+--- a/android-compose/app/src/main/java/com/xiaoling/core/ActionDispatcher.kt
++++ b/android-compose/app/src/main/java/com/xiaoling/core/ActionDispatcher.kt
+@@ -4,9 +4,9 @@ import android.content.Context
+ import android.content.Intent
+ import android.content.pm.PackageManager
+ import android.app.SearchManager
+-import android.media.MediaStore
+ import android.net.Uri
+ import android.os.Build
++import android.provider.MediaStore
+ import android.os.VibrationEffect
+ import android.os.Vibrator
+ import android.os.VibratorManager
+diff --git a/android-compose/app/src/main/java/com/xiaoling/core/Reminders.kt b/android-compose/app/src/main/java/com/xiaoling/core/Reminders.kt
+index 7b40fb6..362e576 100644
+--- a/android-compose/app/src/main/java/com/xiaoling/core/Reminders.kt
++++ b/android-compose/app/src/main/java/com/xiaoling/core/Reminders.kt
+@@ -1,11 +1,11 @@
+ package com.xiaoling.core
+ 
+ import android.app.AlarmManager
+-import android.app.AlarmClock
+ import android.app.PendingIntent
+ import android.content.Context
+ import android.content.Intent
+ import android.os.Build
++import android.provider.AlarmClock
+ import com.xiaoling.service.ReminderReceiver
+ import org.json.JSONObject
+ import java.util.Calendar
+diff --git a/server/fraud_rules.json b/server/fraud_rules.json
+index 70a637a..749f0a7 100644
+--- a/server/fraud_rules.json
++++ b/server/fraud_rules.json
+@@ -104,7 +104,7 @@
+       "label": "红线操作(命中即极高危)",
+       "weight": 0.9,
+       "words": ["屏幕共享", "远程控制", "下载会议软件", "念一下收到的验证码",
+-                "念一下短信验证码", "报一下验证码", "提供验证码", "告诉我验证码", "把验证码",
++                "念一下短信验证码", "报一下验证码", "报验证码", "提供验证码", "告诉我验证码", "把验证码",
+                 "不要挂电话去银行", "不要告诉家人", "转到安全账户", "把钱转到",
+                 "输入银行卡密码", "扫这个码", "点这个链接转账", "安装远程控制软件",
+                 "上门取现金", "取现金交给骑手", "购买黄金邮寄", "邮寄黄金", "邮寄现金",
