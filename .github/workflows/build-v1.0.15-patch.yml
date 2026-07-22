@@ -61,6 +61,17 @@ jobs:
           path: android-compose/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      - name: Publish deployable Realtime source branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B deploy/realtime-v1.0.15
+          git add -A
+          git commit -m "Publish deployable Xiaoling Realtime v1.0.15"
+          git push --force origin HEAD:deploy/realtime-v1.0.15
+
       - name: Validate production AI and Realtime service
         env:
           XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
