@@ -99,6 +99,7 @@ jobs:
           PY
 
       - name: Prepare offline Xiaoling wake word
+        if: ${{ secrets.PORCUPINE_ACCESS_KEY != '' && secrets.PORCUPINE_KEYWORD_BASE64 != '' && secrets.PORCUPINE_MODEL_URL != '' && secrets.PORCUPINE_MODEL_SHA256 != '' }}
         env:
           PV_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
           PV_KEYWORD_BASE64: ${{ secrets.PORCUPINE_KEYWORD_BASE64 }}
@@ -132,10 +133,14 @@ jobs:
         run: gradle assembleRelease --no-daemon --stacktrace
 
       - name: Verify signed voice release
+        env:
+          HAS_PORCUPINE_ASSETS: ${{ secrets.PORCUPINE_ACCESS_KEY != '' && secrets.PORCUPINE_KEYWORD_BASE64 != '' && secrets.PORCUPINE_MODEL_URL != '' && secrets.PORCUPINE_MODEL_SHA256 != '' }}
         run: |
           "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/release/app-release.apk
-          unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/xiaoling_zh.ppn'
-          unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/porcupine_params_zh.pv'
+          if [ "$HAS_PORCUPINE_ASSETS" = "true" ]; then
+            unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/xiaoling_zh.ppn'
+            unzip -l app/build/outputs/apk/release/app-release.apk | grep 'assets/wake/porcupine_params_zh.pv'
+          fi
           unzip -l app/build/outputs/apk/release/app-release.apk | grep -E 'lib/(arm64-v8a|armeabi-v7a)/.*porcupine.*\.so'
 
       - name: Prepare transfer-safe release files
