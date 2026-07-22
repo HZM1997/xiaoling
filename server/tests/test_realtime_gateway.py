@@ -71,6 +71,17 @@ def test_custom_qwen_url_keeps_existing_model_query(monkeypatch):
     assert "model=custom-realtime" in providers[0]["url"]
 
 
+def test_qwen_workspace_accepts_compatible_endpoint_prefix(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "qwen-test-key")
+    monkeypatch.setenv("XL_QWEN_WORKSPACE_ID", "llm-dbgkqp4zfzaak74i")
+
+    provider = realtime_gateway._provider_candidates()[0]
+
+    assert provider["url"].startswith(
+        "wss://dbgkqp4zfzaak74i.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
+    )
+
+
 def test_realtime_session_enables_server_vad_and_interruption(tmp_path, monkeypatch):
     monkeypatch.setenv("XL_MEMORY_DB", str(tmp_path / "memory.sqlite3"))
     update = realtime_gateway._session_update(
@@ -101,6 +112,8 @@ def test_qwen_session_uses_semantic_vad_and_nested_tools(tmp_path, monkeypatch):
     assert session["input_audio_format"] == "pcm"
     assert session["output_audio_format"] == "pcm"
     assert session["turn_detection"]["type"] == "semantic_vad"
+    assert session["turn_detection"]["threshold"] <= 0.35
+    assert session["turn_detection"]["silence_duration_ms"] <= 600
     assert "tool_choice" not in session
     assert "parallel_tool_calls" not in session
     assert {tool["function"]["name"] for tool in session["tools"]} >= {

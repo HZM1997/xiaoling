@@ -64,6 +64,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var track: AudioTrack? = null
     @Volatile private var running = false
+    @Volatile private var connecting = false
     @Volatile private var connected = false
     @Volatile private var outputPlaying = false
     @Volatile private var responseInProgress = false
@@ -83,10 +84,11 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         get() = Settings.brainUrl(app).isNotBlank() && NetworkStatus.isOnline(app) && hasPermission()
 
     fun start() {
-        if (running || !canConnect) return
+        if (running || connecting || !canConnect) return
         stop(notify = false)
         val turn = generation.incrementAndGet()
         stopping = false
+        connecting = true
         val request = try {
             Request.Builder().url(realtimeUrl()).apply {
                 if (BuildConfig.REALTIME_CLIENT_TOKEN.isNotBlank()) {
@@ -94,16 +96,19 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 }
             }.build()
         } catch (_: IllegalArgumentException) {
+            connecting = false
             post { listener.onDisconnected("AI 服务地址格式不正确", false) }
             return
         }
         socket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 if (turn != generation.get() || stopping) {
+                    connecting = false
                     webSocket.close(1000, "stale")
                     return
                 }
                 socket = webSocket
+                connecting = false
                 running = true
                 connected = true
                 weakNetworkReported = false
@@ -171,6 +176,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         stopping = true
         val wasConnected = connected
         connected = false
+        connecting = false
         running = false
         socket?.close(1000, "client stop")
         socket = null
@@ -376,7 +382,6 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         playbackQueue.clear()
         outputPlaying = false
         responseInProgress = false
-        manualHold = false
         try {
             track?.pause()
             track?.flush()
@@ -389,6 +394,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         generation.incrementAndGet()
         val shouldNotify = !stopping
         connected = false
+        connecting = false
         running = false
         releaseAudio()
         socket = null
@@ -400,6 +406,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         running = false
         playbackQueue.clear()
         outputPlaying = false
+        manualHold = false
         try { recorder?.stop() } catch (_: Throwable) {}
         try { track?.pause(); track?.flush(); track?.stop() } catch (_: Throwable) {}
         try { echoCanceler?.release() } catch (_: Throwable) {}

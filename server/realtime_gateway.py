@@ -90,6 +90,10 @@ def _with_model(url: str, model: str) -> str:
 def _qwen_config() -> dict[str, Any] | None:
     key = os.getenv("DASHSCOPE_API_KEY", "").strip()
     workspace_id = os.getenv("XL_QWEN_WORKSPACE_ID", "").strip()
+    # The API-Key page displays a compatible endpoint prefixed with "llm-".
+    # Realtime expects the raw workspace ID, so accept either form in config.
+    if workspace_id.startswith("llm-"):
+        workspace_id = workspace_id.removeprefix("llm-")
     custom_url = os.getenv("XL_QWEN_REALTIME_URL", "").strip()
     if not key or not (workspace_id or custom_url):
         return None
@@ -199,8 +203,8 @@ def _session_update(
                 "instructions": instructions,
                 "turn_detection": {
                     "type": "semantic_vad",
-                    "threshold": 0.5,
-                    "silence_duration_ms": 800,
+                    "threshold": 0.32,
+                    "silence_duration_ms": 520,
                 },
                 "tools": _qwen_tools(),
             },
