@@ -21,6 +21,9 @@ jobs:
           git apply "$RUNNER_TEMP/realtime-v1.0.15.patch"
           git apply --check .github/workflows/realtime-v1.0.15-hotfix.patch
           git apply .github/workflows/realtime-v1.0.15-hotfix.patch
+          cat realtime-v1.0.15-qwen.patch.gz.b64 | base64 -d | gzip -d > "$RUNNER_TEMP/realtime-v1.0.15-qwen.patch"
+          git apply --check "$RUNNER_TEMP/realtime-v1.0.15-qwen.patch"
+          git apply "$RUNNER_TEMP/realtime-v1.0.15-qwen.patch"
 
       - uses: actions/setup-python@v5
         with:
