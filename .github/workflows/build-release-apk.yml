@@ -57,8 +57,8 @@ jobs:
           import asyncio, json, os, sys, urllib.request
           import websockets
           base = sys.argv[1].strip().rstrip("/")
-          if not base.startswith("https://"):
-              raise SystemExit("BRAIN_URL must be a public HTTPS endpoint")
+          if not base.startswith(("https://", "http://")):
+              raise SystemExit("BRAIN_URL must be a public HTTP(S) endpoint")
           with urllib.request.urlopen(base + "/health", timeout=25) as response:
               health = json.load(response)
           realtime = health.get("realtime") or {}
@@ -72,7 +72,10 @@ jobs:
               token = os.getenv("XL_REALTIME_CLIENT_TOKEN", "").strip()
               if token:
                   headers["X-Xiaoling-Token"] = token
-              uri = "wss://" + base.removeprefix("https://") + "/realtime"
+              if base.startswith("https://"):
+                  uri = "wss://" + base.removeprefix("https://") + "/realtime"
+              else:
+                  uri = "ws://" + base.removeprefix("http://") + "/realtime"
               async with websockets.connect(uri, extra_headers=headers, open_timeout=15) as ws:
                   await ws.send(json.dumps({"type": "session.start", "user_id": "release-check",
                                             "context": {"scene": "release_validation"}}))
