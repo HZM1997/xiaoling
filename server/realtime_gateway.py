@@ -65,6 +65,16 @@ _REALTIME_TOOLS = [
     },
     {
         "type": "function",
+        "name": "ask_kimi",
+        "description": "Use Kimi K3 for every substantive open-ended answer, life question, anti-fraud explanation, reasoning request, or personalized conversation. Device commands use their dedicated tools instead.",
+        "parameters": {
+            "type": "object",
+            "properties": {"question": {"type": "string"}},
+            "required": ["question"],
+        },
+    },
+    {
+        "type": "function",
         "name": "delegate_complex_task",
         "description": "Delegate a complex research, planning, comparison, or multi-step reasoning task to a stronger background model while continuing the live conversation.",
         "parameters": {
@@ -109,34 +119,9 @@ def _qwen_config() -> dict[str, Any] | None:
     }
 
 
-def _openai_config() -> dict[str, Any] | None:
-    key = os.getenv("XL_REALTIME_API_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
-    if not key:
-        return None
-    model = os.getenv("XL_REALTIME_MODEL", "").strip() or "gpt-realtime"
-    base_url = os.getenv("XL_REALTIME_URL", "").strip() or "wss://api.openai.com/v1/realtime"
-    return {
-        "name": "openai",
-        "key": key,
-        "model": model,
-        "url": _with_model(base_url, model),
-        "headers": {"Authorization": f"Bearer {key}", "OpenAI-Beta": "realtime=v1"},
-        "input_rate": 24000,
-    }
-
-
 def _provider_candidates() -> list[dict[str, Any]]:
-    configured = {
-        "qwen": _qwen_config(),
-        "openai": _openai_config(),
-    }
-    requested: list[str] = []
-    for item in os.getenv("XL_REALTIME_PROVIDER", "qwen,openai").split(","):
-        name = item.strip().lower()
-        if name in configured and name not in requested:
-            requested.append(name)
-    order = requested + [name for name in ("qwen", "openai") if name not in requested]
-    return [configured[name] for name in order if configured[name] is not None]
+    qwen = _qwen_config()
+    return [qwen] if qwen is not None else []
 
 
 def available() -> bool:
@@ -153,7 +138,10 @@ def status() -> dict[str, Any]:
         "fallback_enabled": len(providers) > 1,
         "model": primary["model"] if primary else "unconfigured",
         "delegation": llm_gateway.available(),
-        "delegate_model_configured": bool(os.getenv("XL_DELEGATE_MODEL", "").strip()),
+        "agent_model": "kimi-k3" if llm_gateway.has_provider("kimi") else "unconfigured",
+        "delegate_model_configured": (
+            llm_gateway.has_provider("kimi") or bool(os.getenv("XL_DELEGATE_MODEL", "").strip())
+        ),
     }
 
 
@@ -166,6 +154,7 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
         + "老人插话时立即停止当前回答并听新指令，不要抱怨被打断。"
         + "回答先说结论，通常一到三句；用户持续讲述较长内容时，可偶尔用很短的‘嗯’或‘我在听’回应，但不要频繁打断。"
         + "打电话、提醒、播放和反诈研判必须调用对应工具。"
+        + "除简短寒暄外，所有开放式问答、陪伴对话和解释必须调用 ask_kimi，再自然播报 Kimi 的结果。"
         + "耗时研究、复杂比较或多步方案调用 delegate_complex_task；工具返回已受理后，简短告知后台正在处理，然后继续正常聊天。"
     )
 
@@ -188,79 +177,22 @@ def _session_update(
     user_id: str,
     context: dict,
     latest_text: str = "",
-    legacy: bool = False,
-    provider: str = "openai",
 ) -> dict:
     instructions = _instructions(user_id, context, latest_text)
-    if provider == "qwen":
-        return {
-            "type": "session.update",
-            "session": {
-                "modalities": ["text", "audio"],
-                "voice": os.getenv("XL_QWEN_REALTIME_VOICE", "").strip() or "Tina",
-                "input_audio_format": "pcm",
-                "output_audio_format": "pcm",
-                "instructions": instructions,
-                "turn_detection": {
-                    "type": "semantic_vad",
-                    "threshold": 0.32,
-                    "silence_duration_ms": 520,
-                },
-                "tools": _qwen_tools(),
-            },
-        }
-    voice = os.getenv("XL_REALTIME_VOICE", "").strip() or "marin"
-    if legacy:
-        return {
-            "type": "session.update",
-            "session": {
-                "modalities": ["text", "audio"],
-                "instructions": instructions,
-                "voice": voice,
-                "input_audio_format": "pcm16",
-                "output_audio_format": "pcm16",
-                "input_audio_transcription": {"model": "gpt-4o-mini-transcribe", "language": "zh"},
-                "turn_detection": {
-                    "type": "server_vad",
-                    "threshold": 0.32,
-                    "prefix_padding_ms": 480,
-                    "silence_duration_ms": 420,
-                    "create_response": True,
-                },
-                "tools": _REALTIME_TOOLS,
-                "tool_choice": "auto",
-                "temperature": 0.7,
-            },
-        }
     return {
         "type": "session.update",
         "session": {
-            "type": "realtime",
-            "model": os.getenv("XL_REALTIME_MODEL", "gpt-realtime"),
+            "modalities": ["text", "audio"],
+            "voice": os.getenv("XL_QWEN_REALTIME_VOICE", "").strip() or "Tina",
+            "input_audio_format": "pcm",
+            "output_audio_format": "pcm",
             "instructions": instructions,
-            "output_modalities": ["audio"],
-            "audio": {
-                "input": {
-                    "format": {"type": "audio/pcm", "rate": 24000},
-                    "transcription": {"model": "gpt-4o-mini-transcribe", "language": "zh"},
-                    "noise_reduction": {"type": "far_field"},
-                    "turn_detection": {
-                        "type": "server_vad",
-                        "threshold": 0.32,
-                        "prefix_padding_ms": 480,
-                        "silence_duration_ms": 420,
-                        "create_response": True,
-                        "interrupt_response": True,
-                    },
-                },
-                "output": {
-                    "format": {"type": "audio/pcm", "rate": 24000},
-                    "voice": voice,
-                    "speed": 1.0,
-                },
+            "turn_detection": {
+                "type": "semantic_vad",
+                "threshold": 0.24,
+                "silence_duration_ms": 460,
             },
-            "tools": _REALTIME_TOOLS,
-            "tool_choice": "auto",
+            "tools": _qwen_tools(),
         },
     }
 
@@ -312,8 +244,10 @@ def _action_for(name: str, args: dict) -> tuple[dict | None, dict]:
 
 
 def _delegate(task: str, success_criteria: str, context: dict) -> str:
-    model = os.getenv("XL_DELEGATE_MODEL", "").strip() or None
     provider = os.getenv("XL_DELEGATE_PROVIDER", "").strip().lower() or None
+    if provider is None and llm_gateway.has_provider("kimi"):
+        provider = "kimi"
+    model = os.getenv("XL_DELEGATE_MODEL", "").strip() or ("kimi-k3" if provider == "kimi" else None)
     messages = [
         {
             "role": "system",
@@ -337,6 +271,7 @@ def _delegate(task: str, success_criteria: str, context: dict) -> str:
         timeout=45.0,
         model_override=model,
         provider_override=provider,
+        reasoning_effort="max" if provider == "kimi" else None,
     )
     if not message:
         return "后台任务暂时没有完成，网络恢复后我会再试。"
@@ -344,6 +279,36 @@ def _delegate(task: str, success_criteria: str, context: dict) -> str:
     if isinstance(content, list):
         content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
     return str(content or "后台任务已经完成，但没有生成可播报的结果。").strip()[:5000]
+
+
+def _ask_kimi(question: str, context: dict) -> str:
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "你是小灵，一位面向老年人的中文语音陪伴助手。先给结论，再用短句解释；"
+                "理解口语省略和语序混乱，不重复固定话术，不声称已执行未执行的现实操作。"
+            ),
+        },
+        {
+            "role": "user",
+            "content": json.dumps({"question": question[:1800], "context": context}, ensure_ascii=False),
+        },
+    ]
+    message = llm_gateway.chat(
+        messages,
+        max_tokens=900,
+        timeout=15.0,
+        model_override="kimi-k3",
+        provider_override="kimi",
+        reasoning_effort="low",
+    )
+    if not message:
+        return "Kimi 暂时没有连上，我先用本地能力陪您。您可以稍后再问一次。"
+    content = message.get("content")
+    if isinstance(content, list):
+        content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
+    return str(content or "").strip()[:3000]
 
 
 async def handle(websocket: WebSocket) -> None:
@@ -380,7 +345,6 @@ async def handle(websocket: WebSocket) -> None:
         "response_active": False,
         "response_cancel_pending": False,
         "user_speaking": False,
-        "legacy": False,
     }
 
     async def send_upstream(upstream, payload: dict) -> None:
@@ -446,6 +410,12 @@ async def handle(websocket: WebSocket) -> None:
         if not call_id or call_id in handled_calls:
             return
         handled_calls.add(call_id)
+        if name == "ask_kimi":
+            question = str(args.get("question") or "").strip()[:1800]
+            dynamic = build_context(runtime.memory, user_id, question, context)
+            result = await asyncio.to_thread(_ask_kimi, question, dynamic)
+            await submit_tool_output(upstream, call_id, {"ok": bool(result), "answer": result})
+            return
         if name == "delegate_complex_task":
             task_text = str(args.get("task") or "").strip()[:1800]
             criteria = str(args.get("success_criteria") or "").strip()[:600]
@@ -470,11 +440,10 @@ async def handle(websocket: WebSocket) -> None:
             ping_timeout=20,
             max_size=4 * 1024 * 1024,
         )
-        state["legacy"] = False
         try:
             await send_upstream(
                 upstream,
-                _session_update(user_id, context, provider=config["name"]),
+                _session_update(user_id, context),
             )
             deadline = asyncio.get_running_loop().time() + 5.0
             while True:
@@ -488,13 +457,6 @@ async def handle(websocket: WebSocket) -> None:
                 if kind == "error":
                     error = event.get("error") if isinstance(event.get("error"), dict) else {}
                     message = str(error.get("message") or event.get("message") or "Realtime session rejected")
-                    if config["name"] == "openai" and not state["legacy"] and "session" in message.lower():
-                        state["legacy"] = True
-                        await send_upstream(
-                            upstream,
-                            _session_update(user_id, context, legacy=True, provider="openai"),
-                        )
-                        continue
                     raise RuntimeError(message[:300])
         except BaseException:
             with suppress(Exception):
@@ -520,11 +482,10 @@ async def handle(websocket: WebSocket) -> None:
                 if kind == "audio.append":
                     audio = incoming.get("audio")
                     if isinstance(audio, str) and 0 < len(audio) <= 96_000:
-                        if provider == "qwen":
-                            try:
-                                audio, resample_state = _resample_pcm24_to_16(audio, resample_state)
-                            except ValueError:
-                                continue
+                        try:
+                            audio, resample_state = _resample_pcm24_to_16(audio, resample_state)
+                        except ValueError:
+                            continue
                         await send_upstream(upstream, {"type": "input_audio_buffer.append", "audio": audio})
                 elif kind == "response.cancel":
                     await cancel_active_response(upstream)
@@ -545,12 +506,7 @@ async def handle(websocket: WebSocket) -> None:
                         context.update(update)
                         await send_upstream(
                             upstream,
-                            _session_update(
-                                user_id,
-                                context,
-                                legacy=state["legacy"],
-                                provider=provider,
-                            ),
+                            _session_update(user_id, context),
                         )
 
         async def upstream_reader() -> None:
@@ -584,13 +540,7 @@ async def handle(websocket: WebSocket) -> None:
                         await send_client({"type": "input.transcript.done", "text": transcript})
                         await send_upstream(
                             upstream,
-                            _session_update(
-                                user_id,
-                                context,
-                                transcript,
-                                state["legacy"],
-                                provider,
-                            ),
+                            _session_update(user_id, context, transcript),
                         )
                 elif kind == "response.created":
                     state["response_active"] = True
@@ -637,12 +587,6 @@ async def handle(websocket: WebSocket) -> None:
                     ):
                         state["response_active"] = False
                         state["response_cancel_pending"] = False
-                    elif provider == "openai" and not state["legacy"] and "session" in lower_message:
-                        state["legacy"] = True
-                        await send_upstream(
-                            upstream,
-                            _session_update(user_id, context, legacy=True, provider="openai"),
-                        )
                     else:
                         raise RuntimeError(message[:300])
 

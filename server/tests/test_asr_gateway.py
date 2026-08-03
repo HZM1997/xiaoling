@@ -8,13 +8,15 @@ import asr_gateway
 
 def test_asr_requires_key(monkeypatch):
     monkeypatch.delenv("XL_ASR_KEY", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("XL_ASR_BASE_URL", raising=False)
+    monkeypatch.delenv("XL_ASR_MODEL", raising=False)
     assert not asr_gateway.available()
 
 
 def test_asr_posts_wav_to_compatible_endpoint(monkeypatch):
     monkeypatch.setenv("XL_ASR_KEY", "test-key")
     monkeypatch.setenv("XL_ASR_BASE_URL", "https://asr.example/v1")
+    monkeypatch.setenv("XL_ASR_MODEL", "domestic-asr")
     captured = {}
 
     class Response:

@@ -11,7 +11,7 @@ on:
         default: true
         type: boolean
   push:
-    branches: ['fix/realtime-agent-v1.0.15-ci', 'codex/package-v1.0.15-hotfix']
+    branches: ['fix/kimi-live-v1.0.16-ci', 'fix/realtime-agent-v1.0.15-ci', 'codex/package-v1.0.15-hotfix']
     tags: ['v*']
 
 permissions:
@@ -55,7 +55,7 @@ jobs:
           gradle-version: '8.7'
 
       - name: Validate production AI service
-        if: ${{ github.ref_name != 'codex/package-v1.0.15-hotfix' && (github.event_name != 'workflow_dispatch' || inputs.skip_realtime_validation != true) }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_realtime_validation != true }}
         env:
           XL_BRAIN_URL: ${{ secrets.BRAIN_URL || 'http://47.93.221.156' }}
           XL_REALTIME_CLIENT_TOKEN: ${{ secrets.REALTIME_CLIENT_TOKEN }}
@@ -151,31 +151,31 @@ jobs:
 
       - name: Prepare transfer-safe release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.15-release.apk
-          sha256sum xiaoling-v1.0.15-release.apk | tee xiaoling-v1.0.15-release.apk.sha256
-          zip -j xiaoling-v1.0.15-release.zip xiaoling-v1.0.15-release.apk xiaoling-v1.0.15-release.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.16-release.apk
+          sha256sum xiaoling-v1.0.16-release.apk | tee xiaoling-v1.0.16-release.apk.sha256
+          zip -j xiaoling-v1.0.16-release.zip xiaoling-v1.0.16-release.apk xiaoling-v1.0.16-release.apk.sha256
 
       - name: Publish delivery branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
-          cp xiaoling-v1.0.15-release.zip xiaoling-v1.0.15-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cp xiaoling-v1.0.16-release.zip xiaoling-v1.0.16-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
           cd "$RUNNER_TEMP/xiaoling-delivery"
           git init
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b artifacts/xiaoling-v1.0.15
+          git checkout -b artifacts/xiaoling-v1.0.16
           git add .
-          git commit -m "Publish signed Xiaoling v1.0.15"
+          git commit -m "Publish signed Xiaoling v1.0.16"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force origin artifacts/xiaoling-v1.0.15
+          git push --force origin artifacts/xiaoling-v1.0.16
 
       - name: Upload transfer-safe release ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-v1.0.15-release
+          name: xiaoling-v1.0.16-release
           path: |
-            android-compose/xiaoling-v1.0.15-release.zip
-            android-compose/xiaoling-v1.0.15-release.apk.sha256
+            android-compose/xiaoling-v1.0.16-release.zip
+            android-compose/xiaoling-v1.0.16-release.apk.sha256
           if-no-files-found: error

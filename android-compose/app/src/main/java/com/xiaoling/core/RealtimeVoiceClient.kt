@@ -150,11 +150,13 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
 
     fun beginManualInterruption() {
         manualHold = true
-        clearPlayback()
+        // Pause first. If no new speech is detected, release resumes the queued answer.
+        try { track?.pause() } catch (_: Throwable) {}
     }
 
     fun endManualInterruption() {
         manualHold = false
+        try { track?.play() } catch (_: Throwable) {}
         if (playbackQueue.isNotEmpty()) {
             outputPlaying = true
             post { listener.onOutputStarted() }
@@ -276,7 +278,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 }
             }
             if ((outputPlaying || (manualHold && responseInProgress)) &&
-                loudFrames >= 3 && !interruptedThisUtterance) {
+                loudFrames >= 2 && !interruptedThisUtterance) {
                 interruptedThisUtterance = true
                 responseInProgress = false
                 clearPlayback()
@@ -314,7 +316,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private fun handleMessage(raw: String) {
         val event = try { JSONObject(raw) } catch (_: Exception) { return }
         when (event.optString("type")) {
-            "session.ready" -> post { listener.onConnected(event.optString("model", "gpt-realtime")) }
+            "session.ready" -> post { listener.onConnected(event.optString("model", "qwen-realtime")) }
             "input.speech_started" -> {
                 inputText = StringBuilder()
                 responseInProgress = false
@@ -440,7 +442,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private companion object {
         const val SAMPLE_RATE = 24_000
         const val FRAME_BYTES = 1_920 // 40 ms, PCM16 mono
-        const val LOCAL_SPEECH_RMS = 420.0
+        const val LOCAL_SPEECH_RMS = 220.0
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }

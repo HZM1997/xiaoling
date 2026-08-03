@@ -108,6 +108,8 @@ object LocalIntents {
         var m = Regex("(?:给|帮我给)\\s*(.+?)\\s*(?:打|拨)(?:个)?电话").find(text)
             ?: Regex("(.+?)\\s*(?:电话打一个|电话拨一个)").find(text)
             ?: Regex("(?:打(?:个)?电话给?|呼叫|拨打?给?)\\s*(.+)").find(text)
+            ?: Regex("(.+?)\\s*(?:的)?电话\\s*(?:打|拨|接通)(?:一下|一个)?").find(text)
+            ?: Regex("(?:打|拨)\\s*(.+?)\\s*(?:的)?电话").find(text)
         if (m != null) {
             val name = clean(m.groupValues[1])
             return Reply("好的,正在帮您给$name 打电话。",
@@ -124,14 +126,16 @@ object LocalIntents {
             }
         }
 
-        if (Regex("提醒|闹钟|别忘了|记一下").containsMatchIn(text)) {
+        if (Regex("提醒|闹钟|别忘了|记一下|叫醒|定时").containsMatchIn(text) ||
+            (Regex("吃药|服药|量血压|打针|复诊").containsMatchIn(text) &&
+                Regex("点|分钟后|小时后|早上|上午|中午|下午|晚上|明天|每天").containsMatchIn(text))) {
             return Reply("好的,我来帮您设置提醒。",
                 JSONObject().put("type", "REMIND").put("raw", text), "语音任务提醒", 0.0)
         }
 
-        if (Regex("(听|放|播放|来一?段?|唱).*(歌|戏|剧|曲|评书|相声|音乐)|(歌|戏|剧|曲|评书|相声|音乐).*(放|播|来一个)").containsMatchIn(text)) {
+        if (Regex("(想听|要听|听|放|播放|来一?段?|唱|点播).*(歌|戏|剧|曲|评书|相声|音乐)|(歌|戏|剧|曲|评书|相声|音乐).*(放|播|来一个|想听|要听)").containsMatchIn(text)) {
             val kw = clean(
-                Regex("(?:听|放|播放|来一?段?|唱)\\s*(.+)").find(text)?.groupValues?.get(1)
+                Regex("(?:想听|要听|听|放|播放|来一?段?|唱|点播)\\s*(.+)").find(text)?.groupValues?.get(1)
                     ?: Regex("(.+?)\\s*(?:放|播放|播|来一个)").find(text)?.groupValues?.get(1)
                     ?: "戏曲"
             )

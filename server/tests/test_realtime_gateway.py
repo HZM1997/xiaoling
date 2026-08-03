@@ -14,47 +14,29 @@ def clean_realtime_environment(monkeypatch):
         "XL_QWEN_REALTIME_URL",
         "XL_QWEN_REALTIME_MODEL",
         "XL_QWEN_REALTIME_VOICE",
-        "OPENAI_API_KEY",
-        "XL_REALTIME_API_KEY",
-        "XL_REALTIME_PROVIDER",
-        "XL_REALTIME_URL",
-        "XL_REALTIME_MODEL",
-        "XL_REALTIME_VOICE",
     ):
         monkeypatch.delenv(name, raising=False)
 
 
 def test_realtime_status_requires_server_key(monkeypatch):
     assert realtime_gateway.available() is False
-    monkeypatch.setenv("XL_REALTIME_API_KEY", "server-only-test-key")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "server-only-test-key")
+    monkeypatch.setenv("XL_QWEN_WORKSPACE_ID", "ws-test")
     assert realtime_gateway.available() is True
-    assert realtime_gateway.status()["provider"] == "openai"
+    assert realtime_gateway.status()["provider"] == "qwen"
 
 
-def test_qwen_is_primary_and_openai_remains_fallback(monkeypatch):
+def test_qwen_is_the_only_realtime_provider(monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "qwen-test-key")
     monkeypatch.setenv("XL_QWEN_WORKSPACE_ID", "ws-test-123")
-    monkeypatch.setenv("OPENAI_API_KEY", "openai-test-key")
-
     providers = realtime_gateway._provider_candidates()
-    assert [item["name"] for item in providers] == ["qwen", "openai"]
+    assert [item["name"] for item in providers] == ["qwen"]
     assert providers[0]["model"] == "qwen3.5-omni-plus-realtime"
     assert providers[0]["url"] == (
         "wss://ws-test-123.cn-beijing.maas.aliyuncs.com/api-ws/v1/realtime"
         "?model=qwen3.5-omni-plus-realtime"
     )
-    assert realtime_gateway.status()["fallback_enabled"] is True
-
-
-def test_gpt_realtime_can_still_be_selected_as_primary(monkeypatch):
-    monkeypatch.setenv("DASHSCOPE_API_KEY", "qwen-test-key")
-    monkeypatch.setenv("XL_QWEN_WORKSPACE_ID", "ws-test-123")
-    monkeypatch.setenv("XL_REALTIME_API_KEY", "openai-test-key")
-    monkeypatch.setenv("XL_REALTIME_PROVIDER", "openai,qwen")
-
-    providers = realtime_gateway._provider_candidates()
-    assert [item["name"] for item in providers] == ["openai", "qwen"]
-    assert providers[0]["model"] == "gpt-realtime"
+    assert realtime_gateway.status()["fallback_enabled"] is False
 
 
 def test_custom_qwen_url_keeps_existing_model_query(monkeypatch):
@@ -63,8 +45,6 @@ def test_custom_qwen_url_keeps_existing_model_query(monkeypatch):
         "XL_QWEN_REALTIME_URL",
         "wss://example.invalid/realtime?region=cn&model=custom-realtime",
     )
-    monkeypatch.setenv("XL_REALTIME_PROVIDER", "qwen,qwen")
-
     providers = realtime_gateway._provider_candidates()
     assert [item["name"] for item in providers] == ["qwen"]
     assert providers[0]["url"].count("model=") == 1
@@ -82,30 +62,11 @@ def test_qwen_workspace_accepts_compatible_endpoint_prefix(monkeypatch):
     )
 
 
-def test_realtime_session_enables_server_vad_and_interruption(tmp_path, monkeypatch):
-    monkeypatch.setenv("XL_MEMORY_DB", str(tmp_path / "memory.sqlite3"))
-    update = realtime_gateway._session_update(
-        "elder-realtime",
-        {"device": {"network": "wifi", "microphone_permission": True}},
-    )
-    session = update["session"]
-    detection = session["audio"]["input"]["turn_detection"]
-    assert session["model"] == "gpt-realtime"
-    assert session["audio"]["input"]["noise_reduction"] == {"type": "far_field"}
-    assert detection["threshold"] <= 0.35
-    assert detection["create_response"] is True
-    assert detection["interrupt_response"] is True
-    assert {tool["name"] for tool in session["tools"]} >= {
-        "call_contact", "set_reminder", "play_media", "check_fraud", "delegate_complex_task"
-    }
-
-
 def test_qwen_session_uses_semantic_vad_and_nested_tools(tmp_path, monkeypatch):
     monkeypatch.setenv("XL_MEMORY_DB", str(tmp_path / "memory.sqlite3"))
     update = realtime_gateway._session_update(
         "elder-qwen",
         {"device": {"network": "4g", "microphone_permission": True}},
-        provider="qwen",
     )
     session = update["session"]
     assert session["voice"] == "Tina"
@@ -117,7 +78,7 @@ def test_qwen_session_uses_semantic_vad_and_nested_tools(tmp_path, monkeypatch):
     assert "tool_choice" not in session
     assert "parallel_tool_calls" not in session
     assert {tool["function"]["name"] for tool in session["tools"]} >= {
-        "call_contact", "set_reminder", "play_media", "check_fraud", "delegate_complex_task"
+        "call_contact", "set_reminder", "play_media", "check_fraud", "ask_kimi", "delegate_complex_task"
     }
 
 

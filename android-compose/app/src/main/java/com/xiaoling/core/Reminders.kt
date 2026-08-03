@@ -26,6 +26,7 @@ object Reminders {
 
     private fun hasTime(raw: String): Boolean =
         Regex("([0-9一二三四五六七八九十两]+)\\s*点").containsMatchIn(raw) ||
+            Regex("(?:[01]?\\d|2[0-3])[:：][0-5]\\d").containsMatchIn(raw) ||
             Regex("([0-9一二三四五六七八九十两]+|半)\\s*(分钟|小时)后").containsMatchIn(raw) ||
             Regex("一会儿|等会儿|待会儿|今晚|明早|明晚|早晚|早中晚").containsMatchIn(raw)
 
@@ -214,8 +215,12 @@ object Reminders {
         }
         var hour = -1
         var minute = 0
+        Regex("(?:^|\\D)([01]?\\d|2[0-3])[:：]([0-5]\\d)(?:\\D|$)").find(raw)?.let { m ->
+            hour = m.groupValues[1].toIntOrNull() ?: -1
+            minute = m.groupValues[2].toIntOrNull() ?: 0
+        }
         // 阿拉伯数字点
-        Regex("([0-9]{1,2})\\s*点\\s*(半|[0-9]{1,2})?").find(raw)?.let { m ->
+        if (hour < 0) Regex("([0-9]{1,2})\\s*点\\s*(半|[0-9]{1,2})?").find(raw)?.let { m ->
             hour = m.groupValues[1].toIntOrNull() ?: -1
             val mm = m.groupValues[2]
             minute = if (mm == "半") 30 else mm.toIntOrNull() ?: 0
@@ -255,6 +260,7 @@ object Reminders {
     private fun extractContent(raw: String): String {
         var s = raw.replace(Regex("提醒我?|帮我|麻烦|记得|别忘了|设置(一个)?提醒|闹钟|叫醒|定个?|设个?"), "")
         s = s.replace(Regex("(每天|每日|明天|今天|上午|下午|晚上|傍晚)?\\s*[0-9一二三四五六七八九十]+\\s*点\\s*(半|[0-9]+分?)?"), "")
+        s = s.replace(Regex("(?:[01]?\\d|2[0-3])[:：][0-5]\\d"), "")
         s = s.replace(Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后|一会儿|等会儿|待会儿"), "")
         s = s.replace(Regex("今晚|明早|明晚"), "")
         s = s.replace(Regex("早中晚|早晚"), "")

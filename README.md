@@ -33,17 +33,17 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-模型密钥通过环境变量配置,支持 `DEEPSEEK_API_KEY`、`OPENAI_API_KEY`、
+模型密钥通过环境变量配置,Kimi K3 使用 `MOONSHOT_API_KEY`,并支持 `DEEPSEEK_API_KEY`、
 `DASHSCOPE_API_KEY`、`ARK_API_KEY`、`MOONSHOT_API_KEY`,也支持
 `XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL` 自定义兼容端点。
 
 多个密钥同时存在时会在总时限内顺序回退。可用 `XL_LLM_PROVIDERS` 指定顺序,
-例如 `qwen,deepseek,openai`。记忆默认写到 `server/data/memory.sqlite3`,生产环境可通过
+例如 `kimi,deepseek,qwen`。记忆默认写到 `server/data/memory.sqlite3`,生产环境可通过
 `XL_MEMORY_DB` 指定持久卷路径。API 密钥、身份证号和验证码不会写入记忆库。
 
 云端 ASR 使用 `XL_ASR_KEY`、`XL_ASR_BASE_URL`、`XL_ASR_MODEL`;未单独设置时可复用兼容 ASR 服务。
 全双工语音由服务端 `/realtime` 统一代理:中国大陆默认优先
-`qwen3.5-omni-plus-realtime`,配置 OpenAI Key 后仍可自动回退到现有 `gpt-realtime`。手机端不保存
+`qwen3.5-omni-plus-realtime`;开放式问答和后台复杂任务统一交给 Kimi K3。手机端不保存
 任何模型密钥。复杂任务可在后台委派给强模型,主会话继续对话。正式包要求 LLM、ASR、Realtime、
 委派运行时均可用,CI 还会建立真实 WebSocket 会话并等待 `session.ready`。
 

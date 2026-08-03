@@ -1,4 +1,4 @@
-"""Cloud ASR gateway for OpenAI-compatible /audio/transcriptions endpoints."""
+"""Optional cloud ASR gateway configured entirely by deployment variables."""
 from __future__ import annotations
 
 import json
@@ -8,11 +8,11 @@ import urllib.request
 
 
 def _resolve() -> tuple[str, str, str] | None:
-    key = os.getenv("XL_ASR_KEY", "").strip() or os.getenv("OPENAI_API_KEY", "").strip()
-    if not key:
+    key = os.getenv("XL_ASR_KEY", "").strip()
+    base = os.getenv("XL_ASR_BASE_URL", "").strip()
+    model = os.getenv("XL_ASR_MODEL", "").strip()
+    if not key or not base or not model:
         return None
-    base = os.getenv("XL_ASR_BASE_URL", "https://api.openai.com/v1").strip()
-    model = os.getenv("XL_ASR_MODEL", "whisper-1").strip()
     return key, base, model
 
 

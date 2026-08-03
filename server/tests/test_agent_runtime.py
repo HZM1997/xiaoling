@@ -61,6 +61,26 @@ def test_multi_provider_falls_back_in_order(monkeypatch):
     assert result["content"] == "成功"
 
 
+def test_kimi_k3_uses_reasoning_parameters(monkeypatch):
+    providers = [{"name": "kimi", "key": "k", "base": "https://api.moonshot.cn/v1", "model": "kimi-k3"}]
+    captured = {}
+    monkeypatch.setattr(llm_gateway, "_provider_configs", lambda: providers)
+
+    def fake_request(config, body, timeout):
+        captured.update(body)
+        return {"content": "完成"}
+
+    monkeypatch.setattr(llm_gateway, "_request", fake_request)
+    result = llm_gateway.chat(
+        [{"role": "user", "content": "分析"}], max_tokens=900, reasoning_effort="max"
+    )
+    assert result["content"] == "完成"
+    assert captured["model"] == "kimi-k3"
+    assert captured["reasoning_effort"] == "max"
+    assert captured["max_completion_tokens"] == 900
+    assert "temperature" not in captured
+
+
 def test_runtime_records_turn_and_returns_contextual_fallback(tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(llm_gateway, "_provider_configs", lambda: [])

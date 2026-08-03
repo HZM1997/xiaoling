@@ -1,7 +1,7 @@
-# 接入 DeepSeek(或 GPT / 通义 / 豆包)让小灵变"聪明" · 联调指南
+# 接入 Kimi K3 让小灵变"聪明" · 联调指南
 
 小灵默认用规则引擎(快、离线、省钱)。配一个大模型 API Key 后,复杂开放式对话会走
-**智能大脑**(理解上下文 + 用户画像,会思考、会给多种选择)。DeepSeek 国内可直连、便宜,推荐首选。
+**智能大脑**(理解上下文 + 用户画像,会思考、会给多种选择)。Kimi K3 是默认主模型。
 
 ---
 
@@ -20,10 +20,10 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 **云端部署**(Render/Railway/Fly,见 DEPLOY.md):在平台的「Environment / 环境变量」里加
 `DEEPSEEK_API_KEY = sk-你的key`,重新部署即可。
 
-> 换别家:改成对应变量即可;也可以同时配置多个,主模型失败时会按顺序回退:
-> `OPENAI_API_KEY`(GPT) / `DASHSCOPE_API_KEY`(通义) / `ARK_API_KEY`(豆包) / `MOONSHOT_API_KEY`(Kimi)。
+> 主模型配置 `MOONSHOT_API_KEY`。也可以同时配置国内回退:
+> `DEEPSEEK_API_KEY` / `DASHSCOPE_API_KEY`(通义) / `ARK_API_KEY`(豆包)。
 > 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`。
-> 可用 `XL_LLM_PROVIDERS=qwen,deepseek,openai` 指定优先级。
+> 可用 `XL_LLM_PROVIDERS=kimi,deepseek,qwen` 指定优先级。
 
 ## 三、验证是否启用成功
 ```bash
@@ -52,6 +52,6 @@ curl http://localhost:8000/health
 
 ## 六、常见问题
 - `llm:false`:环境变量没生效 → 确认变量名拼写、配完**重启/重新部署**后端。
-- 国内连不上 OpenAI:用 **DeepSeek**(国内直连)或通义/豆包。
+- Kimi 暂时不可用:确认余额和 `MOONSHOT_API_KEY`,系统会自动尝试国内回退模型。
 - 回复慢:DeepSeek 高峰偶有延迟;小灵已设 6s 超时降级,不会一直等。
 - 想更懂用户:让老人在「个人资料」多填爱好和常联系人——大脑会据此更贴心。
