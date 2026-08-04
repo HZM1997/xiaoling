@@ -2,6 +2,7 @@ package com.xiaoling.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -31,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,10 +52,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.xiaoling.R
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
@@ -63,9 +63,9 @@ import com.xiaoling.ui.theme.InkColor
 
 @Composable
 fun HomeScreen(vm: AppState) {
-    val ui by vm.state.collectAsStateWithLifecycle()
+    val ui by vm.state.collectAsState()
     val ctx = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
+    val activity = ctx as? ComponentActivity
     var micGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
@@ -103,7 +103,7 @@ fun HomeScreen(vm: AppState) {
         }
     }
 
-    DisposableEffect(lifecycleOwner, micGranted) {
+    DisposableEffect(activity, micGranted) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> if (micGranted) {
@@ -114,8 +114,8 @@ fun HomeScreen(vm: AppState) {
                 else -> Unit
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        activity?.lifecycle?.addObserver(observer)
+        onDispose { activity?.lifecycle?.removeObserver(observer) }
     }
 
     val visibleCaption = ui.micFeedback.ifBlank { ui.caption }

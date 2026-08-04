@@ -29,7 +29,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.Brush
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
 import com.xiaoling.ui.theme.AccentBlue
@@ -41,7 +41,7 @@ import com.xiaoling.ui.theme.InkColor
 
 @Composable
 fun LoginScreen(vm: AppState) {
-    val ui by vm.state.collectAsStateWithLifecycle()
+    val ui by vm.state.collectAsState()
     var phone by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     var sent by remember { mutableStateOf(false) }

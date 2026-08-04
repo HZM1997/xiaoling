@@ -49,7 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import com.xiaoling.R
 import com.xiaoling.BuildConfig
 import com.xiaoling.core.AppState
@@ -66,7 +66,7 @@ private val TABS = listOf("用户信息", "会员权益", "家人看护")
 
 @Composable
 fun SettingsScreen(vm: AppState) {
-    val ui by vm.state.collectAsStateWithLifecycle()
+    val ui by vm.state.collectAsState()
     val ctx = LocalContext.current
     var tab by remember { mutableIntStateOf(0) }
     var payPlan by remember { mutableStateOf<String?>(null) }

@@ -13,7 +13,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.collectAsState
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
 import com.xiaoling.ui.theme.XiaolingTheme
@@ -25,7 +25,7 @@ fun XiaolingApp(vm: AppState) {
             modifier = Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background
         ) {
-            val ui by vm.state.collectAsStateWithLifecycle()
+            val ui by vm.state.collectAsState()
             // 系统返回键:设置/登录页先回上一层,而不是退出 App
             BackHandler(enabled = ui.screen == Screen.Settings) { vm.showScreen(Screen.Home) }
             BackHandler(enabled = ui.screen == Screen.Login) { vm.showScreen(Screen.Settings) }
