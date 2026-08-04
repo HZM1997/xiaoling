@@ -58,6 +58,16 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
         return id
     }
 
+    /** 全双工倾听反馈。低音量插入队列,不覆盖正常回答,也不修改可恢复的上一句话。 */
+    fun speakBackchannel(s: String) {
+        if (!ready || s.isBlank()) return
+        val id = "backchannel-${++seq}"
+        val params = Bundle().apply {
+            putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 0.58f)
+        }
+        tts?.speak(s, TextToSpeech.QUEUE_ADD, params, id)
+    }
+
     /** 重播上一句(打断后未识别到新指令时恢复);无历史则不动作,返回空 id */
     fun speakLast(): String = if (lastSpoken.isNotBlank()) speak(lastSpoken) else ""
 

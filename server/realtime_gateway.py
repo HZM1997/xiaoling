@@ -5,6 +5,7 @@ import asyncio
 import audioop
 import base64
 import binascii
+import inspect
 import json
 import os
 import secrets
@@ -17,6 +18,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 import fraud
 import llm_gateway
+import pipecat_bridge
 from agent_runtime import runtime
 from brain import _system_prompt
 from context_engine import build_context
@@ -89,6 +91,14 @@ _REALTIME_TOOLS = [
 ]
 
 
+def _env_number(name: str, default: float, minimum: float, maximum: float) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
 def _with_model(url: str, model: str) -> str:
     parts = urlsplit(url)
     query = parse_qsl(parts.query, keep_blank_values=True)
@@ -142,6 +152,9 @@ def status() -> dict[str, Any]:
         "delegate_model_configured": (
             llm_gateway.has_provider("kimi") or bool(os.getenv("XL_DELEGATE_MODEL", "").strip())
         ),
+        "orchestrator": pipecat_bridge.status(),
+        "full_duplex": True,
+        "backchannel": True,
     }
 
 
@@ -341,6 +354,9 @@ async def handle(websocket: WebSocket) -> None:
     client_lock = asyncio.Lock()
     handled_calls: set[str] = set()
     background: set[asyncio.Task] = set()
+    delegation_slots = asyncio.Semaphore(
+        int(_env_number("XL_DELEGATION_CONCURRENCY", 2, 1, 4))
+    )
     state = {
         "response_active": False,
         "response_cancel_pending": False,
@@ -380,7 +396,14 @@ async def handle(websocket: WebSocket) -> None:
 
     async def finish_delegation(upstream, job_id: str, task_text: str, criteria: str) -> None:
         dynamic = build_context(runtime.memory, user_id, task_text, context)
-        result = await asyncio.to_thread(_delegate, task_text, criteria, dynamic)
+        try:
+            async with delegation_slots:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(_delegate, task_text, criteria, dynamic),
+                    timeout=_env_number("XL_DELEGATION_TIMEOUT", 45, 10, 120),
+                )
+        except asyncio.TimeoutError:
+            result = "这个后台任务还需要更多时间，我已经保留问题，稍后可以继续处理。"
         runtime.memory.record_turn(user_id, "assistant", f"[后台任务 {job_id}] {result}")
         with suppress(Exception):
             await send_client({"type": "delegation.completed", "job_id": job_id, "text": result})
@@ -419,6 +442,14 @@ async def handle(websocket: WebSocket) -> None:
         if name == "delegate_complex_task":
             task_text = str(args.get("task") or "").strip()[:1800]
             criteria = str(args.get("success_criteria") or "").strip()[:600]
+            active_jobs = sum(not item.done() for item in background)
+            if active_jobs >= 4:
+                await submit_tool_output(upstream, call_id, {
+                    "ok": False,
+                    "status": "busy",
+                    "message": "后台已有多个任务，先继续当前对话。",
+                })
+                return
             job_id = secrets.token_hex(4)
             await submit_tool_output(upstream, call_id, {"ok": True, "status": "started", "job_id": job_id})
             await send_client({"type": "delegation.started", "job_id": job_id, "task": task_text[:160]})
@@ -432,14 +463,21 @@ async def handle(websocket: WebSocket) -> None:
         await submit_tool_output(upstream, call_id, output)
 
     async def connect_provider(config: dict[str, Any]):
-        upstream = await websockets.connect(
-            config["url"],
-            extra_headers=config["headers"],
-            open_timeout=5,
-            ping_interval=20,
-            ping_timeout=20,
-            max_size=4 * 1024 * 1024,
+        connect_args = {
+            "open_timeout": 5,
+            "ping_interval": 20,
+            "ping_timeout": 20,
+            "max_size": 4 * 1024 * 1024,
+        }
+        # websockets 14 renamed extra_headers to additional_headers. Pipecat
+        # currently requires a newer websockets release, so support both APIs.
+        header_name = (
+            "additional_headers"
+            if "additional_headers" in inspect.signature(websockets.connect).parameters
+            else "extra_headers"
         )
+        connect_args[header_name] = config["headers"]
+        upstream = await websockets.connect(config["url"], **connect_args)
         try:
             await send_upstream(
                 upstream,
@@ -466,6 +504,10 @@ async def handle(websocket: WebSocket) -> None:
     async def run_provider(upstream, config: dict[str, Any]) -> bool:
         provider = config["name"]
         model = config["model"]
+        vad = pipecat_bridge.DuplexVad()
+        backchannel = pipecat_bridge.BackchannelPolicy(
+            delay_seconds=_env_number("XL_BACKCHANNEL_DELAY", 1.8, 1.2, 4.0)
+        )
         handled_calls.clear()
         state.update({
             "response_active": False,
@@ -473,6 +515,27 @@ async def handle(websocket: WebSocket) -> None:
             "user_speaking": False,
         })
         await send_client({"type": "session.ready", "provider": provider, "model": model})
+
+        async def set_user_speaking(speaking_now: bool) -> None:
+            if speaking_now == state["user_speaking"]:
+                return
+            state["user_speaking"] = speaking_now
+            if speaking_now:
+                backchannel.speech_started()
+                await cancel_active_response(upstream)
+                await send_client({"type": "input.speech_started"})
+            else:
+                backchannel.speech_stopped()
+                await send_client({"type": "input.speech_stopped"})
+
+        async def decision_loop() -> None:
+            # Five control decisions per second. This loop never waits for the
+            # reasoning model and therefore cannot block the live conversation.
+            while True:
+                await asyncio.sleep(0.2)
+                text = backchannel.take_if_due(bool(state["response_active"]))
+                if text and state["user_speaking"]:
+                    await send_client({"type": "backchannel", "text": text})
 
         async def client_reader() -> None:
             resample_state = None
@@ -487,6 +550,13 @@ async def handle(websocket: WebSocket) -> None:
                         except ValueError:
                             continue
                         await send_upstream(upstream, {"type": "input_audio_buffer.append", "audio": audio})
+                        if vad.enabled:
+                            pcm = base64.b64decode(audio)
+                            transition = await vad.feed(pcm)
+                            if transition == "started":
+                                await set_user_speaking(True)
+                            elif transition == "stopped":
+                                await set_user_speaking(False)
                 elif kind == "response.cancel":
                     await cancel_active_response(upstream)
                 elif kind == "conversation.text":
@@ -517,11 +587,9 @@ async def handle(websocket: WebSocket) -> None:
                 if kind == "session.updated":
                     continue
                 elif kind == "input_audio_buffer.speech_started":
-                    state["user_speaking"] = True
-                    await send_client({"type": "input.speech_started"})
+                    await set_user_speaking(True)
                 elif kind == "input_audio_buffer.speech_stopped":
-                    state["user_speaking"] = False
-                    await send_client({"type": "input.speech_stopped"})
+                    await set_user_speaking(False)
                 elif kind in {
                     "conversation.item.input_audio_transcription.delta",
                     "input_audio_transcription.delta",
@@ -592,16 +660,24 @@ async def handle(websocket: WebSocket) -> None:
 
         client_task = asyncio.create_task(client_reader())
         upstream_task = asyncio.create_task(upstream_reader())
-        done, pending = await asyncio.wait({client_task, upstream_task}, return_when=asyncio.FIRST_COMPLETED)
-        for task in pending:
-            task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
-        if client_task in done:
-            with suppress(WebSocketDisconnect, asyncio.CancelledError):
-                client_task.result()
-            return False
-        upstream_task.result()
-        raise ConnectionError(f"{provider} realtime connection closed")
+        control_task = asyncio.create_task(decision_loop())
+        try:
+            done, pending = await asyncio.wait(
+                {client_task, upstream_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*pending, return_exceptions=True)
+            if client_task in done:
+                with suppress(WebSocketDisconnect, asyncio.CancelledError):
+                    client_task.result()
+                return False
+            upstream_task.result()
+            raise ConnectionError(f"{provider} realtime connection closed")
+        finally:
+            control_task.cancel()
+            await asyncio.gather(control_task, return_exceptions=True)
+            await vad.close()
 
     last_error: Exception | None = None
     try:

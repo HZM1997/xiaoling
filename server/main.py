@@ -21,7 +21,7 @@ import asr_gateway
 import realtime_gateway
 from agent_runtime import runtime
 
-app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.2.0")
+app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.3.0")
 firewall.install(app)  # 启用防火墙中间件
 
 # 家庭语音留言文件。生产环境建议改为对象存储并设置 PUBLIC_BASE_URL。
@@ -38,7 +38,7 @@ def health():
     runtime_status = runtime.status()
     realtime_status = realtime_gateway.status()
     cloud_asr = asr_gateway.available()
-    return {"ok": True, "api_version": "0.2.0", "llm": runtime_status["models"]["available"],
+    return {"ok": True, "api_version": "0.3.0", "llm": runtime_status["models"]["available"],
             "asr": cloud_asr or realtime_status["available"],
             "asr_fallback": cloud_asr,
             "realtime": realtime_status,

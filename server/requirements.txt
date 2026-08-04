@@ -2,6 +2,9 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pydantic>=2.6
 python-multipart>=0.0.9
-websockets>=12,<14
+websockets>=12,<16
+# 精简引入 Pipecat 1.7.0 的 Silero VAD 核心;不安装无关模型提供商。
+numpy>=1.26,<3
+onnxruntime==1.24.4
 # 可选:接入大模型时安装(不装也能只跑规则层,开箱即用)
 # anthropic>=0.40

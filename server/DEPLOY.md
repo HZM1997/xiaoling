@@ -63,6 +63,10 @@ docker build -t xiaoling-brain . && docker run -p 8000:8000 xiaoling-brain
   - `XL_QWEN_REALTIME_URL` — 可选;只有使用自定义百炼实时端点时才设置
   - `XL_DELEGATE_MODEL` — 默认 `kimi-k3`
   - `XL_DELEGATE_PROVIDER` — 默认 `kimi`,也可使用 `deepseek/qwen/doubao/custom`
+  - `XL_DELEGATION_CONCURRENCY` — 后台复杂任务并发数,默认 `2`,最大 `4`
+  - `XL_DELEGATION_TIMEOUT` — 单个后台任务超时秒数,默认 `45`
+  - `XL_BACKCHANNEL_DELAY` — 连续讲话多久后反馈“嗯/我在听”,默认 `1.8` 秒
+  - `XL_PIPECAT_VAD_CONFIDENCE` — Pipecat Silero VAD 阈值,默认 `0.52`
   - `XL_REALTIME_CLIENT_TOKEN` — 可选的 App 到自建服务 WebSocket 令牌
   - `ARK_API_KEY` — 可选的火山豆包文本回退
   - 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`

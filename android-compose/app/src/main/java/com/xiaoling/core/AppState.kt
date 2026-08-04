@@ -96,6 +96,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         override fun onAction(action: JSONObject) = onRealtimeAction(action)
         override fun onDelegationStarted(task: String) = onRealtimeDelegationStarted(task)
         override fun onDelegationCompleted(text: String) = onRealtimeDelegationCompleted(text)
+        override fun onBackchannel(text: String) = onRealtimeBackchannel(text)
         override fun onWeakNetwork() = onRealtimeWeakNetwork()
     })
 
@@ -1047,6 +1048,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeDelegationCompleted(text: String) {
         if (text.isNotBlank()) _state.update { it.copy(caption = text, mascot = MascotState.Caring) }
+    }
+
+    private fun onRealtimeBackchannel(text: String) {
+        if (realtimeActive && _state.value.listening && !speaking) {
+            tts.speakBackchannel(text)
+        }
     }
 
     private fun onRealtimeWeakNetwork() {

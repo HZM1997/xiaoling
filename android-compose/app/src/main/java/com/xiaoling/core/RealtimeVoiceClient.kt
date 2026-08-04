@@ -46,6 +46,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         fun onAction(action: JSONObject)
         fun onDelegationStarted(task: String)
         fun onDelegationCompleted(text: String)
+        fun onBackchannel(text: String)
         fun onWeakNetwork()
     }
 
@@ -211,13 +212,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         val playMin = AudioTrack.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (recordMin <= 0 || playMin <= 0) return false
         return try {
-            val audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                SAMPLE_RATE,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                maxOf(recordMin * 2, FRAME_BYTES * 4),
-            )
+            val audioRecord = createAudioRecord(maxOf(recordMin * 2, FRAME_BYTES * 4))
             val audioTrack = AudioTrack.Builder()
                 .setAudioAttributes(
                     AudioAttributes.Builder()
@@ -258,16 +253,49 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun createAudioRecord(bufferBytes: Int): AudioRecord {
+        var last: AudioRecord? = null
+        for (source in intArrayOf(
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+        )) {
+            val candidate = try {
+                AudioRecord(
+                    source,
+                    SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT,
+                    bufferBytes,
+                )
+            } catch (_: Throwable) {
+                continue
+            }
+            if (candidate.state == AudioRecord.STATE_INITIALIZED) {
+                last?.release()
+                return candidate
+            }
+            last?.release()
+            last = candidate
+        }
+        return requireNotNull(last)
+    }
+
     private fun recordLoop(turn: Long) {
         val frame = ByteArray(FRAME_BYTES)
         var loudFrames = 0
         var quietFrames = 0
         var interruptedThisUtterance = false
+        var noiseFloor = 35.0
         while (running && turn == generation.get()) {
             val count = try { recorder?.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING) ?: -1 } catch (_: Throwable) { -1 }
             if (count <= 0) break
             val rms = pcmRms(frame, count)
-            if (rms >= LOCAL_SPEECH_RMS) {
+            if (!outputPlaying && !responseInProgress && rms < noiseFloor * 2.2) {
+                noiseFloor = noiseFloor * 0.96 + rms.coerceAtLeast(20.0) * 0.04
+            }
+            val speechThreshold = maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
+            if (rms >= speechThreshold) {
                 loudFrames++
                 quietFrames = 0
             } else {
@@ -278,7 +306,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 }
             }
             if ((outputPlaying || (manualHold && responseInProgress)) &&
-                loudFrames >= 2 && !interruptedThisUtterance) {
+                loudFrames >= 3 && !interruptedThisUtterance) {
                 interruptedThisUtterance = true
                 responseInProgress = false
                 clearPlayback()
@@ -373,6 +401,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             "tool.action" -> event.optJSONObject("action")?.let { action -> post { listener.onAction(action) } }
             "delegation.started" -> post { listener.onDelegationStarted(event.optString("task")) }
             "delegation.completed" -> post { listener.onDelegationCompleted(event.optString("text")) }
+            "backchannel" -> {
+                val text = event.optString("text")
+                if (text.isNotBlank()) post { listener.onBackchannel(text) }
+            }
             "error" -> {
                 val message = event.optString("message").ifBlank { event.optString("code", "实时语音服务异常") }
                 fail(generation.get(), message, retryable = true)
@@ -441,8 +473,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
 
     private companion object {
         const val SAMPLE_RATE = 24_000
-        const val FRAME_BYTES = 1_920 // 40 ms, PCM16 mono
-        const val LOCAL_SPEECH_RMS = 220.0
+        const val FRAME_BYTES = 960 // 20 ms, PCM16 mono;每秒 50 次本地打断判断
+        const val LOCAL_MIN_SPEECH_RMS = 90.0
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }
