@@ -36,7 +36,6 @@ data class UiState(
     val screen: Screen = Screen.Home,
     val lastUser: String = "",
     val brainUrl: String = "",
-    val live2d: Boolean = false,
     val membership: String = "",     // "" / "basic" / "premium"
     val loggedIn: Boolean = false,
     val phone: String = "",
@@ -71,7 +70,6 @@ class AppState(application: Application) : AndroidViewModel(application) {
         UiState(
             brainUrl = Settings.brainUrl(app),
             fraudBlocked = FraudStore.count(app),
-            live2d = Settings.live2dEnabled(app),
             membership = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app),
             loggedIn = Account.isLoggedIn(app),
             phone = Account.phone(app),
@@ -148,7 +146,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         subscribePush()
         monitorOfficialAlerts()
         refreshAgentStatus()
-        refreshAiServiceStatus()
+        monitorAiService()
         monitorConnectivity()
     }
 
@@ -239,27 +237,47 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun refreshAiServiceStatus() {
+    private fun monitorAiService() {
         viewModelScope.launch {
-            val health = BrainClient.health(app)
-            val message = when {
-                !health.reachable -> "AI 服务未连接"
-                !health.realtimeAvailable -> "服务已连接,但实时语音未配置"
-                !health.modelAvailable -> "服务已连接,但未配置大模型"
-                !health.asrAvailable -> "模型已连接,但云端语音识别未配置"
-                health.delegationAvailable && health.providers.isNotBlank() -> "实时智能对话已连接 · ${health.providers}"
-                else -> "实时智能对话已连接"
+            while (isActive) {
+                applyAiHealth(BrainClient.health(app))
+                delay(16_000L)
             }
-            _state.update {
-                it.copy(
-                    aiServiceReachable = health.reachable,
-                    aiModelAvailable = health.modelAvailable,
-                    aiAsrAvailable = health.asrAvailable,
-                    aiRealtimeAvailable = health.realtimeAvailable,
-                    aiDelegationAvailable = health.delegationAvailable,
-                    aiServiceStatus = message
-                )
-            }
+        }
+    }
+
+    fun refreshAiServiceStatus() {
+        viewModelScope.launch { applyAiHealth(BrainClient.health(app)) }
+    }
+
+    private fun applyAiHealth(health: BrainClient.Health) {
+        val message = when {
+            !health.reachable -> "AI 服务未连接"
+            !health.realtimeAvailable -> "服务已连接,但实时语音未配置"
+            !health.modelAvailable -> "服务已连接,但未配置大模型"
+            !health.asrAvailable -> "模型已连接,但云端语音识别未配置"
+            health.delegationAvailable && health.providers.isNotBlank() -> "实时智能对话已连接 · ${health.providers}"
+            else -> "实时智能对话已连接"
+        }
+        _state.update {
+            it.copy(
+                aiServiceReachable = health.reachable,
+                aiModelAvailable = health.modelAvailable,
+                aiAsrAvailable = health.asrAvailable,
+                aiRealtimeAvailable = health.realtimeAvailable,
+                aiDelegationAvailable = health.delegationAvailable,
+                aiServiceStatus = message
+            )
+        }
+        if (health.realtimeAvailable && voiceSessionActive && AppForeground.active &&
+            _state.value.screen == Screen.Home && !realtimeActive && !realtimeConnecting) {
+            if (recognitionActive) cancelActiveRecognition(updateUi = false)
+            startVoiceConversation()
+        } else if (!health.realtimeAvailable && voiceSessionActive && (realtimeActive || realtimeConnecting)) {
+            realtimeActive = false
+            realtimeConnecting = false
+            realtime.stop(notify = false)
+            startLegacyVoiceFallback("实时服务暂不可用,已自动继续聆听")
         }
     }
 
@@ -1104,15 +1122,6 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setLive2d(on: Boolean) {
-        if (on && !isPremium()) {
-            _state.update { it.copy(caption = "3D 数字人形象是高级会员专享,开通后解锁。") }
-            return
-        }
-        Settings.setLive2d(app, on)
-        _state.update { it.copy(live2d = on) }
-    }
-
     /** 开通会员:下单→(占位)收银台→回调→记录(登录则跟账号,否则本地)。 */
     fun buyPlan(plan: String, method: String) {
         _state.update { it.copy(caption = "正在通过$method 开通…") }
@@ -1166,7 +1175,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         Account.logout(app)
         _state.update { it.copy(loggedIn = false, phone = "", membership = Membership.tier(app),
             realNameVerified = false, displayName = "", chatEntitlement = "", realNameStatus = "",
-            live2d = false, caption = "已退出登录") }
+            caption = "已退出登录") }
     }
 
     /**

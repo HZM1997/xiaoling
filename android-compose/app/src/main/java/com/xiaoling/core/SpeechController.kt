@@ -44,7 +44,7 @@ class SpeechController(private val ctx: Context) {
         get() = recognitionServices().isNotEmpty() || standardAvailable || onDeviceAvailable
 
     private val cloudAvailable: Boolean
-        get() = Settings.brainUrl(ctx).isNotBlank() && NetworkStatus.isOnline(ctx)
+        get() = BrainClient.cloudAsrAvailable && NetworkStatus.isOnline(ctx)
 
     val isAvailable: Boolean
         get() = hasPermission && (systemAvailable || cloudAvailable)

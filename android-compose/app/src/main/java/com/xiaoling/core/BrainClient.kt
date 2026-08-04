@@ -23,9 +23,18 @@ object BrainClient {
         val providers: String = ""
     )
 
+    @Volatile private var cachedHealth = Health(false, false, false)
+    val cloudAsrAvailable: Boolean get() = cachedHealth.reachable && cachedHealth.asrAvailable
+    val realtimeAvailable: Boolean get() = cachedHealth.reachable && cachedHealth.realtimeAvailable
+
+    private fun cache(health: Health): Health {
+        cachedHealth = health
+        return health
+    }
+
     suspend fun health(ctx: Context): Health = withContext(Dispatchers.IO) {
         val base = Settings.brainUrl(ctx).trim().trimEnd('/')
-        if (base.isBlank()) return@withContext Health(false, false, false)
+        if (base.isBlank()) return@withContext cache(Health(false, false, false))
         var connection: HttpURLConnection? = null
         try {
             connection = (URL("$base/health").openConnection() as HttpURLConnection).apply {
@@ -34,7 +43,7 @@ object BrainClient {
                 readTimeout = 2500
                 setRequestProperty("Accept", "application/json")
             }
-            if (connection.responseCode !in 200..299) return@withContext Health(false, false, false)
+            if (connection.responseCode !in 200..299) return@withContext cache(Health(false, false, false))
             val json = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
             val models = json.optJSONObject("runtime")?.optJSONObject("models")
             val providers = models?.optJSONArray("providers")
@@ -44,16 +53,16 @@ object BrainClient {
                 }
             }.joinToString(" / ")
             val realtime = json.optJSONObject("realtime")
-            Health(
+            cache(Health(
                 true,
                 json.optBoolean("llm", false),
                 json.optBoolean("asr", false),
                 realtime?.optBoolean("available", false) == true,
                 realtime?.optBoolean("delegation", false) == true,
                 names,
-            )
+            ))
         } catch (_: Exception) {
-            Health(false, false, false)
+            cache(Health(false, false, false))
         } finally {
             connection?.disconnect()
         }

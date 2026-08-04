@@ -7,7 +7,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -134,18 +133,11 @@ fun HomeScreen(vm: AppState) {
             ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Crossfade(
-                targetState = ui.live2d,
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                animationSpec = tween(360),
-                label = "avatar-mode"
-            ) { live3d ->
-                if (live3d) {
-                    Avatar3DView(ui.mascot, ui.speaking, Modifier.fillMaxSize())
-                } else {
-                    Avatar(ui.mascot, Modifier.fillMaxSize())
-                }
-            }
+            Avatar3DView(
+                state = ui.mascot,
+                talking = ui.speaking,
+                modifier = Modifier.fillMaxWidth().weight(1f)
+            )
 
             AnimatedVisibility(
                 visible = showCaption,

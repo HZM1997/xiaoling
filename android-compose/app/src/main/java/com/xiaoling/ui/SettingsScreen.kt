@@ -28,7 +28,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -112,7 +111,7 @@ fun SettingsScreen(vm: AppState) {
                         onBrainUrl = vm::setBrainUrl, onTestBrain = vm::refreshAiServiceStatus)
                     1 -> MemberTab(ui) { payPlan = it }
                     2 -> CareTab(ui, onSync = { vm.syncFamily() }, onRole = { requestScreenRole() },
-                        onLive2d = { vm.setLive2d(it) }, onUpgrade = { tab = 1 })
+                        onUpgrade = { tab = 1 })
                 }
                 Spacer(Modifier.height(28.dp))
                 Text("小灵 · v${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = DimColor,
@@ -376,7 +375,7 @@ private fun RealNameDialog(onDismiss: () -> Unit, onSubmit: (String, String) -> 
 @Composable
 private fun CareTab(
     ui: com.xiaoling.core.UiState, onSync: () -> Unit, onRole: () -> Unit,
-    onLive2d: (Boolean) -> Unit, onUpgrade: () -> Unit
+    onUpgrade: () -> Unit
 ) {
     val premium = ui.membership == "premium"
     GlassCard {
@@ -400,11 +399,9 @@ private fun CareTab(
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("3D 数字人形象", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(if (premium) "放入 VRM 模型后开启,详见 NATIVE.md" else "高级会员专享 · 开通后解锁",
+                Text("已启用 · 本地模型",
                     fontSize = 12.sp, color = DimColor, modifier = Modifier.padding(top = 2.dp))
             }
-            if (premium) Switch(checked = ui.live2d, onCheckedChange = onLive2d)
-            else LockTag(onUpgrade)
         }
     }
     GlassCard {

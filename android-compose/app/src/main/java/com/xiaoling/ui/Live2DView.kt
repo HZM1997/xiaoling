@@ -4,6 +4,8 @@ import android.graphics.Color
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaoling.core.MascotState
@@ -22,6 +24,12 @@ fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modi
         MascotState.Caring -> "caring"
         else -> "idle"
     }
+    val currentState by rememberUpdatedState(stateName)
+    val currentTalking by rememberUpdatedState(talking)
+    fun applyState(web: WebView, name: String, isTalking: Boolean) {
+        web.evaluateJavascript("window.XLAvatar&&XLAvatar.setState('$name')", null)
+        web.evaluateJavascript("window.XLAvatar&&XLAvatar.setTalking($isTalking)", null)
+    }
     AndroidView(
         modifier = modifier,
         factory = { ctx ->
@@ -29,16 +37,19 @@ fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modi
                 settings.javaScriptEnabled = true
                 settings.allowFileAccess = true
                 settings.allowFileAccessFromFileURLs = true
-                settings.allowUniversalAccessFromFileURLs = true
-                settings.domStorageEnabled = true
+                settings.allowUniversalAccessFromFileURLs = false
+                settings.blockNetworkLoads = true
                 setBackgroundColor(Color.TRANSPARENT)
-                webViewClient = WebViewClient()
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String) {
+                        applyState(view, currentState, currentTalking)
+                    }
+                }
                 loadUrl("file:///android_asset/avatar3d/index.html")
             }
         },
         update = { web ->
-            web.evaluateJavascript("window.XLAvatar&&XLAvatar.setState('$stateName')", null)
-            web.evaluateJavascript("window.XLAvatar&&XLAvatar.setTalking(${if (talking) "true" else "false"})", null)
+            applyState(web, stateName, talking)
         },
         onRelease = { web -> web.destroy() }   // 关闭 3D / 离场时销毁 WebView,避免泄漏
     )
