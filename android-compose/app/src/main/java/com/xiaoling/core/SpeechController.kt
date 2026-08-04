@@ -105,7 +105,10 @@ class SpeechController(private val ctx: Context) {
             if (recognizer == null) recognizer = createRecognizer()
             recognizer?.setRecognitionListener(object : RecognitionListener {
                 override fun onResults(results: Bundle) {
-                    val text = bestCandidate(results)
+                    // 部分 MIUI 识别服务终态会返回空列表,但此前 partial 已经是完整句子。
+                    // 保留这条结果,避免老人说完后被误判成“没听清”。
+                    val text = bestCandidate(results).ifBlank { lastPartial }
+                    releaseRecognizer()
                     if (text.isBlank()) {
                         systemMisses++
                         if (systemMisses >= 2 && cloudAvailable) preferCloud = true
@@ -173,8 +176,10 @@ class SpeechController(private val ctx: Context) {
                     putStringArrayListExtra(
                         RecognizerIntent.EXTRA_BIASING_STRINGS,
                         arrayListOf(
-                            "小灵", "打电话", "提醒我", "导航", "播放", "天气",
-                            "诈骗", "验证码", "转账", "地震", "台风", "暴雨", "沙尘暴"
+                            "小灵", "打电话", "拨电话", "联系人", "闹钟", "定闹钟", "提醒我",
+                            "吃药提醒", "服药", "量血压", "导航", "播放", "点播", "戏曲",
+                            "京剧", "豫剧", "越剧", "黄梅戏", "评书", "相声", "天气",
+                            "反诈", "诈骗", "验证码", "转账", "地震", "台风", "暴雨", "沙尘暴"
                         )
                     )
                 }

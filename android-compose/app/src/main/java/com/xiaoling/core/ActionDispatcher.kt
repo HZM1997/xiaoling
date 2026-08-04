@@ -27,14 +27,9 @@ object ActionDispatcher {
             if (!looksLikeNumber(target) && ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
                 missing.add(android.Manifest.permission.READ_CONTACTS)
             }
-            if (ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
-                missing.add(android.Manifest.permission.CALL_PHONE)
-            }
-        } else if (type == "CALL_NUMBER" || type == "SOS") {
-            if (ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
-                missing.add(android.Manifest.permission.CALL_PHONE)
-            }
         }
+        // 普通电话和紧急电话都可无权限退回系统拨号盘。CALL_PHONE 只决定能否直接拨出，
+        // 不能成为整个语音指令的前置阻塞条件。
         return missing.distinct()
     }
 
@@ -44,10 +39,10 @@ object ActionDispatcher {
         return when (action.optString("type")) {
             "CALL" -> {
                 val target = action.optString("target")
-                val num = target.takeIf(::looksLikeNumber)?.filter { it.isDigit() || it == '+' }
+                val num = target.takeIf(::looksLikeNumber)?.let(::normalizePhoneNumber)
                     ?: Contacts.lookup(app, target)
                 if (num.isNullOrBlank()) {
-                    "没找到联系人「$target」,您可以说全名字再试。"
+                    "没找到联系人「$target」。请说通讯录里的完整名字,或者直接说电话号码。"
                 } else {
                     if (call(app, num)) null else "电话没有拨出去,请检查电话权限和默认电话应用。"
                 }
@@ -65,7 +60,7 @@ object ActionDispatcher {
                 null
             }
             "CALL_NUMBER" -> {
-                val num = action.optString("number")
+                val num = normalizePhoneNumber(action.optString("number"))
                 if (num.isNotBlank() && call(app, num)) null else "电话没有拨出去,请检查电话权限。"
             }
             "OPEN_URI" -> {
@@ -85,11 +80,17 @@ object ActionDispatcher {
                     putExtra(SearchManager.QUERY, kw)
                     putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio")
                 }
-                val ok = view(app, systemPlay) ||
+                val launchedPlayer = view(app, systemPlay) ||
                     view(app, Intent(Intent.ACTION_VIEW, Uri.parse("qqmusic://qq.com/ui/search?key=" + Uri.encode(kw)))) ||
-                    view(app, Intent(Intent.ACTION_VIEW, Uri.parse("orpheus://search/" + Uri.encode(kw)))) ||
-                    view(app, Intent(Intent.ACTION_VIEW, Uri.parse("https://m.baidu.com/s?word=" + Uri.encode("$kw 在线播放"))))
-                if (ok) null else "手机里没有找到可播放的影音应用。"
+                    view(app, Intent(Intent.ACTION_VIEW, Uri.parse("orpheus://search/" + Uri.encode(kw))))
+                if (launchedPlayer) {
+                    null
+                } else {
+                    val openedWeb = view(app, Intent(Intent.ACTION_VIEW,
+                        Uri.parse("https://m.music.migu.cn/v4/search?searchWord=" + Uri.encode(kw))))
+                    if (openedWeb) "手机里没有可直接点播的音乐应用,我已为您打开$kw 的播放页面。"
+                    else "手机里没有找到可播放的影音应用。请先安装一个音乐应用。"
+                }
             }
             "REMIND" -> {
                 // 语音提醒:解析时间并用 AlarmManager 定时;解析不出就存为下一整点提醒
@@ -130,7 +131,22 @@ object ActionDispatcher {
     }
 
     private fun looksLikeNumber(value: String): Boolean =
-        value.replace(Regex("[\\s-]"), "").matches(Regex("^\\+?[0-9*#]{3,20}$"))
+        normalizePhoneNumber(value).matches(Regex("^\\+?[0-9*#]{3,20}$"))
+
+    private fun normalizePhoneNumber(value: String): String {
+        val digits = mapOf(
+            '零' to '0', '洞' to '0', '一' to '1', '幺' to '1', '二' to '2', '两' to '2',
+            '三' to '3', '四' to '4', '五' to '5', '六' to '6', '七' to '7', '八' to '8', '九' to '9'
+        )
+        return buildString(value.length) {
+            value.forEach { ch ->
+                when {
+                    ch.isDigit() || ch == '+' || ch == '*' || ch == '#' -> append(ch)
+                    digits.containsKey(ch) -> append(digits.getValue(ch))
+                }
+            }
+        }
+    }
 
     /** 把语音留言分享给联系人:优先带号码的分享(微信/短信里选到人),否则系统分享面板 */
     private fun shareAudio(ctx: Context, f: java.io.File, number: String?, target: String) {

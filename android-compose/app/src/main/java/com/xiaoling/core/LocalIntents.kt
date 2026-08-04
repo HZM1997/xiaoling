@@ -55,6 +55,11 @@ object LocalIntents {
             .replace('；', '，').replace(';', '，').replace(',', '，')
             .replace(Regex("[。.!！]+$"), "")
             .replace(Regex("^(嗯+|呃+|那个|就是|这个|你看|麻烦你?|请你?|我想让你|我想要你|你帮我|帮我)\\s*"), "")
+            .replace("脑钟", "闹钟")
+            .replace("闹中", "闹钟")
+            .replace("打点话", "打电话")
+            .replace("反炸", "反诈")
+            .replace("防炸", "防诈")
         text = text.replace(Regex("\\s+"), " ").trim()
         return text.ifBlank { input.trim() }
     }
@@ -107,7 +112,7 @@ object LocalIntents {
 
         var m = Regex("(?:给|帮我给)\\s*(.+?)\\s*(?:打|拨)(?:个)?电话").find(text)
             ?: Regex("(.+?)\\s*(?:电话打一个|电话拨一个)").find(text)
-            ?: Regex("(?:打(?:个)?电话给?|呼叫|拨打?给?)\\s*(.+)").find(text)
+            ?: Regex("(?:打(?:个)?电话给?|呼叫|拨打?给?|联系)\\s*(.+)").find(text)
             ?: Regex("(.+?)\\s*(?:的)?电话\\s*(?:打|拨|接通)(?:一下|一个)?").find(text)
             ?: Regex("(?:打|拨)\\s*(.+?)\\s*(?:的)?电话").find(text)
         if (m != null) {
@@ -126,14 +131,14 @@ object LocalIntents {
             }
         }
 
-        if (Regex("提醒|闹钟|别忘了|记一下|叫醒|定时").containsMatchIn(text) ||
+        if (Regex("提醒|闹钟|别忘了|记一下|叫醒|定时|定个钟|到点叫我").containsMatchIn(text) ||
             (Regex("吃药|服药|量血压|打针|复诊").containsMatchIn(text) &&
-                Regex("点|分钟后|小时后|早上|上午|中午|下午|晚上|明天|每天").containsMatchIn(text))) {
+                Regex("点|分钟|小时|钟头|早上|上午|中午|下午|晚上|明天|每天|早晚|早中晚").containsMatchIn(text))) {
             return Reply("好的,我来帮您设置提醒。",
                 JSONObject().put("type", "REMIND").put("raw", text), "语音任务提醒", 0.0)
         }
 
-        if (Regex("(想听|要听|听|放|播放|来一?段?|唱|点播).*(歌|戏|剧|曲|评书|相声|音乐)|(歌|戏|剧|曲|评书|相声|音乐).*(放|播|来一个|想听|要听)").containsMatchIn(text)) {
+        if (Regex("(想听|要听|听|放|播放|来一?段?|来一个|唱|点播).*(歌|戏|剧|曲|评书|相声|音乐|京剧|豫剧|越剧|黄梅戏)|(歌|戏|剧|曲|评书|相声|音乐|京剧|豫剧|越剧|黄梅戏).*(放|播|来一个|想听|要听)").containsMatchIn(text)) {
             val kw = clean(
                 Regex("(?:想听|要听|听|放|播放|来一?段?|唱|点播)\\s*(.+)").find(text)?.groupValues?.get(1)
                     ?: Regex("(.+?)\\s*(?:放|播放|播|来一个)").find(text)?.groupValues?.get(1)

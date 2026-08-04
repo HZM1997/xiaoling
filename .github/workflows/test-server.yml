@@ -3,7 +3,7 @@ name: Test AI Server
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/startup-crash-v1.0.17-ci']
+    branches: ['fix/core-actions-v1.0.18-ci']
     tags: ['v*']
 
 jobs:

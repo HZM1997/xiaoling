@@ -27,7 +27,7 @@ object Reminders {
     private fun hasTime(raw: String): Boolean =
         Regex("([0-9一二三四五六七八九十两]+)\\s*点").containsMatchIn(raw) ||
             Regex("(?:[01]?\\d|2[0-3])[:：][0-5]\\d").containsMatchIn(raw) ||
-            Regex("([0-9一二三四五六七八九十两]+|半)\\s*(分钟|小时)后").containsMatchIn(raw) ||
+            Regex("([0-9一二三四五六七八九十两]+|半)\\s*个?\\s*(分钟|分|小时|钟头)\\s*(后|以后)").containsMatchIn(raw) ||
             Regex("一会儿|等会儿|待会儿|今晚|明早|明晚|早晚|早中晚").containsMatchIn(raw)
 
     private fun hasContent(raw: String): Boolean {
@@ -35,7 +35,7 @@ object Reminders {
         val content = raw
             .replace(Regex("提醒我?|帮我|麻烦|记得|别忘了|设置(一个)?提醒|闹钟|叫醒|定个?|设个?"), "")
             .replace(Regex("(每天|每日|明天|今天|今晚|明早|明晚|上午|下午|晚上|傍晚)?\\s*[0-9一二三四五六七八九十]+\\s*点\\s*(半|[0-9]+分?)?"), "")
-            .replace(Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后|一会儿|等会儿|待会儿"), "")
+            .replace(Regex("([0-9一二三四五六七八九十]+|半)\\s*个?\\s*(分钟|分|小时|钟头)\\s*(后|以后)|一会儿|等会儿|待会儿"), "")
             .replace(Regex("[，,。.!！?？的呀啊吧呢\\s]"), "")
         return content.isNotBlank()
     }
@@ -87,7 +87,7 @@ object Reminders {
         try {
             // 每日提醒也按单次精确闹钟调度,触发后由 Receiver 排下一天,避免 setRepeating 漂移。
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
-                am.set(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
             } else {
                 am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, cal.timeInMillis, pi)
             }
@@ -172,11 +172,11 @@ object Reminders {
     /** 从口语解析出时间;解析不出默认下一整点。 */
     private fun parseTime(raw: String): Calendar {
         val cal = Calendar.getInstance()
-        Regex("([0-9一二三四五六七八九十两]+|半)\\s*(分钟|小时)后").find(raw)?.let { m ->
-            val amount = if (m.groupValues[1] == "半") 30 else
-                (m.groupValues[1].toIntOrNull() ?: cnNum(m.groupValues[1])).coerceAtLeast(1)
-            if (m.groupValues[2] == "小时") cal.add(Calendar.MINUTE, amount * 60)
-            else cal.add(Calendar.MINUTE, amount)
+        Regex("([0-9一二三四五六七八九十两]+|半)\\s*个?\\s*(分钟|分|小时|钟头)\\s*(后|以后)").find(raw)?.let { m ->
+            val half = m.groupValues[1] == "半"
+            val amount = (m.groupValues[1].toIntOrNull() ?: cnNum(m.groupValues[1])).coerceAtLeast(1)
+            val isHour = m.groupValues[2] == "小时" || m.groupValues[2] == "钟头"
+            cal.add(Calendar.MINUTE, if (half) 30 else if (isHour) amount * 60 else amount)
             cal.set(Calendar.SECOND, 0)
             cal.set(Calendar.MILLISECOND, 0)
             return cal
@@ -261,7 +261,7 @@ object Reminders {
         var s = raw.replace(Regex("提醒我?|帮我|麻烦|记得|别忘了|设置(一个)?提醒|闹钟|叫醒|定个?|设个?"), "")
         s = s.replace(Regex("(每天|每日|明天|今天|上午|下午|晚上|傍晚)?\\s*[0-9一二三四五六七八九十]+\\s*点\\s*(半|[0-9]+分?)?"), "")
         s = s.replace(Regex("(?:[01]?\\d|2[0-3])[:：][0-5]\\d"), "")
-        s = s.replace(Regex("([0-9一二三四五六七八九十]+|半)\\s*(分钟|小时)后|一会儿|等会儿|待会儿"), "")
+        s = s.replace(Regex("([0-9一二三四五六七八九十]+|半)\\s*个?\\s*(分钟|分|小时|钟头)\\s*(后|以后)|一会儿|等会儿|待会儿"), "")
         s = s.replace(Regex("今晚|明早|明晚"), "")
         s = s.replace(Regex("早中晚|早晚"), "")
         s = s.trim().trim('，', ',', '。', '.', '的')
@@ -271,7 +271,7 @@ object Reminders {
     }
 
     private fun describeTime(raw: String): String {
-        Regex("([0-9一二三四五六七八九十两]+|半)\\s*(分钟|小时)后|一会儿|等会儿|待会儿").find(raw)?.let {
+        Regex("([0-9一二三四五六七八九十两]+|半)\\s*个?\\s*(分钟|分|小时|钟头)\\s*(后|以后)|一会儿|等会儿|待会儿").find(raw)?.let {
             return it.value
         }
         Regex("今晚|明早|明晚").find(raw)?.let { return it.value }

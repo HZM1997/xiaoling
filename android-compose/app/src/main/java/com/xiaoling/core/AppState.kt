@@ -122,6 +122,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var realtimeConnecting = false
     @Volatile private var realtimeActive = false
     private var pendingReminder = ""
+    private var pendingCallTarget = ""
     private var pendingRemoteAudioUrl = ""
     private var pendingPermissionAction: JSONObject? = null
 
@@ -665,6 +666,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken,
             lastUser = spoken, online = NetworkStatus.isOnline(app)) }
 
+        // 找不到联系人后支持纯语音补充完整姓名或电话号码,不让老人重新说整条命令。
+        if (pendingCallTarget.isNotBlank()) {
+            val oldTarget = pendingCallTarget
+            pendingCallTarget = ""
+            if (Regex("算了|不用了|取消").containsMatchIn(spoken)) {
+                applyReply(Reply("好的,已经取消给$oldTarget 打电话。", null, "取消拨号", 0.0))
+            } else {
+                val target = spoken
+                    .replace(Regex("^(号码是|电话号码是|手机号是|联系人是|名字是|他叫|她叫|叫)"), "")
+                    .trim()
+                applyReply(Reply("好的,正在帮您给$target 打电话。",
+                    JSONObject().put("type", "CALL").put("target", target), "补充拨号信息", 0.0))
+            }
+            return
+        }
+
         // 对话式提醒:上一轮缺时间/内容时,把本轮回答补进草稿并继续判断,全程无需弹窗。
         if (pendingReminder.isNotBlank()) {
             val combined = "$pendingReminder $spoken".trim()
@@ -827,6 +844,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
             }
         }
         val hint = reply.action?.let { dispatchAction(it) }
+        if (type == "CALL" && hint?.startsWith("没找到联系人") == true) {
+            pendingCallTarget = reply.action?.optString("target").orEmpty()
+        }
         val toSay = hint ?: reply.speech
         if (type == "FRAUD_WARN") FraudStore.inc(app)
         speaking = true
@@ -1001,7 +1021,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (action == null) return
         val stillMissing = ActionDispatcher.missingRuntimePermissions(app, action)
         if (stillMissing.isNotEmpty() || result.values.any { !it }) {
-            val tip = "需要您允许电话或通知权限,我才能完成这个操作。"
+            val tip = if (action.optString("type") == "CALL") {
+                pendingCallTarget = action.optString("target")
+                "没有通讯录权限。您可以直接说电话号码,我仍然能打开拨号盘。"
+            } else {
+                "需要您允许相应权限,我才能完成这个操作。"
+            }
             speaking = true
             _state.update { it.copy(caption = tip, speaking = true, mascot = MascotState.Caring) }
             curUtt = tts.speak(tip)
