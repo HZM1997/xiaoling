@@ -82,11 +82,15 @@ def anti_fraud(u: Utterance) -> Optional[Reply]:
         r"(?:有人|对方).{0,18}(?:让我|叫我|要求我)",
         u.text,
     ))
-    if not incoming_scene and not consultation:
-        return None
+    # 所有文本先跑一次纯本地规则预检。只有命中中高危信号才进入防诈回复,
+    # 不联网、不增加普通闲聊延迟,同时避免英文短信或未带场景的链接漏判。
+    preflight = None
+    if not incoming_scene:
+        preflight = analyze_fraud_result(u.text, ctx.get("caller", ""), "voice_chat")
+        if not consultation and preflight.level == "safe":
+            return None
     # 来电/短信走多轮累积;主动反诈咨询也进入同一规则引擎,不再被普通聊天漏掉。
-    r = analyze_session(u.text, ctx.get("caller", ""), scene, ctx) if incoming_scene else \
-        analyze_fraud_result(u.text, ctx.get("caller", ""), "voice_chat")
+    r = analyze_session(u.text, ctx.get("caller", ""), scene, ctx) if incoming_scene else preflight
     if r.level == "safe":
         if consultation:
             return Reply(

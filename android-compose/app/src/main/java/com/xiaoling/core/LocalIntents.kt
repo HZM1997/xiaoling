@@ -157,15 +157,40 @@ object LocalIntents {
     }
 
     private fun parseTranslate(text: String): Reply? {
-        if (!Regex("翻译|怎么说|用.{0,3}语|译成|译为").containsMatchIn(text)) return null
+        if (!Regex("翻译|怎么说|用.{0,8}(说|讲)|译成|译为").containsMatchIn(text)) return null
         val lang = when {
             Regex("粤语|广东话|白话").containsMatchIn(text) -> "cantonese"
             Regex("普通话|国语").containsMatchIn(text) -> "mandarin"
+            Regex("日语|日文|日本话").containsMatchIn(text) -> "japanese"
+            Regex("韩语|韩文|韩国话|朝鲜语").containsMatchIn(text) -> "korean"
+            Regex("西班牙语|西语").containsMatchIn(text) -> "spanish"
+            Regex("法语|法文").containsMatchIn(text) -> "french"
+            Regex("德语|德文").containsMatchIn(text) -> "german"
+            Regex("俄语|俄文").containsMatchIn(text) -> "russian"
+            Regex("葡萄牙语|葡语").containsMatchIn(text) -> "portuguese"
+            Regex("阿拉伯语|阿语").containsMatchIn(text) -> "arabic"
+            Regex("泰语|泰文").containsMatchIn(text) -> "thai"
+            Regex("越南语|越南文").containsMatchIn(text) -> "vietnamese"
             else -> "english"
         }
-        val langCn = if (lang == "cantonese") "粤语" else if (lang == "mandarin") "普通话" else "英语"
-        val content = clean(text.replace(
-            Regex("(请)?(帮我)?(把)?|翻译(成|为)?|用.{0,3}语(怎么说|说)?|怎么说|译成|译为|英语|英文|粤语|广东话|白话|普通话|国语|中文|[,。?!]"), ""))
+        val langCn = mapOf(
+            "cantonese" to "粤语", "mandarin" to "普通话", "english" to "英语",
+            "japanese" to "日语", "korean" to "韩语", "spanish" to "西班牙语",
+            "french" to "法语", "german" to "德语", "russian" to "俄语",
+            "portuguese" to "葡萄牙语", "arabic" to "阿拉伯语", "thai" to "泰语",
+            "vietnamese" to "越南语"
+        )[lang] ?: "英语"
+        val languageNames = Regex(
+            "英语|英文|粤语|广东话|白话|普通话|国语|中文|日语|日文|日本话|韩语|韩文|韩国话|朝鲜语|" +
+                "西班牙语|西语|法语|法文|德语|德文|俄语|俄文|葡萄牙语|葡语|阿拉伯语|阿语|泰语|泰文|越南语|越南文"
+        )
+        val content = clean(text
+            .replace(languageNames, "")
+            .replace(Regex("翻译(成|为)?|译成|译为"), "")
+            .replace(Regex("^(请)?(帮我)?(把)?"), "")
+            .replace(Regex("^用"), "")
+            .replace(Regex("^(怎么说|说|讲)"), "")
+            .replace(Regex("[,。?!]"), ""))
         if (content.isBlank()) return null
         val out = when (lang) {
             "mandarin" -> {
@@ -173,7 +198,8 @@ object LocalIntents {
                 REVERSE[content.lowercase().trimEnd('?', '.', '!')] ?: REVERSE[content] ?: content
             }
             "english" -> PHRASES.entries.firstOrNull { content.contains(it.key) || it.key.contains(content) }?.value?.first
-            else -> PHRASES.entries.firstOrNull { content.contains(it.key) || it.key.contains(content) }?.value?.second
+            "cantonese" -> PHRASES.entries.firstOrNull { content.contains(it.key) || it.key.contains(content) }?.value?.second
+            else -> null
         }
         // 词库没命中 → 返回 null,交给云端大模型翻译(联网时);离线时上层会走兜底话术
         if (out == null) return null

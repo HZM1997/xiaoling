@@ -18,6 +18,7 @@ import firewall        # 后端防火墙(限流/体积限制/安全头)
 import agent_registry  # 受控的签名 Skill / Agent 能力目录
 import account_store   # 账号、实名状态与永久权益持久化
 import asr_gateway
+import fraud
 import realtime_gateway
 from agent_runtime import runtime
 
@@ -42,6 +43,7 @@ def health():
             "asr": cloud_asr or realtime_status["available"],
             "asr_fallback": cloud_asr,
             "realtime": realtime_status,
+            "anti_fraud": fraud.status(),
             "skills": [name for name, _, _ in skills._REGISTRY],
             "agent_registry": agent_registry.status(), "runtime": runtime_status}
 

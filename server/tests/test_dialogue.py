@@ -26,6 +26,25 @@ def test_fraud_redline_screenshare():
     assert r.risk >= 0.9
 
 
+def test_global_fraud_gift_card_english():
+    r = handle("This is tech support. Buy gift cards and send me the code now",
+               context={"scene": "incoming_call", "caller": "+1 202"})
+    assert r.action and r.action["type"] == "FRAUD_WARN"
+    assert r.risk >= 0.85
+
+
+def test_global_fraud_crypto_seed_phrase():
+    r = handle("Share your seed phrase so we can recover your crypto wallet")
+    assert r.action and r.action["type"] == "FRAUD_WARN"
+    assert r.risk >= 0.85
+
+
+def test_obfuscated_phishing_link():
+    r = handle("账户异常,请立即登录 https://bank.example.com@xn--pay-9za.top 验证")
+    assert r.action and r.action["type"] == "FRAUD_WARN"
+    assert r.risk >= 0.55
+
+
 def test_normal_call_not_flagged_as_fraud():
     # 正常来电内容不应误报
     r = handle("儿子啊,晚上回家吃饭吗",
@@ -57,6 +76,12 @@ def test_local_multi_command():
     r = handle("给女儿打电话然后提醒我晚上八点吃药")
     assert r.action and r.action["type"] == "TASKS"
     assert [step["type"] for step in r.action["steps"]] == ["CALL", "REMIND"]
+
+
+def test_translation_language_detection():
+    from translate import parse_translate
+    assert parse_translate("把谢谢翻译成日语") == ("谢谢", "japanese")
+    assert parse_translate("用西班牙语说我需要帮助") == ("我需要帮助", "spanish")
 
 
 if __name__ == "__main__":

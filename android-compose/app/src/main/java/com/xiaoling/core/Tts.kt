@@ -21,6 +21,7 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
     /** 最近一次正常播报的内容(供打断后恢复) */
     @Volatile var lastSpoken: String = ""
         private set
+    @Volatile private var lastLanguage: String = "mandarin"
 
     init {
         tts = TextToSpeech(ctx.applicationContext) { status ->
@@ -45,10 +46,14 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
     val isReady: Boolean get() = ready
 
     /** 播报;返回本次 utteranceId。引擎报错/未就绪时立即回调 onDone,避免状态卡死。 */
-    fun speak(s: String): String {
+    fun speak(s: String, language: String = "mandarin"): String {
         val id = (++seq).toString()
-        if (s.isNotBlank()) lastSpoken = s
+        if (s.isNotBlank()) {
+            lastSpoken = s
+            lastLanguage = language
+        }
         if (ready && s.isNotBlank()) {
+            tts?.setLanguage(localeFor(language))
             val r = tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, id) ?: TextToSpeech.ERROR
             if (r == TextToSpeech.ERROR) main.post { onDone(id) }
         } else {
@@ -69,7 +74,23 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
     }
 
     /** 重播上一句(打断后未识别到新指令时恢复);无历史则不动作,返回空 id */
-    fun speakLast(): String = if (lastSpoken.isNotBlank()) speak(lastSpoken) else ""
+    fun speakLast(): String = if (lastSpoken.isNotBlank()) speak(lastSpoken, lastLanguage) else ""
+
+    private fun localeFor(language: String): Locale = when (language) {
+        "english" -> Locale.US
+        "cantonese" -> Locale.forLanguageTag("yue-Hans-CN")
+        "japanese" -> Locale.JAPAN
+        "korean" -> Locale.KOREA
+        "spanish" -> Locale.forLanguageTag("es-ES")
+        "french" -> Locale.FRANCE
+        "german" -> Locale.GERMANY
+        "russian" -> Locale.forLanguageTag("ru-RU")
+        "portuguese" -> Locale.forLanguageTag("pt-BR")
+        "arabic" -> Locale.forLanguageTag("ar-SA")
+        "thai" -> Locale.forLanguageTag("th-TH")
+        "vietnamese" -> Locale.forLanguageTag("vi-VN")
+        else -> Locale.CHINA
+    }
 
     /** 立即停止当前播报(打断用) */
     fun stop() { tts?.stop() }

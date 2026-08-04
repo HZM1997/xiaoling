@@ -848,7 +848,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (type == "CALL" && hint?.startsWith("没找到联系人") == true) {
             pendingCallTarget = reply.action?.optString("target").orEmpty()
         }
-        val toSay = hint ?: reply.speech
+        val translatedText = if (type == "SPEAK") reply.action?.optString("text").orEmpty() else ""
+        val toSay = hint ?: translatedText.ifBlank { reply.speech }
         if (type == "FRAUD_WARN") FraudStore.inc(app)
         speaking = true
         _state.update {
@@ -862,7 +863,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 sosLabel = if (type == "SOS") "刚刚" else it.sosLabel
             )
         }
-        curUtt = tts.speak(toSay)
+        curUtt = tts.speak(toSay, if (type == "SPEAK") reply.action?.optString("lang").orEmpty() else "mandarin")
         if (type == "FRAUD_WARN" || type == "SOS") {
             scheduleAlarmReset()
             if (isPremium()) {   // 跨设备家人推送:高级会员专享

@@ -14,6 +14,7 @@
 from __future__ import annotations
 import json
 import os
+import re
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -35,6 +36,15 @@ def reload_rules() -> str:
     global _RULES
     _RULES = _load_rules()
     return _RULES.get("version", "")
+
+
+def status() -> dict:
+    return {
+        "version": _RULES.get("version", "unknown"),
+        "categories": len(_RULES.get("categories", {})),
+        "local_url_analysis": True,
+        "external_lookup_required": False,
+    }
 
 
 @dataclass
@@ -69,6 +79,35 @@ def normalize(text: str) -> str:
     return compact
 
 
+def _hits(words: list[str], text: str) -> list[str]:
+    folded = text.casefold()
+    compact = folded.replace(" ", "")
+    return [word for word in words
+            if word.casefold() in folded or word.casefold().replace(" ", "") in compact]
+
+
+def _url_risk(text: str) -> tuple[float, list[str]]:
+    """纯本地识别链接混淆信号,不把用户网址上传给第三方。"""
+    urls = re.findall(r"(?:https?://|www\.)[^\s，。！？]+", text, flags=re.I)
+    score, signals = 0.0, []
+    shorteners = ("bit.ly", "tinyurl.com", "t.co/", "cutt.ly", "is.gd", "rebrand.ly", "shorturl.at")
+    risky_tlds = (".top", ".xyz", ".click", ".work", ".loan", ".zip", ".mov")
+    for raw in urls[:4]:
+        value = raw.casefold()
+        if "xn--" in value:
+            score += 0.28; signals.append("国际化域名混淆")
+        if re.search(r"https?://(?:\d{1,3}\.){3}\d{1,3}(?:[:/]|$)", value):
+            score += 0.25; signals.append("直接使用IP地址")
+        if re.search(r"https?://[^/\s]*@", value):
+            score += 0.28; signals.append("链接隐藏真实地址")
+        if any(item in value for item in shorteners):
+            score += 0.18; signals.append("短链接隐藏目标")
+        host = re.sub(r"^https?://", "", value).split("/", 1)[0].split(":", 1)[0]
+        if host.endswith(risky_tlds):
+            score += 0.12; signals.append("高滥用风险域名")
+    return min(score, 0.6), list(dict.fromkeys(signals))
+
+
 def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudResult:
     raw = text or ""
     t = normalize(raw)
@@ -80,7 +119,7 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
 
     # —— L1a 红线词:命中即极高危,直接短路(白名单也拦,红线优先于可信)——
     red = cats["redline"]
-    red_hits = [w for w in red["words"] if w in t]
+    red_hits = _hits(red["words"], t)
     if red_hits:
         amps = _amplifier_hits(t)
         return _finalize(0.96, red["label"], red_hits, amps,
@@ -94,7 +133,7 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
     for key, c in cats.items():
         if key == "redline":
             continue
-        hits = [w for w in c["words"] if w in t]
+        hits = _hits(c["words"], t)
         if not hits:
             continue
         all_hits += hits
@@ -104,6 +143,13 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
             best_score, best_cat = score, c["label"]
 
     risk = base + best_score
+
+    url_score, url_hits = _url_risk(raw)
+    risk += url_score
+    if url_hits:
+        all_hits.extend(url_hits)
+        if not best_cat:
+            best_cat = "可疑链接/仿冒网站"
 
     # —— 放大 / 抑制因子 ——
     amp_hits = _amplifier_hits(t)
@@ -141,7 +187,7 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
 def _amplifier_hits(t: str) -> list[str]:
     out = []
     for name, sig in _RULES.get("amplifiers", {}).get("signals", {}).items():
-        if any(w in t for w in sig["words"]):
+        if _hits(sig["words"], t):
             out.append(name)
     return out
 
@@ -154,7 +200,7 @@ def _amp_labels(keys: list[str]) -> list[str]:
 def _suppressor_delta(t: str) -> float:
     total = 0.0
     for name, sig in _RULES.get("suppressors", {}).get("signals", {}).items():
-        if any(w in t for w in sig["words"]):
+        if _hits(sig["words"], t):
             total += sig["sub"]
     return total
 

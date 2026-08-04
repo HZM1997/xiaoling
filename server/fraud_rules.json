@@ -1,6 +1,6 @@
 {
-  "version": "2026.07.21-v4",
-  "note": "诈骗规则库 v4。文本先归一化(去空格/同音变体),再:红线短路→分类累加→放大/抑制因子→阈值判级。支持多轮会话累积。可热更新。",
+  "version": "2026.08.04-v5-global",
+  "note": "诈骗规则库 v5。覆盖中文与常见跨境英文诈骗话术。文本先归一化(去空格/同音变体),再:红线短路→分类累加→放大/抑制因子→阈值判级。支持多轮会话累积。可热更新。",
   "normalize": {
     "note": "同音/形近/谐音变体 → 标准词,抵抗骗子刻意混淆(说'验 证 码'、'专账'、'V信'等)",
     "map": {
@@ -100,6 +100,47 @@
       "words": ["管道要检修", "更换费", "燃气公司", "水表", "电表", "上门检修收费",
                 "不交费就停气", "不交停电", "回拨这个号码", "签收异常"]
     },
+    "global_authority": {
+      "label": "冒充税务/移民/海关/执法机构",
+      "weight": 0.5,
+      "words": ["税务欠款", "移民局", "签证即将取消", "护照涉案", "海关扣押", "包裹被海关扣留",
+                "tax debt", "tax refund", "immigration office", "visa will be cancelled", "passport suspended",
+                "customs seized", "arrest warrant", "law enforcement", "social security number suspended"]
+    },
+    "tech_support": {
+      "label": "技术支持/设备远控诈骗",
+      "weight": 0.48,
+      "words": ["电脑中毒", "手机中毒", "账户被黑", "技术支持", "安全工程师", "远程修复",
+                "tech support", "your device is infected", "virus detected", "remote access", "install anydesk",
+                "install teamviewer", "security department", "your account was hacked"]
+    },
+    "giftcard_crypto_payment": {
+      "label": "礼品卡/加密货币异常付款",
+      "weight": 0.5,
+      "words": ["购买礼品卡", "礼品卡背面号码", "充值卡密码", "兑换码发给我", "加密货币付款", "转到冷钱包",
+                "buy gift cards", "gift card code", "scratch the card", "pay in bitcoin", "pay with crypto",
+                "send usdt", "wallet address", "bitcoin atm"]
+    },
+    "job_money_mule": {
+      "label": "虚假招聘/跑分洗钱",
+      "weight": 0.46,
+      "words": ["居家兼职", "代收货款", "出租银行卡", "出租电话卡", "刷流水赚佣金", "跑分", "代购礼品卡",
+                "work from home", "easy commission", "receive money for us", "use your bank account",
+                "money mule", "reship packages", "processing fee before interview"]
+    },
+    "account_takeover": {
+      "label": "账号接管/SIM换卡",
+      "weight": 0.45,
+      "words": ["手机卡升级", "补办手机卡", "SIM卡失效", "重新绑定手机号", "账号恢复码", "登录确认码",
+                "sim swap", "sim card expired", "account recovery code", "login verification code",
+                "reset your password", "confirm your identity", "unusual login"]
+    },
+    "charity_disaster": {
+      "label": "虚假慈善/灾害募捐",
+      "weight": 0.38,
+      "words": ["赈灾捐款", "慈善专用账户", "紧急募捐", "病童众筹私下转账",
+                "disaster donation", "urgent charity", "donate immediately", "charity wallet", "victim relief fund"]
+    },
     "redline": {
       "label": "红线操作(命中即极高危)",
       "weight": 0.9,
@@ -108,7 +149,9 @@
                 "不要挂电话去银行", "不要告诉家人", "转到安全账户", "把钱转到",
                 "输入银行卡密码", "扫这个码", "点这个链接转账", "安装远程控制软件",
                 "上门取现金", "取现金交给骑手", "购买黄金邮寄", "邮寄黄金", "邮寄现金",
-                "开启NFC碰一碰", "手机贴近银行卡"]
+                "开启NFC碰一碰", "手机贴近银行卡", "购买礼品卡并发送卡号", "把助记词告诉我", "提供钱包私钥",
+                "share your screen", "remote access", "read me the verification code", "send the otp",
+                "buy gift cards", "share your seed phrase", "send your private key", "transfer to a safe account"]
     }
   },
   "amplifiers": {
@@ -116,8 +159,8 @@
     "signals": {
       "urgency": { "add": 0.12, "words": ["马上", "立刻", "限时", "两小时内", "否则", "逾期", "账户将被", "来不及", "现在就"] },
       "secrecy": { "add": 0.18, "words": ["不要告诉", "别跟家人说", "保密", "私下处理", "不能让别人知道"] },
-      "money_action": { "add": 0.15, "words": ["转账", "汇款", "打款", "输密码", "验证码", "银行卡", "支付宝", "微信", "扫码", "点击链接"] },
-      "authority": { "add": 0.1, "words": ["工号", "案件编号", "红头文件", "官方通知", "领导指示"] }
+      "money_action": { "add": 0.15, "words": ["转账", "汇款", "打款", "输密码", "验证码", "银行卡", "支付宝", "微信", "扫码", "点击链接", "wire transfer", "gift card", "crypto", "bitcoin", "otp", "password"] },
+      "authority": { "add": 0.1, "words": ["工号", "案件编号", "红头文件", "官方通知", "领导指示", "case number", "official notice", "federal agent", "police department"] }
     }
   },
   "suppressors": {

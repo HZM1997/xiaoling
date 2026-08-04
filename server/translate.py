@@ -8,8 +8,30 @@ import json
 import os
 import re
 
-# 目标语言标识
-LANGS = {"mandarin": "普通话", "english": "英语", "cantonese": "粤语"}
+# 目标语言标识。常用中英粤支持离线词库,其余语言由 Kimi-first 网关实时翻译。
+LANGS = {
+    "mandarin": "普通话", "english": "英语", "cantonese": "粤语",
+    "japanese": "日语", "korean": "韩语", "spanish": "西班牙语",
+    "french": "法语", "german": "德语", "russian": "俄语",
+    "portuguese": "葡萄牙语", "arabic": "阿拉伯语", "thai": "泰语",
+    "vietnamese": "越南语",
+}
+_LANG_PATTERNS = (
+    ("cantonese", r"粤语|广东话|白话"),
+    ("mandarin", r"普通话|中文|国语|汉语"),
+    ("japanese", r"日语|日文|日本话"),
+    ("korean", r"韩语|韩文|韩国话|朝鲜语"),
+    ("spanish", r"西班牙语|西语"),
+    ("french", r"法语|法文"),
+    ("german", r"德语|德文"),
+    ("russian", r"俄语|俄文"),
+    ("portuguese", r"葡萄牙语|葡语"),
+    ("arabic", r"阿拉伯语|阿语"),
+    ("thai", r"泰语|泰文"),
+    ("vietnamese", r"越南语|越南文"),
+    ("english", r"英语|英文"),
+)
+_LANG_NAMES = "|".join(pattern for _, pattern in _LANG_PATTERNS)
 
 _PATH = os.path.join(os.path.dirname(__file__), "translate_phrases.json")
 
@@ -46,15 +68,14 @@ def parse_translate(text: str) -> tuple[str, str] | None:
     t = text.strip()
     if not re.search(r"翻译|怎么说|用.{0,3}语|译成|译为", t):
         return None
-    lang = "english"
-    if re.search(r"粤语|广东话|白话", t):
-        lang = "cantonese"
-    elif re.search(r"英语|英文", t):
-        lang = "english"
-    elif re.search(r"普通话|中文|国语", t):
-        lang = "mandarin"
+    lang = next((key for key, pattern in _LANG_PATTERNS if re.search(pattern, t)), "english")
     # 抽取待翻译内容:去掉翻译指令词
-    content = re.sub(r"(请)?(帮我)?(把)?|翻译(成|为)?|用.{0,3}语(怎么说|说)?|怎么说|译成|译为|英语|英文|粤语|广东话|白话|普通话|中文|国语|[,。?!]", "", t).strip()
+    content = re.sub(rf"{_LANG_NAMES}", "", t)
+    content = re.sub(r"翻译(?:成|为)?|译成|译为", "", content)
+    content = re.sub(r"^(?:请)?(?:帮我)?(?:把)?", "", content)
+    content = re.sub(r"^用", "", content)
+    content = re.sub(r"^(?:怎么说|说|讲)", "", content)
+    content = re.sub(r"[,。?!]", "", content).strip()
     return (content or t, lang)
 
 
