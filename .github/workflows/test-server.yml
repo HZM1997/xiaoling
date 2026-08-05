@@ -3,7 +3,7 @@ name: Test AI Server
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/auto-realtime-avatar-v1.0.27-ci']
+    branches: ['fix/realtime-stall-v1.0.28-ci']
     tags: ['v*']
 
 jobs:

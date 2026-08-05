@@ -207,6 +207,8 @@ def _session_update(
                 "type": "semantic_vad",
                 "threshold": 0.20,
                 "silence_duration_ms": 360,
+                "create_response": True,
+                "interrupt_response": True,
             },
             "tools": _qwen_tools(),
         },
@@ -376,6 +378,7 @@ async def _handle_session(websocket: WebSocket) -> None:
         "response_active": False,
         "response_cancel_pending": False,
         "user_speaking": False,
+        "response_sequence": 0,
     }
 
     async def send_upstream(upstream, payload: dict) -> None:
@@ -528,6 +531,7 @@ async def _handle_session(websocket: WebSocket) -> None:
             "response_active": False,
             "response_cancel_pending": False,
             "user_speaking": False,
+            "response_sequence": 0,
         })
         await send_client({"type": "session.ready", "provider": provider, "model": model})
 
@@ -638,7 +642,19 @@ async def _handle_session(websocket: WebSocket) -> None:
                             upstream,
                             _session_update(user_id, context, transcript),
                         )
+                        response_sequence = state["response_sequence"]
+
+                        async def ensure_response(sequence: int) -> None:
+                            await asyncio.sleep(0.7)
+                            if (sequence == state["response_sequence"] and
+                                    not state["response_active"] and not state["user_speaking"]):
+                                await send_upstream(upstream, {"type": "response.create"})
+
+                        task = asyncio.create_task(ensure_response(response_sequence))
+                        background.add(task)
+                        task.add_done_callback(background.discard)
                 elif kind == "response.created":
+                    state["response_sequence"] += 1
                     state["response_active"] = True
                     state["response_cancel_pending"] = False
                     await send_client({"type": "output.started"})

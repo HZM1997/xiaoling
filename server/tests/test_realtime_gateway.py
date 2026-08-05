@@ -75,6 +75,8 @@ def test_qwen_session_uses_semantic_vad_and_nested_tools(tmp_path, monkeypatch):
     assert session["turn_detection"]["type"] == "semantic_vad"
     assert session["turn_detection"]["threshold"] <= 0.35
     assert session["turn_detection"]["silence_duration_ms"] <= 600
+    assert session["turn_detection"]["create_response"] is True
+    assert session["turn_detection"]["interrupt_response"] is True
     assert "tool_choice" not in session
     assert "parallel_tool_calls" not in session
     assert {tool["function"]["name"] for tool in session["tools"]} >= {

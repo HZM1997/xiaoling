@@ -5,9 +5,11 @@ import android.media.AudioAttributes
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 系统 TTS 封装:异步 init、中文可用性判断、带 id 的说完回调。
@@ -24,6 +26,8 @@ class Tts(
     private var tts: TextToSpeech? = null
     private var seq = 0
     private val main = Handler(Looper.getMainLooper())
+    private val pending = ConcurrentHashMap<String, Long>()
+    private val started = ConcurrentHashMap.newKeySet<String>()
     /** 最近一次正常播报的内容(供打断后恢复) */
     @Volatile var lastSpoken: String = ""
         private set
@@ -43,9 +47,18 @@ class Tts(
                 tts?.setSpeechRate(1.08f)   // 略快,老人也能听清,同时缩短播报时长
                 val cb = onDone   // 捕获,避免与 UtteranceProgressListener.onDone 同名方法递归
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String?) { main.post { onStarted(id) } }
-                    override fun onDone(id: String?) { cb(id) }
-                    @Deprecated("deprecated") override fun onError(id: String?) { cb(id) }
+                    override fun onStart(id: String?) {
+                        id?.let(started::add)
+                        main.post { onStarted(id) }
+                    }
+                    override fun onDone(id: String?) { finishPending(id, cb) }
+                    @Deprecated("deprecated") override fun onError(id: String?) { finishPending(id, cb) }
+                    override fun onError(id: String?, errorCode: Int) { finishPending(id, cb) }
+                    override fun onStop(id: String?, interrupted: Boolean) {
+                        if (interrupted) {
+                            id?.let { pending.remove(it); started.remove(it) }
+                        } else finishPending(id, cb)
+                    }
                 })
                 // 预热:静音串跑一遍合成管线,消除首句冷启动延迟
                 if (ready) tts?.speak(" ", TextToSpeech.QUEUE_FLUSH, Bundle().apply {
@@ -67,8 +80,10 @@ class Tts(
         if (ready && s.isNotBlank()) {
             onPreparing(id)
             tts?.setLanguage(localeFor(language))
+            val timeoutMs = (2_500L + s.length * 420L).coerceIn(4_500L, 30_000L)
+            pending[id] = SystemClock.elapsedRealtime() + timeoutMs
             val r = tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, id) ?: TextToSpeech.ERROR
-            if (r == TextToSpeech.ERROR) main.post { onDone(id) }
+            if (r == TextToSpeech.ERROR) finishPending(id, onDone) else monitorCompletion(id, onDone)
         } else {
             // 保持异步语义,避免调用方尚未记录 utteranceId 时完成回调已经到达。
             main.post { onDone(id) }
@@ -89,6 +104,29 @@ class Tts(
     /** 重播上一句(打断后未识别到新指令时恢复);无历史则不动作,返回空 id */
     fun speakLast(): String = if (lastSpoken.isNotBlank()) speak(lastSpoken, lastLanguage) else ""
 
+    /** 部分 MIUI TTS 会播完却漏掉 onDone；轮询 isSpeaking，保证连续对话不会永久卡住。 */
+    private fun monitorCompletion(id: String, callback: (String?) -> Unit) {
+        main.postDelayed(object : Runnable {
+            override fun run() {
+                val deadline = pending[id] ?: return
+                val engineSpeaking = try { tts?.isSpeaking == true } catch (_: Throwable) { false }
+                if (engineSpeaking) started.add(id)
+                val finishedNormally = started.contains(id) && !engineSpeaking
+                if (finishedNormally || SystemClock.elapsedRealtime() >= deadline) {
+                    finishPending(id, callback)
+                } else {
+                    main.postDelayed(this, 220L)
+                }
+            }
+        }, 320L)
+    }
+
+    private fun finishPending(id: String?, callback: (String?) -> Unit) {
+        if (id == null || pending.remove(id) == null) return
+        started.remove(id)
+        main.post { callback(id) }
+    }
+
     private fun localeFor(language: String): Locale = when (language) {
         "english" -> Locale.US
         "cantonese" -> Locale.forLanguageTag("yue-Hans-CN")
@@ -108,5 +146,5 @@ class Tts(
     /** 立即停止当前播报(打断用) */
     fun stop() { tts?.stop() }
 
-    fun shutdown() { tts?.stop(); tts?.shutdown(); tts = null }
+    fun shutdown() { pending.clear(); started.clear(); tts?.stop(); tts?.shutdown(); tts = null }
 }

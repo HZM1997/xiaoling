@@ -124,6 +124,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private var autoListenJob: Job? = null
     private var realtimeConnectJob: Job? = null
     private var realtimeRetryJob: Job? = null
+    private var realtimeResponseJob: Job? = null
+    private var realtimeOutputJob: Job? = null
     private var realtimeCaptionJob: Job? = null
     @Volatile private var realtimeConnecting = false
     @Volatile private var realtimeActive = false
@@ -403,6 +405,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         realtimeActive = false
         realtimeConnectJob?.cancel()
         realtimeRetryJob?.cancel()
+        realtimeResponseJob?.cancel()
+        realtimeOutputJob?.cancel()
         realtimeCaptionJob?.cancel()
         realtime.stop(notify = false)
         autoListenJob?.cancel()
@@ -1009,6 +1013,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeDisconnected(message: String, retryable: Boolean) {
         if (!realtimeActive && !realtimeConnecting) return
+        realtimeResponseJob?.cancel()
+        realtimeOutputJob?.cancel()
         realtimeActive = false
         realtimeConnecting = false
         realtimeConnectJob?.cancel()
@@ -1034,6 +1040,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeInputStarted(latencyMs: Long) {
         if (!realtimeActive) return
+        realtimeResponseJob?.cancel()
+        realtimeOutputJob?.cancel()
         val interruptedOutput = speaking
         realtimeCaptionJob?.cancel()
         tts.stop()
@@ -1058,6 +1066,21 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(listening = !final, busy = final, speaking = false,
             caption = text, lastUser = if (final) text else it.lastUser,
             mascot = if (final) MascotState.Thinking else MascotState.Listening) }
+        if (final) {
+            realtimeResponseJob?.cancel()
+            realtimeResponseJob = viewModelScope.launch {
+                delay(7_000L)
+                if (realtimeActive && !speaking && _state.value.busy && _state.value.lastUser == text) {
+                    // 上游漏掉 response.created 时不要永久停在“思考中”；退出坏会话并走稳定问答链。
+                    realtimeActive = false
+                    realtimeConnecting = false
+                    realtime.stop(notify = false)
+                    _state.update { it.copy(busy = false, listening = false,
+                        asrReady = false, asrStatus = "实时回答超时，已自动恢复") }
+                    process(text)
+                }
+            }
+        }
     }
 
     private fun isCompanionReturnCommand(text: String): Boolean =
@@ -1065,9 +1088,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeOutputStarted() {
         if (!realtimeActive) return
+        realtimeResponseJob?.cancel()
         speaking = true
         _state.update { it.copy(listening = false, busy = false, speaking = true,
             mascot = MascotState.Talking) }
+        armRealtimeOutputWatchdog()
     }
 
     private fun onRealtimeOutputText(text: String, final: Boolean) {
@@ -1075,10 +1100,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
         speaking = true
         _state.update { it.copy(listening = false, busy = false, speaking = true,
             caption = text, mascot = MascotState.Talking) }
+        armRealtimeOutputWatchdog()
     }
 
     private fun onRealtimeOutputDone(text: String) {
         if (!realtimeActive) return
+        realtimeResponseJob?.cancel()
+        realtimeOutputJob?.cancel()
         speaking = false
         val finalText = text.ifBlank { _state.value.caption }
         _state.update { it.copy(listening = false, busy = true, speaking = false,
@@ -1088,6 +1116,23 @@ class AppState(application: Application) : AndroidViewModel(application) {
             delay(2200)
             if (realtimeActive && !speaking && !_state.value.listening && _state.value.caption == finalText) {
                 _state.update { it.copy(caption = "", busy = false) }
+            }
+        }
+    }
+
+    private fun armRealtimeOutputWatchdog() {
+        realtimeOutputJob?.cancel()
+        realtimeOutputJob = viewModelScope.launch {
+            delay(12_000L)
+            if (realtimeActive && speaking) {
+                realtimeActive = false
+                realtimeConnecting = false
+                realtime.stop(notify = false)
+                speaking = false
+                _state.update { it.copy(listening = false, speaking = false, busy = false,
+                    mascot = MascotState.Idle, asrReady = false,
+                    asrStatus = "语音终态超时，已自动恢复") }
+                startLegacyVoiceFallback("实时语音已自动恢复")
             }
         }
     }
