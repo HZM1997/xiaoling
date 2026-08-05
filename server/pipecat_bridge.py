@@ -29,9 +29,9 @@ _MODEL_PATH = Path(__file__).resolve().parent / "vendor" / "pipecat" / "silero_v
 
 def _confidence() -> float:
     try:
-        value = float(os.getenv("XL_PIPECAT_VAD_CONFIDENCE", "0.52"))
+        value = float(os.getenv("XL_PIPECAT_VAD_CONFIDENCE", "0.46"))
     except (TypeError, ValueError):
-        value = 0.52
+        value = 0.46
     return max(0.25, min(value, 0.9))
 
 
@@ -93,11 +93,11 @@ class _VendoredSileroAnalyzer:
             confidence = self.model.confidence(frame)
             samples = np.frombuffer(frame, np.int16).astype(np.float32) / 32768.0
             volume = float(np.sqrt(np.mean(samples * samples))) if samples.size else 0.0
-            speaking = confidence >= _confidence() and volume >= 0.0025
+            speaking = confidence >= _confidence() and volume >= 0.0015
             if speaking:
                 if self.state == "QUIET":
-                    self.state = "STARTING"
-                    self.start_count = 1
+                    self.state = "SPEAKING"
+                    self.start_count = 0
                 elif self.state == "STARTING":
                     self.start_count += 1
                     if self.start_count >= 2:

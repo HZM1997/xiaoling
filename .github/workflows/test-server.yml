@@ -3,7 +3,7 @@ name: Test AI Server
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/security-firewall-v1.0.25-ci']
+    branches: ['fix/no-captions-voice-v1.0.26-ci']
     tags: ['v*']
 
 jobs:

@@ -111,7 +111,7 @@ class SpeechController(private val ctx: Context) {
                     releaseRecognizer()
                     if (text.isBlank()) {
                         systemMisses++
-                        if (systemMisses >= 2 && cloudAvailable) preferCloud = true
+                        if (systemMisses >= 1 && cloudAvailable) preferCloud = true
                     } else {
                         systemMisses = 0
                     }
@@ -120,7 +120,9 @@ class SpeechController(private val ctx: Context) {
                 override fun onPartialResults(partialResults: Bundle?) {
                     val p = partialResults?.let(::bestCandidate).orEmpty()
                     if (p.isNotBlank()) {
-                        lastPartial = p
+                        if (p.count { !it.isWhitespace() } >= lastPartial.count { !it.isWhitespace() }) {
+                            lastPartial = p
+                        }
                         partialCb(p)
                     }
                 }
@@ -139,7 +141,7 @@ class SpeechController(private val ctx: Context) {
                     if (error == SpeechRecognizer.ERROR_NO_MATCH ||
                         error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                         systemMisses++
-                        if (systemMisses >= 2 && cloudAvailable) preferCloud = true
+                        if (systemMisses >= 1 && cloudAvailable) preferCloud = true
                     }
                     if (error == SpeechRecognizer.ERROR_CLIENT ||
                         error == SpeechRecognizer.ERROR_SERVER ||
@@ -169,9 +171,9 @@ class SpeechController(private val ctx: Context) {
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 // 不强制 EXTRA_PREFER_OFFLINE。部分红米会声称支持设备端识别,实际没有中文模型,
                 // 强制离线后只返回 ERROR_CLIENT/NO_MATCH。标准服务可自行选择在线或本地引擎。
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2200)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 200)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     putStringArrayListExtra(
                         RecognizerIntent.EXTRA_BIASING_STRINGS,

@@ -38,7 +38,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     interface Listener {
         fun onConnected(model: String)
         fun onDisconnected(message: String, retryable: Boolean)
-        fun onInputSpeechStarted()
+        fun onInputSpeechStarted(latencyMs: Long)
         fun onInputTranscript(text: String, final: Boolean)
         fun onOutputStarted()
         fun onOutputTranscript(text: String, final: Boolean)
@@ -232,7 +232,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build()
                 )
-                .setBufferSizeInBytes(maxOf(playMin * 2, SAMPLE_RATE * 2))
+                .setBufferSizeInBytes(maxOf(playMin, FRAME_BYTES * 4))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
             if (audioRecord.state != AudioRecord.STATE_INITIALIZED || audioTrack.state != AudioTrack.STATE_INITIALIZED) {
@@ -315,12 +315,14 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     interruptedThisUtterance = false
                 }
             }
-            if (interruptWindow && loudFrames >= 2 && !interruptedThisUtterance) {
+            val strongSpeech = rms >= speechThreshold * 1.65
+            if (interruptWindow && (strongSpeech || loudFrames >= 2) && !interruptedThisUtterance) {
                 interruptedThisUtterance = true
                 responseInProgress = false
                 clearPlayback()
                 socket?.send(JSONObject().put("type", "response.cancel").toString())
-                post { listener.onInputSpeechStarted() }
+                val latencyMs = if (strongSpeech) 20L else loudFrames * 20L
+                post { listener.onInputSpeechStarted(latencyMs) }
             }
             val ws = socket ?: continue
             if (ws.queueSize() > MAX_WEBSOCKET_QUEUE_BYTES) {
@@ -358,7 +360,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 inputText = StringBuilder()
                 responseInProgress = false
                 clearPlayback()
-                post { listener.onInputSpeechStarted() }
+                post { listener.onInputSpeechStarted(-1L) }
             }
             "input.transcript.delta" -> {
                 val delta = event.optString("text")

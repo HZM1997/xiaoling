@@ -92,7 +92,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private val realtime = RealtimeVoiceClient(app, object : RealtimeVoiceClient.Listener {
         override fun onConnected(model: String) = onRealtimeConnected(model)
         override fun onDisconnected(message: String, retryable: Boolean) = onRealtimeDisconnected(message, retryable)
-        override fun onInputSpeechStarted() = onRealtimeInputStarted()
+        override fun onInputSpeechStarted(latencyMs: Long) = onRealtimeInputStarted(latencyMs)
         override fun onInputTranscript(text: String, final: Boolean) = onRealtimeInputText(text, final)
         override fun onOutputStarted() = onRealtimeOutputStarted()
         override fun onOutputTranscript(text: String, final: Boolean) = onRealtimeOutputText(text, final)
@@ -1005,7 +1005,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         beginListening(automatic = true)
     }
 
-    private fun onRealtimeInputStarted() {
+    private fun onRealtimeInputStarted(latencyMs: Long) {
         if (!realtimeActive) return
         val interruptedOutput = speaking
         realtimeCaptionJob?.cancel()
@@ -1014,8 +1014,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         speaking = false
         _state.update { it.copy(listening = true, speaking = false, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
-        if (interruptedOutput) viewModelScope.launch {
-            BrainClient.qualityEvent(app, "barge_in_realtime", 0, true)
+        if (interruptedOutput && latencyMs >= 0L) viewModelScope.launch {
+            BrainClient.qualityEvent(app, "barge_in_realtime", latencyMs, true)
         }
     }
 

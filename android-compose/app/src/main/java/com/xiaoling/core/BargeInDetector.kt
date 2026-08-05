@@ -88,6 +88,7 @@ class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
         val frame = ByteArray(FRAME_BYTES)
         var frames = 0
         var loudFrames = 0
+        var candidateStartedAt = 0L
         var baseline = 70.0
         while (running && turn == generation.get()) {
             val count = try { recorder?.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING) ?: -1 } catch (_: Throwable) { -1 }
@@ -107,10 +108,17 @@ class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
             }
             if (rms < baseline * 1.35) baseline = baseline * 0.97 + rms.coerceAtLeast(25.0) * 0.03
             val threshold = maxOf(MIN_SPEECH_RMS, baseline * 1.28, baseline + MIN_RISE_RMS)
-            loudFrames = if (rms >= threshold) loudFrames + 1 else (loudFrames - 1).coerceAtLeast(0)
+            if (rms >= threshold) {
+                if (loudFrames == 0) candidateStartedAt = SystemClock.elapsedRealtime()
+                loudFrames++
+            } else {
+                loudFrames = (loudFrames - 1).coerceAtLeast(0)
+                if (loudFrames == 0) candidateStartedAt = 0L
+            }
             if (loudFrames >= REQUIRED_LOUD_FRAMES) {
                 running = false
-                val latency = (SystemClock.elapsedRealtime() - armedAtElapsed).coerceAtLeast(0L)
+                val onset = candidateStartedAt.takeIf { it > 0L } ?: armedAtElapsed
+                val latency = (SystemClock.elapsedRealtime() - onset).coerceAtLeast(0L)
                 main.post { onSpeech(latency) }
                 break
             }
@@ -150,7 +158,7 @@ class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
     private companion object {
         const val SAMPLE_RATE = 16_000
         const val FRAME_BYTES = 640
-        const val CALIBRATION_FRAMES = 4
+        const val CALIBRATION_FRAMES = 1
         const val REQUIRED_LOUD_FRAMES = 1
         const val MIN_SPEECH_RMS = 55.0
         const val MIN_RISE_RMS = 24.0

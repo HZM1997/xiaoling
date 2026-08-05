@@ -5,16 +5,6 @@ import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -29,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
@@ -45,11 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -122,9 +107,6 @@ fun HomeScreen(vm: AppState) {
         onDispose { activity?.lifecycle?.removeObserver(observer) }
     }
 
-    val visibleCaption = ui.micFeedback.ifBlank { ui.caption }
-    val showCaption = !inPip && visibleCaption.isNotBlank() &&
-        (ui.listening || ui.speaking || ui.busy || ui.micFeedback.isNotBlank())
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color.White)
     ) {
@@ -144,35 +126,8 @@ fun HomeScreen(vm: AppState) {
                 modifier = Modifier.fillMaxWidth().weight(1f)
             )
 
-            AnimatedVisibility(
-                visible = showCaption,
-                enter = fadeIn(tween(150)) + expandVertically(expandFrom = Alignment.CenterVertically),
-                exit = fadeOut(tween(120)) + shrinkVertically(shrinkTowards = Alignment.CenterVertically)
-            ) {
-                AnimatedContent(
-                    targetState = visibleCaption,
-                    transitionSpec = {
-                        (slideInVertically { it / 5 } + fadeIn(tween(150))) togetherWith
-                            (slideOutVertically { -it / 6 } + fadeOut(tween(110)))
-                    },
-                    label = "dialogue-caption"
-                ) { caption ->
-                    Text(
-                        text = caption,
-                        color = InkColor,
-                        fontSize = if (inPip) 12.sp else if (compact) 23.sp else 27.sp,
-                        lineHeight = if (inPip) 15.sp else if (compact) 30.sp else 35.sp,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center,
-                        maxLines = if (inPip) 1 else if (compact) 2 else 3,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
-                    )
-                }
-            }
-
             if (!inPip) {
-                Spacer(Modifier.height(if (showCaption) 8.dp else 14.dp))
+                Spacer(Modifier.height(14.dp))
                 MicrophoneButton(
                     listening = ui.micPressed,
                     onPress = {

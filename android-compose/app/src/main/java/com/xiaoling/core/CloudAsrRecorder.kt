@@ -116,7 +116,7 @@ class CloudAsrRecorder(private val ctx: Context) {
                     energy += value * value
                 }
                 val rms = sqrt(energy / count)
-                val threshold = max(220.0, noiseRms * 2.1)
+                val threshold = max(120.0, noiseRms * 1.55)
                 val bytes = ByteBuffer.allocate(count * 2).order(ByteOrder.LITTLE_ENDIAN).apply {
                     for (index in 0 until count) putShort(samples[index])
                 }.array()
@@ -131,7 +131,7 @@ class CloudAsrRecorder(private val ctx: Context) {
                         voiceChunks = 0
                         noiseRms = noiseRms * 0.92 + rms * 0.08
                     }
-                    if (voiceChunks >= 2) {
+                    if (voiceChunks >= 2 || rms > threshold * 1.65) {
                         speechStarted = true
                         preRoll.forEach { audio.write(it) }
                         preRoll.clear()
@@ -140,13 +140,13 @@ class CloudAsrRecorder(private val ctx: Context) {
                 } else {
                     audio.write(bytes)
                     silenceMs = if (rms < threshold * 0.72) silenceMs + count * 1000 / sampleRate else 0
-                    if (silenceMs >= 1000 && audio.size() >= sampleRate) break
+                    if (silenceMs >= 650 && audio.size() >= sampleRate / 2) break
                 }
                 if (stopRequested) break
             }
 
             if (cancelRequested) return
-            if (!speechStarted || audio.size() < sampleRate / 2) {
+            if (!speechStarted || audio.size() < sampleRate / 4) {
                 return fail(onError, SpeechRecognizer.ERROR_NO_MATCH)
             }
             val text = BrainClient.transcribeWav(ctx, wav(audio.toByteArray(), sampleRate))

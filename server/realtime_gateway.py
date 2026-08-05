@@ -205,8 +205,8 @@ def _session_update(
             "instructions": instructions,
             "turn_detection": {
                 "type": "semantic_vad",
-                "threshold": 0.24,
-                "silence_duration_ms": 460,
+                "threshold": 0.20,
+                "silence_duration_ms": 360,
             },
             "tools": _qwen_tools(),
         },
