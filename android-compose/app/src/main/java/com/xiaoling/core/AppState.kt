@@ -123,6 +123,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private var automaticMisses = 0
     private var autoListenJob: Job? = null
     private var realtimeConnectJob: Job? = null
+    private var realtimeRetryJob: Job? = null
     private var realtimeCaptionJob: Job? = null
     @Volatile private var realtimeConnecting = false
     @Volatile private var realtimeActive = false
@@ -135,6 +136,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         const val QUICK_TAP_MS = 320L
         const val RESULT_TIMEOUT_MS = 3500L
         const val AUTO_LISTEN_TIMEOUT_MS = 15000L
+        const val REALTIME_RETRY_MS = 1800L
     }
 
     /** 当前会员档位(登录跟账号,否则本地) */
@@ -163,6 +165,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 val changed = _state.value.online != online
                 _state.update { if (it.online == online) it else it.copy(online = online) }
                 if (changed && realtimeActive) realtime.updateContext()
+                if (changed && online && voiceSessionActive && AppForeground.active &&
+                    _state.value.screen == Screen.Home && !realtimeActive && !realtimeConnecting) {
+                    scheduleRealtimeRetry(immediate = true)
+                }
                 delay(4000)
             }
         }
@@ -278,7 +284,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (health.realtimeAvailable && voiceSessionActive && AppForeground.active &&
             _state.value.screen == Screen.Home && !realtimeActive && !realtimeConnecting) {
             if (recognitionActive) cancelActiveRecognition(updateUi = false)
-            startVoiceConversation()
+            scheduleRealtimeRetry(immediate = true)
         } else if (!health.realtimeAvailable && voiceSessionActive && (realtimeActive || realtimeConnecting)) {
             realtimeActive = false
             realtimeConnecting = false
@@ -352,6 +358,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         if (realtimeConnecting || recognitionActive) return
         if (realtime.canConnect) {
+            realtimeRetryJob?.cancel()
             realtimeConnecting = true
             _state.update { it.copy(asrStatus = "正在连接实时语音", asrReady = false) }
             realtime.start()
@@ -365,7 +372,26 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 }
             }
         } else {
-            beginListening(automatic = true)
+            startLegacyVoiceFallback(
+                if (NetworkStatus.isOnline(app)) "正在准备实时语音" else "当前离线，使用本地语音"
+            )
+        }
+    }
+
+    /** 保持免按键会话存活；网络或服务恢复后直接重连，不依赖健康检查缓存。 */
+    private fun scheduleRealtimeRetry(immediate: Boolean = false) {
+        if (!voiceSessionActive || !AppForeground.active || _state.value.screen != Screen.Home) return
+        realtimeRetryJob?.cancel()
+        realtimeRetryJob = viewModelScope.launch {
+            if (!immediate) delay(REALTIME_RETRY_MS)
+            while (isActive && voiceSessionActive && AppForeground.active &&
+                _state.value.screen == Screen.Home && !realtimeActive && !realtimeConnecting) {
+                if (realtime.canConnect) {
+                    startVoiceConversation()
+                    return@launch
+                }
+                delay(REALTIME_RETRY_MS)
+            }
         }
     }
 
@@ -376,6 +402,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         realtimeConnecting = false
         realtimeActive = false
         realtimeConnectJob?.cancel()
+        realtimeRetryJob?.cancel()
         realtimeCaptionJob?.cancel()
         realtime.stop(notify = false)
         autoListenJob?.cancel()
@@ -423,12 +450,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         if (!speech.isAvailable && !memoMode) {
-            voiceSessionActive = false
-            speaking = true
-            val tip = "麦克风已经开启,但手机的语音识别服务不可用。请在系统设置里开启语音输入服务。"
-            _state.update { it.copy(caption = tip, speaking = true,
-                asrReady = false, asrStatus = "手机没有可用的语音识别服务") }
-            curUtt = tts.speak(tip)
+            speaking = false
+            _state.update { it.copy(caption = "", listening = false, micPressed = false,
+                speaking = false, busy = false, asrReady = false,
+                asrStatus = if (NetworkStatus.isOnline(app)) "正在恢复实时语音" else "离线语音服务暂不可用") }
+            scheduleRealtimeRetry()
             return
         }
         // 亲情语音留言录制:按住录音频(不做识别)
@@ -970,6 +996,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         realtimeConnectJob?.cancel()
+        realtimeRetryJob?.cancel()
         bargeIn.stop()
         realtimeConnecting = false
         realtimeActive = true
@@ -1002,7 +1029,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun startLegacyVoiceFallback(status: String) {
         if (!voiceSessionActive || recognitionActive || !AppForeground.active) return
         _state.update { it.copy(asrStatus = status, asrReady = speech.isAvailable) }
-        beginListening(automatic = true)
+        if (speech.isAvailable) beginListening(automatic = true) else scheduleRealtimeRetry()
     }
 
     private fun onRealtimeInputStarted(latencyMs: Long) {

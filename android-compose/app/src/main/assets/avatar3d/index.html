@@ -5,12 +5,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
 <style>
   html,body{margin:0;height:100%;background:transparent;overflow:hidden}
-  #c{width:100%;height:100%;display:block}
+  #c{position:relative;z-index:1;width:100%;height:100%;display:block}
+  #ring{position:absolute;z-index:2;left:50%;top:37%;width:min(82vw,60vh);aspect-ratio:1;
+    transform:translate(-50%,-50%);border:3px solid rgba(20,115,230,.78);border-radius:50%;
+    pointer-events:none;box-sizing:border-box;transition:border-color .18s ease,filter .18s ease}
+  #ring[data-state="listen"]{border-color:#1473e6;filter:drop-shadow(0 0 5px rgba(20,115,230,.45));animation:pulse 1.05s ease-in-out infinite}
+  #ring[data-state="talk"]{border-color:#16a17b;filter:drop-shadow(0 0 5px rgba(22,161,123,.38));animation:pulse .72s ease-in-out infinite}
+  @keyframes pulse{50%{transform:translate(-50%,-50%) scale(1.025);opacity:.72}}
   #tip{display:none}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="ring" data-state="idle"></div>
 <div id="tip">正在加载数字人</div>
 <script type="importmap">
 {
@@ -47,6 +54,7 @@ window.XLAvatar = {
   setState(value) {
     avatarState = expressions[value] ? value : 'idle';
     targetExpression = expressions[avatarState];
+    document.getElementById('ring').dataset.state = avatarState;
   },
   setTalking(value) { talking = !!value; }
 };
@@ -57,9 +65,9 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(28, innerWidth / innerHeight, 0.1, 30);
-scene.add(new THREE.HemisphereLight(0xffffff, 0xdde6ef, 1.65));
-const keyLight = new THREE.DirectionalLight(0xffffff, 2.1);
+const camera = new THREE.PerspectiveCamera(26, innerWidth / innerHeight, 0.1, 30);
+scene.add(new THREE.HemisphereLight(0xfff8f4, 0xdce8f2, 1.7));
+const keyLight = new THREE.DirectionalLight(0xfff7f1, 2.2);
 keyLight.position.set(1.5, 2.5, 2.2);
 scene.add(keyLight);
 const fillLight = new THREE.DirectionalLight(0xb9d8ff, 0.9);
@@ -75,8 +83,9 @@ function frameUpperBody(object) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
-  const focusY = box.min.y + size.y * 0.69;
-  camera.position.set(center.x, focusY + size.y * 0.02, Math.max(1.35, size.y * 1.02));
+  const focusY = box.min.y + size.y * 0.75;
+  const narrowScreenScale = Math.max(1, 0.78 / camera.aspect);
+  camera.position.set(center.x, focusY + size.y * 0.025, Math.max(1.2, size.y * 0.88 * narrowScreenScale));
   camera.lookAt(center.x, focusY, center.z);
   camera.near = Math.max(0.01, camera.position.z / 100);
   camera.far = Math.max(20, camera.position.z * 10);
@@ -92,7 +101,16 @@ loader.load('./model.vrm', gltf => {
     return;
   }
   VRMUtils.removeUnnecessaryVertices(gltf.scene);
-  VRMUtils.rotateVRM0(vrm);
+  gltf.scene.rotation.y = Math.PI;
+  gltf.scene.traverse(object => {
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.filter(Boolean).forEach(material => {
+      if (material.name === 'Arla Clothes' && material.color) {
+        material.color.set(0x17191d);
+        material.needsUpdate = true;
+      }
+    });
+  });
   scene.add(vrm.scene);
   frameUpperBody(vrm.scene);
   tip.style.display = 'none';
@@ -141,10 +159,10 @@ function animate() {
   if (hips) hips.rotation.y = Math.sin(elapsed * 0.36) * 0.035;
   const leftArm = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
   const rightArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
-  if (leftArm) leftArm.rotation.z = -0.035 - (talking ? Math.sin(elapsed * 1.9) * 0.028 : 0);
-  if (rightArm) rightArm.rotation.z = 0.035 + (talking ? Math.sin(elapsed * 1.9 + 0.8) * 0.028 : 0);
+  if (leftArm) leftArm.rotation.z = 1.12 + (talking ? Math.sin(elapsed * 1.9) * 0.045 : 0);
+  if (rightArm) rightArm.rotation.z = -1.12 - (talking ? Math.sin(elapsed * 1.9 + 0.8) * 0.045 : 0);
   vrm.scene.position.y = Math.sin(elapsed * 0.8) * 0.012;
-  vrm.scene.rotation.y = Math.sin(elapsed * 0.32) * 0.022;
+  vrm.scene.rotation.y = Math.PI + Math.sin(elapsed * 0.32) * 0.022;
   vrm.update(dt);
   renderer.render(scene, camera);
 }
@@ -152,6 +170,7 @@ function animate() {
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   camera.aspect = innerWidth / innerHeight;
+  if (vrm) frameUpperBody(vrm.scene);
   camera.updateProjectionMatrix();
 });
 </script>

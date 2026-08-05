@@ -3,7 +3,7 @@ name: Test AI Server
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/no-captions-voice-v1.0.26-ci']
+    branches: ['fix/auto-realtime-avatar-v1.0.27-ci']
     tags: ['v*']
 
 jobs:

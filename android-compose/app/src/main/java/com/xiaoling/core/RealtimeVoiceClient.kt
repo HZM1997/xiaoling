@@ -82,7 +82,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
 
     val isConnected: Boolean get() = connected && running
     val canConnect: Boolean
-        get() = BrainClient.realtimeAvailable && NetworkStatus.isOnline(app) && hasPermission()
+        get() = Settings.brainUrl(app).isNotBlank() && NetworkStatus.isOnline(app) && hasPermission()
 
     fun start() {
         if (running || connecting || !canConnect) return
