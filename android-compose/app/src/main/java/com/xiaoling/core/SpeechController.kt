@@ -5,6 +5,9 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings as AndroidSettings
@@ -12,6 +15,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognitionService
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import androidx.core.content.ContextCompat
 
 /**
@@ -26,6 +30,9 @@ class SpeechController(private val ctx: Context) {
     private var recognizer: SpeechRecognizer? = null
     private var recognizerAttempt = 0
     private val cloud = CloudAsrRecorder(ctx)
+    private val audioManager = ctx.getSystemService(AudioManager::class.java)
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { }
+    private var focusRequest: AudioFocusRequest? = null
     private var systemMisses = 0
     private var preferCloud = false
 
@@ -85,16 +92,19 @@ class SpeechController(private val ctx: Context) {
         val textCb = onText
         val errCb = onError
         var lastPartial = ""
+        requestRecognitionFocus()
         if ((!systemAvailable || preferCloud) && cloudAvailable) {
             val started = cloud.start(
                 onReady = readyCb,
                 onSpeechStart = speechStartCb,
                 onText = { text ->
+                    abandonRecognitionFocus()
                     preferCloud = false
                     systemMisses = 0
                     textCb(text)
                 },
                 onError = { error ->
+                    abandonRecognitionFocus()
                     preferCloud = false
                     errCb(error)
                 }
@@ -108,7 +118,9 @@ class SpeechController(private val ctx: Context) {
                     // 部分 MIUI 识别服务终态会返回空列表,但此前 partial 已经是完整句子。
                     // 保留这条结果,避免老人说完后被误判成“没听清”。
                     val text = bestCandidate(results).ifBlank { lastPartial }
+                    Log.i(TAG, "results chars=${text.length} partialChars=${lastPartial.length}")
                     releaseRecognizer()
+                    abandonRecognitionFocus()
                     if (text.isBlank()) {
                         systemMisses++
                         if (systemMisses >= 1 && cloudAvailable) preferCloud = true
@@ -124,20 +136,24 @@ class SpeechController(private val ctx: Context) {
                             lastPartial = p
                         }
                         partialCb(p)
+                        Log.d(TAG, "partial chars=${p.length}")
                     }
                 }
                 override fun onError(error: Int) {
+                    Log.w(TAG, "error=$error partialChars=${lastPartial.length}")
                     // 轻声或远距离收音时 MIUI 可能已有临时文本,却最终返回 NO_MATCH。
                     if ((error == SpeechRecognizer.ERROR_NO_MATCH ||
                             error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) &&
                         lastPartial.count { !it.isWhitespace() } >= 2) {
                         releaseRecognizer()
+                        abandonRecognitionFocus()
                         systemMisses = 0
                         textCb(lastPartial)
                         return
                     }
                     // MIUI 的识别服务在取消、超时或断网后可能留下失效实例;下次重新创建更可靠。
                     releaseRecognizer()
+                    abandonRecognitionFocus()
                     if (error == SpeechRecognizer.ERROR_NO_MATCH ||
                         error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                         systemMisses++
@@ -155,8 +171,14 @@ class SpeechController(private val ctx: Context) {
                     }
                     errCb(error)
                 }
-                override fun onReadyForSpeech(params: Bundle?) { readyCb() }
-                override fun onBeginningOfSpeech() { speechStartCb() }
+                override fun onReadyForSpeech(params: Bundle?) {
+                    Log.i(TAG, "ready service=${activeRecognitionService()}")
+                    readyCb()
+                }
+                override fun onBeginningOfSpeech() {
+                    Log.i(TAG, "speech-start")
+                    speechStartCb()
+                }
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
                 override fun onEndOfSpeech() {}
@@ -187,8 +209,10 @@ class SpeechController(private val ctx: Context) {
                 }
             }
             recognizer?.startListening(intent)
+            Log.i(TAG, "start service=${activeRecognitionService()}")
         } catch (_: Throwable) {
             releaseRecognizer()
+            abandonRecognitionFocus()
             if (cloudAvailable) preferCloud = true
             errCb(SpeechRecognizer.ERROR_CLIENT)
         }
@@ -208,11 +232,13 @@ class SpeechController(private val ctx: Context) {
         cloud.cancel()
         try { recognizer?.cancel() } catch (_: Throwable) {}
         releaseRecognizer()
+        abandonRecognitionFocus()
     }
 
     fun destroy() {
         cloud.cancel()
         releaseRecognizer()
+        abandonRecognitionFocus()
     }
 
     private fun bestCandidate(results: Bundle): String {
@@ -280,8 +306,49 @@ class SpeechController(private val ctx: Context) {
         if (count > 1) recognizerAttempt = (recognizerAttempt + 1) % count
     }
 
+    private fun activeRecognitionService(): String = recognitionServices().getOrNull(recognizerAttempt)?.flattenToShortString()
+        ?: if (standardAvailable) "system-default" else if (onDeviceAvailable) "on-device" else "none"
+
+    private fun requestRecognitionFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
+                    .setAudioAttributes(AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build())
+                    .setAcceptsDelayedFocusGain(false)
+                    .setOnAudioFocusChangeListener(focusListener)
+                    .build()
+                focusRequest = request
+                audioManager?.requestAudioFocus(request)
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.requestAudioFocus(
+                    focusListener,
+                    AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE,
+                )
+            }
+        } catch (_: Throwable) { }
+    }
+
+    private fun abandonRecognitionFocus() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(focusListener)
+            }
+        } catch (_: Throwable) { }
+        focusRequest = null
+    }
+
     private fun releaseRecognizer() {
         try { recognizer?.destroy() } catch (_: Throwable) {}
         recognizer = null
     }
+
+    private companion object { const val TAG = "XiaolingASR" }
 }

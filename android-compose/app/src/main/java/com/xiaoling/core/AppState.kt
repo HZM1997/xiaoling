@@ -503,7 +503,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 }
             },
             onSpeechStart = {
-                if (session == listenSession && recognitionActive) currentSpeechDetected = true
+                // MIUI may emit onBeginningOfSpeech before its VAD has found real speech.
+                // Automatic mode only treats an actual transcript as speech, avoiding a prompt/listen loop.
+                if (!automatic && session == listenSession && recognitionActive) currentSpeechDetected = true
             },
             onText = { t ->
                 val detected = currentSpeechDetected || t.isNotBlank()
@@ -669,7 +671,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 busy = false, micFeedback = "", caption = "", mascot = MascotState.Idle) }
             autoListenJob?.cancel()
             autoListenJob = viewModelScope.launch {
-                delay(180)
+                delay(90)
                 if (voiceSessionActive && !holding && !recognitionActive && !speaking &&
                     AppForeground.active && _state.value.screen == Screen.Home) {
                     beginListening(automatic = true)
