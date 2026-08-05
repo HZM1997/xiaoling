@@ -12,7 +12,11 @@ import java.util.Locale
  * 系统 TTS 封装:异步 init、中文可用性判断、带 id 的说完回调。
  * 记住"上次说的话"以支持"被打断→无新指令→恢复播报"。
  */
-class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
+class Tts(
+    ctx: Context,
+    private val onDone: (String?) -> Unit,
+    private val onStarted: (String?) -> Unit = {},
+) {
 
     private var ready = false
     private var tts: TextToSpeech? = null
@@ -31,7 +35,7 @@ class Tts(ctx: Context, private val onDone: (String?) -> Unit) {
                 tts?.setSpeechRate(1.08f)   // 略快,老人也能听清,同时缩短播报时长
                 val cb = onDone   // 捕获,避免与 UtteranceProgressListener.onDone 同名方法递归
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String?) {}
+                    override fun onStart(id: String?) { main.post { onStarted(id) } }
                     override fun onDone(id: String?) { cb(id) }
                     @Deprecated("deprecated") override fun onError(id: String?) { cb(id) }
                 })

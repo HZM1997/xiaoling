@@ -12,6 +12,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import org.json.JSONObject
 import androidx.core.content.ContextCompat
+import com.xiaoling.service.AppForeground
 
 /**
  * 把大脑返回的 action 变成真实的 Android 行为(拨号/导航/呼救/防诈震动)。
@@ -116,6 +117,8 @@ object ActionDispatcher {
 
     private fun view(ctx: Context, intent: Intent): Boolean {
         return try {
+            // Keep Xiaoling visible and listening while Maps, music or the dialer is in front.
+            AppForeground.requestCompanionMode()
             ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); true
         } catch (e: Exception) { false }
     }

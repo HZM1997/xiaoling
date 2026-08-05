@@ -294,7 +294,12 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             if (!outputPlaying && !responseInProgress && rms < noiseFloor * 2.2) {
                 noiseFloor = noiseFloor * 0.96 + rms.coerceAtLeast(20.0) * 0.04
             }
-            val speechThreshold = maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
+            val interruptWindow = outputPlaying || manualHold || responseInProgress
+            val speechThreshold = if (interruptWindow) {
+                maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.55)
+            } else {
+                maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
+            }
             if (rms >= speechThreshold) {
                 loudFrames++
                 quietFrames = 0
@@ -305,8 +310,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     interruptedThisUtterance = false
                 }
             }
-            if ((outputPlaying || (manualHold && responseInProgress)) &&
-                loudFrames >= 3 && !interruptedThisUtterance) {
+            if (interruptWindow && loudFrames >= 2 && !interruptedThisUtterance) {
                 interruptedThisUtterance = true
                 responseInProgress = false
                 clearPlayback()
@@ -475,6 +479,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val SAMPLE_RATE = 24_000
         const val FRAME_BYTES = 960 // 20 ms, PCM16 mono;每秒 50 次本地打断判断
         const val LOCAL_MIN_SPEECH_RMS = 90.0
+        const val INTERRUPT_MIN_SPEECH_RMS = 70.0
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }

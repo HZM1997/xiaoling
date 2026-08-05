@@ -82,7 +82,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val speech = SpeechController(app)
-    private val tts = Tts(app) { id -> onSpeakDone(id) }
+    private val bargeIn = BargeInDetector(app) { onLegacyBargeIn() }
+    private val tts = Tts(app, onDone = { id -> onSpeakDone(id) }, onStarted = { id -> onTtsStarted(id) })
     private val realtime = RealtimeVoiceClient(app, object : RealtimeVoiceClient.Listener {
         override fun onConnected(model: String) = onRealtimeConnected(model)
         override fun onDisconnected(message: String, retryable: Boolean) = onRealtimeDisconnected(message, retryable)
@@ -366,6 +367,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     /** 退到手机桌面时释放前台识别器,让后台唤醒服务立即接管同一个麦克风。 */
     fun pauseVoiceConversation() {
         voiceSessionActive = false
+        bargeIn.stop()
         realtimeConnecting = false
         realtimeActive = false
         realtimeConnectJob?.cancel()
@@ -401,6 +403,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun beginListening(automatic: Boolean) {
         if (holding) return
+        bargeIn.stop()
         if (recognitionActive) {
             if (automatic) return
             cancelActiveRecognition()
@@ -439,7 +442,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 mascot = MascotState.Listening) }
             return
         }
-        interrupted = speaking      // 正在播报时按住 = 打断
+        interrupted = interrupted || speaking // 正在播报时按住/开口 = 打断
         if (speaking) { tts.stop(); speaking = false }
         holding = !automatic
         recognitionActive = true
@@ -900,6 +903,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onSpeakDone(id: String?) {
         if (id != curUtt) return   // 被 flush 的旧句完成回调,忽略
+        bargeIn.stop()
         speaking = false
         _state.update {
             val m = if (it.mascot == MascotState.Alarm) MascotState.Alarm else MascotState.Idle
@@ -923,12 +927,35 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun onTtsStarted(id: String?) {
+        if (id == "warmup" || id != curUtt || !speaking || !voiceSessionActive || realtimeActive ||
+            recognitionActive || holding || !AppForeground.active || _state.value.screen != Screen.Home) return
+        bargeIn.start()
+    }
+
+    private fun onLegacyBargeIn() {
+        if (!voiceSessionActive || realtimeActive || recognitionActive || !speaking || !AppForeground.active) return
+        interrupted = true
+        bargeIn.stop()
+        tts.stop()
+        speaking = false
+        _state.update { it.copy(speaking = false, listening = true, busy = false,
+            caption = "在听…", mascot = MascotState.Listening) }
+        viewModelScope.launch {
+            delay(90)
+            if (voiceSessionActive && !realtimeActive && !recognitionActive && AppForeground.active) {
+                beginListening(automatic = true)
+            }
+        }
+    }
+
     private fun onRealtimeConnected(model: String) {
         if (!voiceSessionActive || !AppForeground.active || _state.value.screen != Screen.Home) {
             realtime.stop(notify = false)
             return
         }
         realtimeConnectJob?.cancel()
+        bargeIn.stop()
         realtimeConnecting = false
         realtimeActive = true
         if (recognitionActive || holding) cancelActiveRecognition(updateUi = false)
@@ -1252,6 +1279,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         realtimeConnectJob?.cancel()
         realtimeCaptionJob?.cancel()
         realtime.destroy()
+        bargeIn.destroy()
         autoListenJob?.cancel()
         speechTimeoutJob?.cancel()
         micFeedbackJob?.cancel()

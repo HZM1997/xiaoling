@@ -4,6 +4,9 @@ import android.content.Intent
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.os.Build
+import android.app.PictureInPictureParams
+import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +53,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppForeground.active = true
+        AppForeground.registerCompanionMode(::enterVoiceCompanionMode)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             WakeService.pause(this)
         }
@@ -60,5 +64,25 @@ class MainActivity : ComponentActivity() {
             WakeService.start(this)
         }
         super.onStop()
+    }
+
+    override fun onDestroy() {
+        AppForeground.registerCompanionMode(null)
+        super.onDestroy()
+    }
+
+    private fun enterVoiceCompanionMode(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isFinishing || isDestroyed) return false
+        return try {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(9, 16))
+                .apply {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
+                }
+                .build()
+            enterPictureInPictureMode(params)
+        } catch (_: Throwable) {
+            false
+        }
     }
 }

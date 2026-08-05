@@ -21,8 +21,17 @@ import android.provider.Settings
 import androidx.core.app.NotificationCompat
 import com.xiaoling.MainActivity
 
-/** App 是否在前台(前台时由 App 自己听,后台时由本服务听唤醒词,避免抢麦) */
-object AppForeground { @Volatile var active = false }
+/** App 是否在前台(前台时由 App 自己听,后台时由本服务听唤醒词,避免抢麦)。 */
+object AppForeground {
+    @Volatile var active = false
+    @Volatile private var companionModeRequest: (() -> Boolean)? = null
+
+    fun registerCompanionMode(request: (() -> Boolean)?) {
+        companionModeRequest = request
+    }
+
+    fun requestCompanionMode(): Boolean = companionModeRequest?.invoke() == true
+}
 
 /**
  * 常驻前台服务:退出 App 回到主屏后,后台持续听唤醒词「小灵」,听到就把 App 拉到前台并开始对话。

@@ -109,7 +109,9 @@ fun HomeScreen(vm: AppState) {
                     WakeService.pause(ctx)
                     vm.startVoiceConversation()
                 }
-                Lifecycle.Event.ON_PAUSE -> vm.pauseVoiceConversation()
+                Lifecycle.Event.ON_STOP -> if (activity?.isInPictureInPictureMode != true) {
+                    vm.pauseVoiceConversation()
+                }
                 else -> Unit
             }
         }

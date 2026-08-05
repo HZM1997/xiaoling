@@ -92,9 +92,11 @@ loader.load('./model.vrm', gltf => {
   scene.add(vrm.scene);
   frameUpperBody(vrm.scene);
   tip.style.display = 'none';
+  window.XiaolingNative?.ready();
   animate();
 }, undefined, () => {
   tip.textContent = '数字人模型加载失败';
+  window.XiaolingNative?.failed();
 });
 
 function animate() {
