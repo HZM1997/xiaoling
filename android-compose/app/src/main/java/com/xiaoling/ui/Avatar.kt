@@ -29,12 +29,14 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
     val animation = rememberInfiniteTransition(label = "avatar-fallback")
     val breathe by animation.animateFloat(0.99f, 1.02f, infiniteRepeatable(tween(2200), RepeatMode.Reverse), label = "breathe")
     val bob by animation.animateFloat(1.01f, 1.05f, infiniteRepeatable(tween(360), RepeatMode.Reverse), label = "bob")
-    val talkY by animation.animateFloat(-8f, 5f, infiniteRepeatable(tween(360), RepeatMode.Reverse), label = "talk-y")
-    val tilt by animation.animateFloat(-1.2f, 1.2f, infiniteRepeatable(tween(420), RepeatMode.Reverse), label = "tilt")
-    val listenScale by animation.animateFloat(1.02f, 1.055f, infiniteRepeatable(tween(720), RepeatMode.Reverse), label = "listen")
+    val floatY by animation.animateFloat(-5f, 4f, infiniteRepeatable(tween(1800), RepeatMode.Reverse), label = "float-y")
+    val idleSway by animation.animateFloat(-1.6f, 1.6f, infiniteRepeatable(tween(2400), RepeatMode.Reverse), label = "idle-sway")
+    val talkY by animation.animateFloat(-14f, 8f, infiniteRepeatable(tween(330), RepeatMode.Reverse), label = "talk-y")
+    val tilt by animation.animateFloat(-2.8f, 2.8f, infiniteRepeatable(tween(390), RepeatMode.Reverse), label = "tilt")
+    val listenScale by animation.animateFloat(1.04f, 1.085f, infiniteRepeatable(tween(620), RepeatMode.Reverse), label = "listen")
     val thinkX by animation.animateFloat(-7f, 7f, infiniteRepeatable(tween(920), RepeatMode.Reverse), label = "think")
     val shake by animation.animateFloat(-1f, 1f, infiniteRepeatable(tween(80), RepeatMode.Reverse), label = "alarm")
-    val sway by animation.animateFloat(-3.2f, 3.2f, infiniteRepeatable(tween(1700), RepeatMode.Reverse), label = "sway")
+    val sway by animation.animateFloat(-4.8f, 4.8f, infiniteRepeatable(tween(1500), RepeatMode.Reverse), label = "sway")
     val blink by animation.animateFloat(0f, 1f, infiniteRepeatable(keyframes {
         durationMillis = 3200
         0f at 0; 0f at 2700; 1f at 2780; 1f at 2870; 0f at 2960; 0f at 3200
@@ -59,17 +61,20 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
             MascotState.Thinking -> thinkX
             else -> 0f
         }
-        translationY = when (state) {
-            MascotState.Talking -> talkY
-            MascotState.Listening -> -5f
-            else -> 0f
-        }
-        rotationZ = when (state) {
-            MascotState.Talking -> tilt
-            MascotState.Caring -> sway
-            MascotState.Thinking -> thinkX / 8f
-            else -> 0f
-        }
+            translationY = when (state) {
+                MascotState.Talking -> talkY
+                MascotState.Listening -> floatY - 8f
+                MascotState.Thinking -> floatY - 3f
+                else -> floatY
+            }
+            rotationZ = when (state) {
+                MascotState.Talking -> tilt
+                MascotState.Caring -> sway
+                MascotState.Thinking -> thinkX / 8f
+                MascotState.Listening -> idleSway * 0.55f
+                MascotState.Idle -> idleSway
+                else -> 0f
+            }
     }
 
     Box(modifier, contentAlignment = Alignment.Center) {

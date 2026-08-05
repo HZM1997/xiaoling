@@ -25,12 +25,23 @@ import com.xiaoling.MainActivity
 object AppForeground {
     @Volatile var active = false
     @Volatile private var companionModeRequest: (() -> Boolean)? = null
+    @Volatile private var returnToAppRequest: (() -> Boolean)? = null
+    @Volatile var companionMode = false
+        private set
 
-    fun registerCompanionMode(request: (() -> Boolean)?) {
+    fun registerCompanionMode(request: (() -> Boolean)?, returnRequest: (() -> Boolean)?) {
         companionModeRequest = request
+        returnToAppRequest = returnRequest
     }
 
-    fun requestCompanionMode(): Boolean = companionModeRequest?.invoke() == true
+    fun requestCompanionMode(): Boolean {
+        val entered = companionModeRequest?.invoke() == true
+        if (entered) companionMode = true
+        return entered
+    }
+
+    fun updateCompanionMode(active: Boolean) { companionMode = active }
+    fun returnToApp(): Boolean = returnToAppRequest?.invoke() == true
 }
 
 /**

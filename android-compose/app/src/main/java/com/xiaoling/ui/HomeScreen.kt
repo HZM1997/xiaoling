@@ -54,8 +54,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.xiaoling.R
+import com.xiaoling.MainActivity
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
+import com.xiaoling.service.AppForeground
 import com.xiaoling.service.WakeService
 import com.xiaoling.ui.theme.AccentBlue
 import com.xiaoling.ui.theme.InkColor
@@ -65,6 +67,7 @@ fun HomeScreen(vm: AppState) {
     val ui by vm.state.collectAsState()
     val ctx = LocalContext.current
     val activity = ctx as? ComponentActivity
+    val inPip = (activity as? MainActivity)?.voicePictureInPicture == true
     var micGranted by remember {
         mutableStateOf(
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) ==
@@ -109,7 +112,7 @@ fun HomeScreen(vm: AppState) {
                     WakeService.pause(ctx)
                     vm.startVoiceConversation()
                 }
-                Lifecycle.Event.ON_STOP -> if (activity?.isInPictureInPictureMode != true) {
+                Lifecycle.Event.ON_STOP -> if (activity?.isInPictureInPictureMode != true && !AppForeground.companionMode) {
                     vm.pauseVoiceConversation()
                 }
                 else -> Unit
@@ -128,10 +131,10 @@ fun HomeScreen(vm: AppState) {
         val compact = maxHeight < 700.dp
         Column(
             modifier = Modifier.fillMaxSize().padding(
-                start = if (compact) 16.dp else 22.dp,
-                end = if (compact) 16.dp else 22.dp,
-                top = if (compact) 50.dp else 62.dp,
-                bottom = if (compact) 18.dp else 24.dp
+                start = if (inPip) 4.dp else if (compact) 16.dp else 22.dp,
+                end = if (inPip) 4.dp else if (compact) 16.dp else 22.dp,
+                top = if (inPip) 4.dp else if (compact) 50.dp else 62.dp,
+                bottom = if (inPip) 4.dp else if (compact) 18.dp else 24.dp
             ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -157,41 +160,45 @@ fun HomeScreen(vm: AppState) {
                     Text(
                         text = caption,
                         color = InkColor,
-                        fontSize = if (compact) 23.sp else 27.sp,
-                        lineHeight = if (compact) 30.sp else 35.sp,
+                        fontSize = if (inPip) 12.sp else if (compact) 23.sp else 27.sp,
+                        lineHeight = if (inPip) 15.sp else if (compact) 30.sp else 35.sp,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center,
-                        maxLines = if (compact) 2 else 3,
+                        maxLines = if (inPip) 1 else if (compact) 2 else 3,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
                     )
                 }
             }
 
-            Spacer(Modifier.height(if (showCaption) 8.dp else 14.dp))
-            MicrophoneButton(
-                listening = ui.micPressed,
-                onPress = {
-                    if (micGranted) {
-                        WakeService.pause(ctx)
-                        vm.pressToTalk()
-                    }
-                    else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                },
-                onRelease = vm::releaseToTalk
-            )
+            if (!inPip) {
+                Spacer(Modifier.height(if (showCaption) 8.dp else 14.dp))
+                MicrophoneButton(
+                    listening = ui.micPressed,
+                    onPress = {
+                        if (micGranted) {
+                            WakeService.pause(ctx)
+                            vm.pressToTalk()
+                        }
+                        else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    onRelease = vm::releaseToTalk
+                )
+            }
         }
 
-        IconButton(
-            onClick = { vm.showScreen(Screen.Settings) },
-            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp)
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_settings),
-                contentDescription = "设置",
-                tint = InkColor,
-                modifier = Modifier.size(28.dp)
-            )
+        if (!inPip) {
+            IconButton(
+                onClick = { vm.showScreen(Screen.Settings) },
+                modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(48.dp)
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_settings),
+                    contentDescription = "设置",
+                    tint = InkColor,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
         }
     }
 }

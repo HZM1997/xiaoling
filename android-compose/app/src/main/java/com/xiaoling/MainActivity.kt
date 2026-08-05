@@ -3,6 +3,7 @@ package com.xiaoling
 import android.content.Intent
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Bundle
 import android.os.Build
 import android.app.PictureInPictureParams
@@ -12,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.content.ContextCompat
@@ -22,6 +24,8 @@ import com.xiaoling.ui.XiaolingApp
 
 class MainActivity : ComponentActivity() {
     private var wakeRequest by mutableIntStateOf(0)
+    var voicePictureInPicture by mutableStateOf(false)
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,7 +57,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppForeground.active = true
-        AppForeground.registerCompanionMode(::enterVoiceCompanionMode)
+        AppForeground.registerCompanionMode(::enterVoiceCompanionMode, ::returnFromVoiceCompanionMode)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
             WakeService.pause(this)
         }
@@ -67,8 +71,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        AppForeground.registerCompanionMode(null)
+        AppForeground.registerCompanionMode(null, null)
         super.onDestroy()
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        voicePictureInPicture = isInPictureInPictureMode
+        AppForeground.updateCompanionMode(isInPictureInPictureMode)
     }
 
     private fun enterVoiceCompanionMode(): Boolean {
@@ -80,9 +90,21 @@ class MainActivity : ComponentActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
                 }
                 .build()
-            enterPictureInPictureMode(params)
+            enterPictureInPictureMode(params).also { entered ->
+                voicePictureInPicture = entered
+                AppForeground.updateCompanionMode(entered)
+            }
         } catch (_: Throwable) {
             false
         }
+    }
+
+    private fun returnFromVoiceCompanionMode(): Boolean = try {
+        startActivity(Intent(this, MainActivity::class.java).addFlags(
+            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        ))
+        true
+    } catch (_: Throwable) {
+        false
     }
 }

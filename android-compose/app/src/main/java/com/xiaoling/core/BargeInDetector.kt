@@ -89,7 +89,7 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
                 continue
             }
             if (rms < baseline * 1.35) baseline = baseline * 0.97 + rms.coerceAtLeast(25.0) * 0.03
-            val threshold = maxOf(MIN_SPEECH_RMS, baseline * 1.62)
+            val threshold = maxOf(MIN_SPEECH_RMS, baseline * 1.35)
             loudFrames = if (rms >= threshold) loudFrames + 1 else (loudFrames - 1).coerceAtLeast(0)
             if (loudFrames >= REQUIRED_LOUD_FRAMES) {
                 running = false
@@ -131,8 +131,8 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
     private companion object {
         const val SAMPLE_RATE = 16_000
         const val FRAME_BYTES = 640
-        const val CALIBRATION_FRAMES = 24
-        const val REQUIRED_LOUD_FRAMES = 3
-        const val MIN_SPEECH_RMS = 105.0
+        const val CALIBRATION_FRAMES = 6
+        const val REQUIRED_LOUD_FRAMES = 2
+        const val MIN_SPEECH_RMS = 72.0
     }
 }

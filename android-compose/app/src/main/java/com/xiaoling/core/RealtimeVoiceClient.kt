@@ -174,6 +174,11 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         )
     }
 
+    fun cancelResponse() {
+        clearPlayback()
+        socket?.send(JSONObject().put("type", "response.cancel").toString())
+    }
+
     fun stop(notify: Boolean = false) {
         generation.incrementAndGet()
         stopping = true
@@ -296,7 +301,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             }
             val interruptWindow = outputPlaying || manualHold || responseInProgress
             val speechThreshold = if (interruptWindow) {
-                maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.55)
+                maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.35)
             } else {
                 maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
             }
@@ -479,7 +484,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val SAMPLE_RATE = 24_000
         const val FRAME_BYTES = 960 // 20 ms, PCM16 mono;每秒 50 次本地打断判断
         const val LOCAL_MIN_SPEECH_RMS = 90.0
-        const val INTERRUPT_MIN_SPEECH_RMS = 70.0
+        const val INTERRUPT_MIN_SPEECH_RMS = 60.0
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }

@@ -684,6 +684,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
     // ---------- 处理:本地快通道优先,模型请求限时,连续失败快速熔断 ----------
     private fun process(text: String) {
         val spoken = LocalIntents.normalizeSpeech(text)
+        if (AppForeground.companionMode && isCompanionReturnCommand(spoken)) {
+            AppForeground.returnToApp()
+            applyReply(Reply("好的,已经回到小灵。", null, "画中画语音返回", 0.0))
+            return
+        }
         val previousUser = _state.value.lastUser
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken,
             lastUser = spoken, online = NetworkStatus.isOnline(app)) }
@@ -942,7 +947,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(speaking = false, listening = true, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
         viewModelScope.launch {
-            delay(90)
+            delay(20)
             if (voiceSessionActive && !realtimeActive && !recognitionActive && AppForeground.active) {
                 beginListening(automatic = true)
             }
@@ -1002,10 +1007,20 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeInputText(text: String, final: Boolean) {
         if (!realtimeActive || text.isBlank()) return
+        if (final && AppForeground.companionMode && isCompanionReturnCommand(LocalIntents.normalizeSpeech(text))) {
+            realtime.cancelResponse()
+            AppForeground.returnToApp()
+            _state.update { it.copy(listening = false, busy = true, speaking = false,
+                caption = "正在返回小灵", mascot = MascotState.Caring) }
+            return
+        }
         _state.update { it.copy(listening = !final, busy = final, speaking = false,
             caption = text, lastUser = if (final) text else it.lastUser,
             mascot = if (final) MascotState.Thinking else MascotState.Listening) }
     }
+
+    private fun isCompanionReturnCommand(text: String): Boolean =
+        Regex("^(退出|返回|回去|回到小灵|返回小灵|退出地图|关闭地图)$").matches(text)
 
     private fun onRealtimeOutputStarted() {
         if (!realtimeActive) return
@@ -1025,13 +1040,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (!realtimeActive) return
         speaking = false
         val finalText = text.ifBlank { _state.value.caption }
-        _state.update { it.copy(listening = false, busy = false, speaking = false,
+        _state.update { it.copy(listening = false, busy = true, speaking = false,
             caption = finalText, mascot = MascotState.Idle) }
         realtimeCaptionJob?.cancel()
         realtimeCaptionJob = viewModelScope.launch {
-            delay(1600)
+            delay(2200)
             if (realtimeActive && !speaking && !_state.value.listening && _state.value.caption == finalText) {
-                _state.update { it.copy(caption = "") }
+                _state.update { it.copy(caption = "", busy = false) }
             }
         }
     }
