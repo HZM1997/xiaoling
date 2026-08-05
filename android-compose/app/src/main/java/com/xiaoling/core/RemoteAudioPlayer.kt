@@ -2,6 +2,7 @@ package com.xiaoling.core
 
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import com.xiaoling.BuildConfig
 
 /** 在 App 内直接播放家人推送的音频,避免弹出播放器或联系人选择界面。 */
 object RemoteAudioPlayer {
@@ -10,6 +11,7 @@ object RemoteAudioPlayer {
     @Synchronized
     fun play(url: String): Boolean {
         if (!url.startsWith("https://") && !url.startsWith("http://")) return false
+        if (!BuildConfig.DEBUG && !url.startsWith("https://")) return false
         stop()
         return try {
             val media = MediaPlayer().apply {

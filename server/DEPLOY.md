@@ -68,6 +68,9 @@ docker build -t xiaoling-brain . && docker run -p 8000:8000 xiaoling-brain
   - `XL_BACKCHANNEL_DELAY` — 连续讲话多久后反馈“嗯/我在听”,默认 `1.8` 秒
   - `XL_PIPECAT_VAD_CONFIDENCE` — Pipecat Silero VAD 阈值,默认 `0.52`
   - `XL_REALTIME_CLIENT_TOKEN` — 可选的 App 到自建服务 WebSocket 令牌
+  - `XL_CLIENT_TOKEN` — App 到服务端全部业务接口的随机访问令牌;生产环境必填,建议至少 32 字节
+  - `XL_ENV=production` — 关闭 API 文档并在令牌缺失时拒绝业务请求
+  - `XL_LOG_HASH_SALT` — 安全日志 IP 匿名化盐值,生产环境随机生成
   - `ARK_API_KEY` — 可选的火山豆包文本回退
   - 自定义端点:`XL_LLM_KEY` + `XL_LLM_BASE_URL` + `XL_LLM_MODEL`
   未配任何 KEY 时自动降级为规则+离线兜底,不影响运行。`GET /health` 的 `llm:true/false` 可查是否已启用。

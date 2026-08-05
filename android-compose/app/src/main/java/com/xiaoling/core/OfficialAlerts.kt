@@ -49,7 +49,7 @@ object OfficialAlerts {
     private fun fetchConfiguredFeed(ctx: Context, location: Location?): OfficialAlert? {
         val base = Settings.brainUrl(ctx).trimEnd('/')
         val query = if (location == null) "" else "?lat=${location.latitude}&lon=${location.longitude}"
-        val json = getJson("$base/alerts$query", 1200, 1600) ?: return null
+        val json = getJson("$base/alerts$query", 1200, 1600, authenticated = true) ?: return null
         val item = json.optJSONArray("alerts")?.optJSONObject(0) ?: return null
         val id = item.optString("id")
         val speech = item.optString("speech")
@@ -102,7 +102,12 @@ object OfficialAlerts {
         return null
     }
 
-    private fun getJson(endpoint: String, connectMs: Int, readMs: Int): JSONObject? {
+    private fun getJson(
+        endpoint: String,
+        connectMs: Int,
+        readMs: Int,
+        authenticated: Boolean = false,
+    ): JSONObject? {
         var connection: HttpURLConnection? = null
         return try {
             connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
@@ -111,6 +116,7 @@ object OfficialAlerts {
                 readTimeout = readMs
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("User-Agent", "Xiaoling-Android/1.0")
+                if (authenticated) ClientSecurity.apply(this)
             }
             if (connection.responseCode !in 200..299) return null
             val text = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }

@@ -51,6 +51,7 @@ object PushClient {
                 requestMethod = "POST"; doOutput = true
                 connectTimeout = 2500; readTimeout = 2500
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                ClientSecurity.apply(this)
             }
             c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             c.responseCode
@@ -71,6 +72,7 @@ object PushClient {
                 requestMethod = "GET"
                 connectTimeout = 4000; readTimeout = 0
                 setRequestProperty("Accept", "text/event-stream")
+                ClientSecurity.apply(this)
             }
             conn.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                 while (coroutineContext.isActive) {

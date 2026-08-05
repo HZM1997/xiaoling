@@ -23,12 +23,15 @@ object Settings {
     fun brainUrl(ctx: Context): String {
         val sp = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         val v = sp.getString(KEY_URL, null)
-        return if (v.isNullOrBlank()) BuildConfig.BRAIN_URL else v
+        val configured = if (v.isNullOrBlank()) BuildConfig.BRAIN_URL else v
+        return configured.takeIf { BuildConfig.DEBUG || it.startsWith("https://") }.orEmpty()
     }
 
     fun setBrainUrl(ctx: Context, url: String) {
+        val normalized = url.trim().trimEnd('/')
+        if (!BuildConfig.DEBUG && normalized.isNotBlank() && !normalized.startsWith("https://")) return
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit().putString(KEY_URL, url.trim()).apply()
+            .edit().putString(KEY_URL, normalized).apply()
     }
 
 }

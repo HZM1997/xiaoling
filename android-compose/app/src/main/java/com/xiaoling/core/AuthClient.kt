@@ -54,6 +54,7 @@ object AuthClient {
                 requestMethod = "POST"; doOutput = true
                 connectTimeout = 3000; readTimeout = 3500
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                ClientSecurity.apply(this)
             }
             c.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val ok = c.responseCode in 200..299

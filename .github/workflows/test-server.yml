@@ -3,7 +3,7 @@ name: Test AI Server
 on:
   workflow_dispatch:
   push:
-    branches: ['feat/pipecat-duplex-v1.0.19-ci']
+    branches: ['fix/security-firewall-v1.0.25-ci']
     tags: ['v*']
 
 jobs:

@@ -18,6 +18,7 @@ object AgentClient {
                 connectTimeout = 1400
                 readTimeout = 1800
                 setRequestProperty("Accept", "application/json")
+                ClientSecurity.apply(this)
             }
             if (connection.responseCode !in 200..299) return@withContext null
             val json = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })

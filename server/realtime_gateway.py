@@ -17,6 +17,7 @@ import websockets
 from fastapi import WebSocket, WebSocketDisconnect
 
 import fraud
+import firewall
 import llm_gateway
 import pipecat_bridge
 from agent_runtime import runtime
@@ -327,11 +328,20 @@ def _ask_kimi(question: str, context: dict) -> str:
 
 
 async def handle(websocket: WebSocket) -> None:
-    expected = os.getenv("XL_REALTIME_CLIENT_TOKEN", "").strip()
-    supplied = websocket.headers.get("x-xiaoling-token", "").strip()
-    if expected and not secrets.compare_digest(expected, supplied):
+    if not firewall.token_valid(websocket.headers):
         await websocket.close(code=4401)
         return
+    peer = websocket.client.host if websocket.client else "unknown"
+    if not firewall.acquire_realtime(peer):
+        await websocket.close(code=4429)
+        return
+    try:
+        await _handle_session(websocket)
+    finally:
+        firewall.release_realtime(peer)
+
+
+async def _handle_session(websocket: WebSocket) -> None:
     if not available():
         await websocket.accept()
         await websocket.send_json({"type": "error", "code": "realtime_not_configured"})
@@ -346,6 +356,9 @@ async def handle(websocket: WebSocket) -> None:
         return
     if first.get("type") != "session.start":
         await websocket.close(code=4400)
+        return
+    if len(json.dumps(first, separators=(",", ":"))) > 32_768:
+        await websocket.close(code=4409)
         return
 
     user_id = str(first.get("user_id") or "guest")[:64]
@@ -541,8 +554,21 @@ async def handle(websocket: WebSocket) -> None:
 
         async def client_reader() -> None:
             resample_state = None
+            traffic_started = asyncio.get_running_loop().time()
+            traffic_messages = 0
+            traffic_chars = 0
             while True:
                 incoming = await websocket.receive_json()
+                now = asyncio.get_running_loop().time()
+                if now - traffic_started >= 1.0:
+                    traffic_started = now
+                    traffic_messages = 0
+                    traffic_chars = 0
+                traffic_messages += 1
+                traffic_chars += len(json.dumps(incoming, separators=(",", ":")))
+                if traffic_messages > 120 or traffic_chars > 512_000:
+                    await websocket.close(code=4408, reason="realtime traffic limit")
+                    return
                 kind = incoming.get("type")
                 if kind == "audio.append":
                     audio = incoming.get("audio")

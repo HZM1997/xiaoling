@@ -6,6 +6,7 @@ import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebResourceRequest
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -48,6 +49,7 @@ fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modi
                     settings.allowFileAccess = true
                     settings.allowFileAccessFromFileURLs = true
                     settings.allowUniversalAccessFromFileURLs = false
+                    settings.allowContentAccess = false
                     settings.blockNetworkLoads = true
                     isClickable = false
                     isFocusable = false
@@ -57,6 +59,9 @@ fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modi
                         onFailed = { modelReady = false }
                     ), "XiaolingNative")
                     webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                            request.url.scheme != "file"
+
                         override fun onPageFinished(view: WebView, url: String) {
                             applyState(view, currentState, currentTalking)
                         }

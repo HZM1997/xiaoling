@@ -42,6 +42,7 @@ object BrainClient {
                 connectTimeout = 1800
                 readTimeout = 2500
                 setRequestProperty("Accept", "application/json")
+                ClientSecurity.apply(this)
             }
             if (connection.responseCode !in 200..299) return@withContext cache(Health(false, false, false))
             val json = JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
@@ -81,6 +82,7 @@ object BrainClient {
                 readTimeout = 20000
                 setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
                 setRequestProperty("Accept", "application/json")
+                ClientSecurity.apply(this)
             }
             connection.outputStream.use { output ->
                 output.write(("--$boundary\r\n" +
@@ -121,6 +123,7 @@ object BrainClient {
                 connectTimeout = 900
                 readTimeout = 1200
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                ClientSecurity.apply(this)
             }
             connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             connection.responseCode in 200..299
@@ -158,6 +161,7 @@ object BrainClient {
                     connectTimeout = 1500
                     readTimeout = 4200
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    ClientSecurity.apply(this)
                 }
                 try {
                     c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
@@ -198,6 +202,7 @@ object BrainClient {
                     requestMethod = "POST"; doOutput = true
                     connectTimeout = 1500; readTimeout = 2000
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    ClientSecurity.apply(this)
                 }
                 c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 val ok = c.responseCode in 200..299

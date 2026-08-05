@@ -24,7 +24,13 @@ import realtime_gateway
 import quality_store
 from agent_runtime import runtime
 
-app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.3.0")
+app = FastAPI(
+    title="小灵 · AI手机精灵大脑",
+    version="0.4.0",
+    docs_url=None if firewall.production() else "/docs",
+    redoc_url=None if firewall.production() else "/redoc",
+    openapi_url=None if firewall.production() else "/openapi.json",
+)
 firewall.install(app)  # 启用防火墙中间件
 
 # 家庭语音留言文件。生产环境建议改为对象存储并设置 PUBLIC_BASE_URL。
@@ -41,14 +47,14 @@ def health():
     runtime_status = runtime.status()
     realtime_status = realtime_gateway.status()
     cloud_asr = asr_gateway.available()
-    return {"ok": True, "api_version": "0.3.0", "llm": runtime_status["models"]["available"],
+    return {"ok": True, "api_version": "0.4.0", "llm": runtime_status["models"]["available"],
             "asr": cloud_asr or realtime_status["available"],
             "asr_fallback": cloud_asr,
             "realtime": realtime_status,
             "anti_fraud": fraud.status(),
             "skills": [name for name, _, _ in skills._REGISTRY],
             "agent_registry": agent_registry.status(), "runtime": runtime_status,
-            "quality": quality_store.store.stats()}
+            "quality": quality_store.store.stats(), "security": firewall.security_status()}
 
 
 @app.websocket("/realtime")
@@ -157,12 +163,16 @@ class LoginReq(BaseModel):
 
 @app.post("/auth/send_code")
 def auth_send_code(s: SendCode):
+    if os.getenv("XL_ALLOW_INSECURE_DEMO", "").lower() != "true":
+        return {"ok": False, "msg": "sms provider is not configured"}
     """发送验证码。真实场景接短信服务(阿里云/腾讯云)。demo:固定验证码 1234。"""
     return {"ok": True, "hint": "演示验证码为 1234(真实场景通过短信下发)"}
 
 
 @app.post("/auth/login")
 def auth_login(r: LoginReq):
+    if os.getenv("XL_ALLOW_INSECURE_DEMO", "").lower() != "true":
+        return {"ok": False, "msg": "sms provider is not configured"}
     """手机号 + 验证码登录/注册。demo:验证码 1234 即通过。会员/家庭组跟账号走。"""
     if r.code != "1234":
         return {"ok": False, "msg": "验证码错误(演示请输入 1234)"}
@@ -184,6 +194,8 @@ class WxLogin(BaseModel):
 
 @app.post("/auth/wx_login")
 def auth_wx_login(w: WxLogin):
+    if os.getenv("XL_ALLOW_INSECURE_DEMO", "").lower() != "true":
+        return {"ok": False, "msg": "wechat login is not configured"}
     """微信一键登录。真实场景:后端用 code 调微信 code2session 换 openid,再建会话。demo:返回一个微信演示账号。"""
     phone = "wx-" + (w.code[-6:] if w.code else "demo")
     u = account_store.get(phone) or {}
@@ -229,6 +241,8 @@ def real_name_verify(req: RealNameReq):
 
 @app.post("/pay/create")
 def pay_create(o: Order):
+    if os.getenv("XL_ALLOW_INSECURE_DEMO", "").lower() != "true":
+        return {"ok": False, "msg": "payment provider is not configured"}
     """下单:真实场景这里调微信统一下单/支付宝下单,返回 prepay_id/orderInfo 给客户端拉起收银台。"""
     price = "29.9" if o.plan == "basic" else "299"
     if o.phone:                       # 已登录 → 会员跟账号走(服务器端记录)
@@ -242,7 +256,7 @@ def pay_create(o: Order):
 @app.post("/pay/notify")
 def pay_notify(body: dict):
     """支付回调(真实场景由支付平台异步回调并验签,验签通过后给用户发放会员)。"""
-    return {"ok": True, "paid": True}
+    return {"ok": False, "paid": False, "msg": "unsigned payment callback rejected"}
 
 
 # ---------- 跨设备实时推送(家人看护) ----------

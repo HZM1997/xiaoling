@@ -20,7 +20,7 @@ object PayClient {
         // 微信:IWXAPI.sendReq(PayReq) 用后端返回的 prepayId 等参数拉起微信收银台;
         // 支付宝:PayTask(activity).payV2(orderInfo) 拉起支付宝;
         // 支付结果以「后端异步回调 /pay/notify 验签」为准,这里 demo 直接视为已支付。
-        orderId != null || true   // demo:后端不可达也当作已支付,便于演示开通闭环
+        orderId != null
     }
 
     private fun createOrder(ctx: Context, plan: String, method: String, phone: String): String? {
@@ -31,6 +31,7 @@ object PayClient {
                 requestMethod = "POST"; doOutput = true
                 connectTimeout = 2500; readTimeout = 3000
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                ClientSecurity.apply(this)
             }
             c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val ok = c.responseCode in 200..299

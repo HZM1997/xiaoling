@@ -23,6 +23,7 @@ object FamilyAudioClient {
                 connectTimeout = 2500
                 readTimeout = 4500
                 setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+                ClientSecurity.apply(this)
             }
             DataOutputStream(connection.outputStream).use { out ->
                 fun field(name: String, value: String) {
