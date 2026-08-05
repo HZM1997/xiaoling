@@ -82,8 +82,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private val speech = SpeechController(app)
-    private val bargeIn = BargeInDetector(app) { onLegacyBargeIn() }
-    private val tts = Tts(app, onDone = { id -> onSpeakDone(id) }, onStarted = { id -> onTtsStarted(id) })
+    private val bargeIn = BargeInDetector(app) { latencyMs -> onLegacyBargeIn(latencyMs) }
+    private val tts = Tts(
+        app,
+        onDone = { id -> onSpeakDone(id) },
+        onStarted = { id -> onTtsStarted(id) },
+        onPreparing = { prepareLegacyBargeIn() },
+    )
     private val realtime = RealtimeVoiceClient(app, object : RealtimeVoiceClient.Listener {
         override fun onConnected(model: String) = onRealtimeConnected(model)
         override fun onDisconnected(message: String, retryable: Boolean) = onRealtimeDisconnected(message, retryable)
@@ -936,21 +941,26 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (id == "warmup" || id != curUtt || !speaking || !voiceSessionActive || realtimeActive ||
             recognitionActive || holding || !AppForeground.active || _state.value.screen != Screen.Home) return
         bargeIn.start()
+        bargeIn.arm()
     }
 
-    private fun onLegacyBargeIn() {
+    private fun prepareLegacyBargeIn() {
+        if (!speaking || !voiceSessionActive || realtimeActive || recognitionActive || holding ||
+            !AppForeground.active || _state.value.screen != Screen.Home) return
+        bargeIn.start()
+    }
+
+    private fun onLegacyBargeIn(latencyMs: Long) {
         if (!voiceSessionActive || realtimeActive || recognitionActive || !speaking || !AppForeground.active) return
+        viewModelScope.launch { BrainClient.qualityEvent(app, "barge_in_legacy", latencyMs, true) }
         interrupted = true
         bargeIn.stop()
         tts.stop()
         speaking = false
         _state.update { it.copy(speaking = false, listening = true, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
-        viewModelScope.launch {
-            delay(20)
-            if (voiceSessionActive && !realtimeActive && !recognitionActive && AppForeground.active) {
-                beginListening(automatic = true)
-            }
+        if (voiceSessionActive && !realtimeActive && !recognitionActive && AppForeground.active) {
+            beginListening(automatic = true)
         }
     }
 
@@ -997,12 +1007,16 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeInputStarted() {
         if (!realtimeActive) return
+        val interruptedOutput = speaking
         realtimeCaptionJob?.cancel()
         tts.stop()
         RemoteAudioPlayer.stop()
         speaking = false
         _state.update { it.copy(listening = true, speaking = false, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
+        if (interruptedOutput) viewModelScope.launch {
+            BrainClient.qualityEvent(app, "barge_in_realtime", 0, true)
+        }
     }
 
     private fun onRealtimeInputText(text: String, final: Boolean) {

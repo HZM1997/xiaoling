@@ -123,7 +123,7 @@ fun HomeScreen(vm: AppState) {
     }
 
     val visibleCaption = ui.micFeedback.ifBlank { ui.caption }
-    val showCaption = visibleCaption.isNotBlank() &&
+    val showCaption = !inPip && visibleCaption.isNotBlank() &&
         (ui.listening || ui.speaking || ui.busy || ui.micFeedback.isNotBlank())
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(Color.White)

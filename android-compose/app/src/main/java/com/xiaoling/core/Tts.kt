@@ -1,6 +1,7 @@
 package com.xiaoling.core
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,6 +17,7 @@ class Tts(
     ctx: Context,
     private val onDone: (String?) -> Unit,
     private val onStarted: (String?) -> Unit = {},
+    private val onPreparing: (String?) -> Unit = {},
 ) {
 
     private var ready = false
@@ -32,6 +34,12 @@ class Tts(
             if (status == TextToSpeech.SUCCESS) {
                 val r = tts?.setLanguage(Locale.CHINA) ?: TextToSpeech.LANG_NOT_SUPPORTED
                 ready = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
+                tts?.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
                 tts?.setSpeechRate(1.08f)   // 略快,老人也能听清,同时缩短播报时长
                 val cb = onDone   // 捕获,避免与 UtteranceProgressListener.onDone 同名方法递归
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -57,6 +65,7 @@ class Tts(
             lastLanguage = language
         }
         if (ready && s.isNotBlank()) {
+            onPreparing(id)
             tts?.setLanguage(localeFor(language))
             val r = tts?.speak(s, TextToSpeech.QUEUE_FLUSH, null, id) ?: TextToSpeech.ERROR
             if (r == TextToSpeech.ERROR) main.post { onDone(id) }

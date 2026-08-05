@@ -99,6 +99,38 @@ object BrainClient {
         }
     }
 
+    /** Privacy-minimal product quality signal. No transcript, contact or identity data is sent. */
+    suspend fun qualityEvent(
+        ctx: Context,
+        event: String,
+        latencyMs: Long = 0,
+        success: Boolean = true,
+    ): Boolean = withContext(Dispatchers.IO) {
+        val base = Settings.brainUrl(ctx).trim().trimEnd('/')
+        if (base.isBlank() || !NetworkStatus.isOnline(ctx)) return@withContext false
+        var connection: HttpURLConnection? = null
+        try {
+            val body = JSONObject()
+                .put("event", event.take(40))
+                .put("latency_ms", latencyMs.coerceIn(0, 60_000))
+                .put("success", success)
+                .toString()
+            connection = (URL("$base/quality/event").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = 900
+                readTimeout = 1200
+                setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            }
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            connection.responseCode in 200..299
+        } catch (_: Exception) {
+            false
+        } finally {
+            connection?.disconnect()
+        }
+    }
+
     /** 在 IO 线程发请求;失败抛异常,调用方兜底到 LocalSafetyNet。自动附带用户画像让大脑更懂用户。 */
     suspend fun ask(ctx: Context, text: String, context: JSONObject? = null): Reply =
         withContext(Dispatchers.IO) {

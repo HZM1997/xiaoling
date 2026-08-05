@@ -10,6 +10,7 @@ import hmac
 import os
 
 from fastapi import FastAPI, Request, File, Form, UploadFile, WebSocket
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from models import Utterance, Reply
@@ -20,6 +21,7 @@ import account_store   # 账号、实名状态与永久权益持久化
 import asr_gateway
 import fraud
 import realtime_gateway
+import quality_store
 from agent_runtime import runtime
 
 app = FastAPI(title="小灵 · AI手机精灵大脑", version="0.3.0")
@@ -45,7 +47,8 @@ def health():
             "realtime": realtime_status,
             "anti_fraud": fraud.status(),
             "skills": [name for name, _, _ in skills._REGISTRY],
-            "agent_registry": agent_registry.status(), "runtime": runtime_status}
+            "agent_registry": agent_registry.status(), "runtime": runtime_status,
+            "quality": quality_store.store.stats()}
 
 
 @app.websocket("/realtime")
@@ -57,7 +60,20 @@ async def realtime_voice(websocket: WebSocket):
 @app.get("/runtime/status")
 def runtime_status():
     """长驻运行时状态;不返回记忆正文或模型密钥。"""
-    return {"ok": True, **runtime.status()}
+    return {"ok": True, **runtime.status(), "quality": quality_store.store.stats()}
+
+
+class QualityEvent(BaseModel):
+    event: str = Field(..., min_length=3, max_length=40)
+    latency_ms: int = Field(default=0, ge=0, le=60_000)
+    success: bool = True
+
+
+@app.post("/quality/event")
+def quality_event(item: QualityEvent):
+    """Aggregate allowlisted quality signals; conversation text is never accepted or stored."""
+    accepted = quality_store.store.record(item.event, item.latency_ms, item.success)
+    return {"ok": accepted}
 
 
 @app.get("/agent/catalog")
@@ -117,7 +133,6 @@ def handle(text: str, context: dict | None = None, user_id: str = "guest") -> Re
 
 
 # ---------- 支付(演示用下单;真实微信/支付宝需接官方 SDK + 商户号 + 验签) ----------
-from pydantic import BaseModel, Field
 import time
 
 

@@ -12,17 +12,20 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.sqrt
 
 /** Detects real speech over TTS so the legacy voice path can support hands-free barge-in. */
-class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
+class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
     private val app = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private val generation = AtomicLong(0)
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var running = false
+    @Volatile private var armed = false
+    @Volatile private var armedAtElapsed = 0L
     private var worker: Thread? = null
     private var echoCanceler: AcousticEchoCanceler? = null
     private var noiseSuppressor: NoiseSuppressor? = null
@@ -56,6 +59,7 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
         try { if (AutomaticGainControl.isAvailable()) gainControl = AutomaticGainControl.create(session)?.apply { enabled = true } } catch (_: Throwable) {}
         val turn = generation.incrementAndGet()
         running = true
+        armed = false
         try {
             record.startRecording()
             worker = Thread({ detectLoop(turn) }, "xiaoling-barge-in").apply { start() }
@@ -71,6 +75,13 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
         release()
     }
 
+    fun arm() {
+        if (running) {
+            armedAtElapsed = SystemClock.elapsedRealtime()
+            armed = true
+        }
+    }
+
     fun destroy() = stop()
 
     private fun detectLoop(turn: Long) {
@@ -82,6 +93,12 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
             val count = try { recorder?.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING) ?: -1 } catch (_: Throwable) { -1 }
             if (count <= 0) break
             val rms = rms(frame, count)
+            if (!armed) {
+                baseline = baseline * 0.9 + rms.coerceAtLeast(25.0) * 0.1
+                frames = 0
+                loudFrames = 0
+                continue
+            }
             frames++
             // Let acoustic echo cancellation settle, then track the residual speaker level.
             if (frames <= CALIBRATION_FRAMES) {
@@ -89,11 +106,12 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
                 continue
             }
             if (rms < baseline * 1.35) baseline = baseline * 0.97 + rms.coerceAtLeast(25.0) * 0.03
-            val threshold = maxOf(MIN_SPEECH_RMS, baseline * 1.35)
+            val threshold = maxOf(MIN_SPEECH_RMS, baseline * 1.28, baseline + MIN_RISE_RMS)
             loudFrames = if (rms >= threshold) loudFrames + 1 else (loudFrames - 1).coerceAtLeast(0)
             if (loudFrames >= REQUIRED_LOUD_FRAMES) {
                 running = false
-                main.post(onSpeech)
+                val latency = (SystemClock.elapsedRealtime() - armedAtElapsed).coerceAtLeast(0L)
+                main.post { onSpeech(latency) }
                 break
             }
         }
@@ -103,6 +121,7 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
     @Synchronized
     private fun release() {
         running = false
+        armed = false
         try { recorder?.stop() } catch (_: Throwable) {}
         try { echoCanceler?.release() } catch (_: Throwable) {}
         try { noiseSuppressor?.release() } catch (_: Throwable) {}
@@ -131,8 +150,9 @@ class BargeInDetector(context: Context, private val onSpeech: () -> Unit) {
     private companion object {
         const val SAMPLE_RATE = 16_000
         const val FRAME_BYTES = 640
-        const val CALIBRATION_FRAMES = 6
-        const val REQUIRED_LOUD_FRAMES = 2
-        const val MIN_SPEECH_RMS = 72.0
+        const val CALIBRATION_FRAMES = 4
+        const val REQUIRED_LOUD_FRAMES = 1
+        const val MIN_SPEECH_RMS = 55.0
+        const val MIN_RISE_RMS = 24.0
     }
 }
