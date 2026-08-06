@@ -100,6 +100,13 @@ def _env_number(name: str, default: float, minimum: float, maximum: float) -> fl
     return max(minimum, min(value, maximum))
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _with_model(url: str, model: str) -> str:
     parts = urlsplit(url)
     query = parse_qsl(parts.query, keep_blank_values=True)
@@ -210,7 +217,10 @@ def _session_update(
                 "threshold": 0.20,
                 "silence_duration_ms": 360,
                 "create_response": True,
-                "interrupt_response": True,
+                # Qwen's server VAD also hears the phone speaker.  Xiaoling
+                # confirms barge-in with the Android local VAD before it
+                # cancels a response, so server-side interruption is opt-in.
+                "interrupt_response": _env_bool("XL_QWEN_SERVER_INTERRUPT", False),
             },
             "tools": _qwen_tools(),
         },
@@ -315,6 +325,21 @@ def _ask_kimi(question: str, context: dict) -> str:
             "content": json.dumps({"question": question[:1800], "context": context}, ensure_ascii=False),
         },
     ]
+    # Preserve role order across the latest twenty stored turns.  Realtime
+    # sessions record the current user transcript before invoking this tool.
+    recent = context.get("recent_turns") if isinstance(context, dict) else []
+    history_messages = []
+    if isinstance(recent, list):
+        for item in recent[-20:]:
+            if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"}:
+                continue
+            content = str(item.get("content") or "").strip()
+            if content:
+                history_messages.append({"role": item["role"], "content": content[:1000]})
+    messages = [messages[0], *history_messages]
+    if not history_messages or history_messages[-1]["role"] != "user" or history_messages[-1]["content"] != question[:1000]:
+        messages.append({"role": "user", "content": question[:1800]})
+
     message = llm_gateway.chat(
         messages,
         max_tokens=900,
@@ -380,6 +405,7 @@ async def _handle_session(websocket: WebSocket) -> None:
         "response_active": False,
         "response_cancel_pending": False,
         "user_speaking": False,
+        "confirmed_user_speaking": False,
         "response_sequence": 0,
     }
 
@@ -533,21 +559,40 @@ async def _handle_session(websocket: WebSocket) -> None:
             "response_active": False,
             "response_cancel_pending": False,
             "user_speaking": False,
+            "confirmed_user_speaking": False,
             "response_sequence": 0,
         })
         await send_client({"type": "session.ready", "provider": provider, "model": model})
 
-        async def set_user_speaking(speaking_now: bool) -> None:
-            if speaking_now == state["user_speaking"]:
-                return
-            state["user_speaking"] = speaking_now
+        async def set_user_speaking(speaking_now: bool, confirmed: bool = False) -> None:
+            """Track speech without letting speaker echo cancel a response.
+
+            The upstream semantic VAD is useful for transcripts, but it cannot
+            distinguish a phone speaker from a person's voice in PiP or on a
+            noisy handset.  Only an explicit client VAD confirmation (or a
+            manual UI event) is allowed to cancel the active response.
+            """
             if speaking_now:
-                backchannel.speech_started()
-                await cancel_active_response(upstream)
-                await send_client({"type": "input.speech_started"})
-            else:
-                backchannel.speech_stopped()
-                await send_client({"type": "input.speech_stopped"})
+                was_speaking = state["user_speaking"]
+                state["user_speaking"] = True
+                if confirmed:
+                    first_confirmation = not state["confirmed_user_speaking"]
+                    state["confirmed_user_speaking"] = True
+                    if first_confirmation:
+                        await cancel_active_response(upstream)
+                if not was_speaking:
+                    backchannel.speech_started()
+                    await send_client({
+                        "type": "input.speech_started",
+                        "source": "client_vad" if confirmed else "server_vad",
+                    })
+                return
+            if not state["user_speaking"] and not state["confirmed_user_speaking"]:
+                return
+            state["user_speaking"] = False
+            state["confirmed_user_speaking"] = False
+            backchannel.speech_stopped()
+            await send_client({"type": "input.speech_stopped"})
 
         async def decision_loop() -> None:
             # Five control decisions per second. This loop never waits for the
@@ -593,6 +638,12 @@ async def _handle_session(websocket: WebSocket) -> None:
                                 await set_user_speaking(False)
                 elif kind == "response.cancel":
                     await cancel_active_response(upstream)
+                elif kind == "input.speech_started":
+                    # Explicit local VAD confirmation.  This is the only
+                    # client event that is trusted to interrupt TTS.
+                    await set_user_speaking(True, confirmed=True)
+                elif kind == "input.speech_stopped":
+                    await set_user_speaking(False)
                 elif kind == "conversation.text":
                     text = str(incoming.get("text") or "").strip()[:2000]
                     if text:
@@ -621,7 +672,7 @@ async def _handle_session(websocket: WebSocket) -> None:
                 if kind == "session.updated":
                     continue
                 elif kind == "input_audio_buffer.speech_started":
-                    await set_user_speaking(True)
+                    await set_user_speaking(True, confirmed=False)
                 elif kind == "input_audio_buffer.speech_stopped":
                     await set_user_speaking(False)
                 elif kind in {

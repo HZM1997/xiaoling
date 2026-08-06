@@ -15,6 +15,7 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import androidx.core.content.ContextCompat
 import com.xiaoling.BuildConfig
@@ -53,7 +54,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private val app = ctx.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private val generation = AtomicLong(0)
-    private val playbackQueue = ArrayBlockingQueue<ByteArray>(90)
+    // Keep enough audio to absorb normal network bursts without dropping the
+    // beginning or middle of a streamed answer.
+    private val playbackQueue = ArrayBlockingQueue<ByteArray>(360)
     private val client = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -68,6 +71,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     @Volatile private var connecting = false
     @Volatile private var connected = false
     @Volatile private var outputPlaying = false
+    @Volatile private var playbackWriting = false
     @Volatile private var responseInProgress = false
     @Volatile private var manualHold = false
     @Volatile private var stopping = false
@@ -80,6 +84,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private var outputText = StringBuilder()
     @Volatile private var inputSpeechCandidate = false
     @Volatile private var inputInterruptConfirmed = false
+    @Volatile private var localSpeechActive = false
+    @Volatile private var outputDonePending = false
+    @Volatile private var pendingOutputText = ""
+    @Volatile private var outputPlaybackStartedAtMs = 0L
     private var weakNetworkReported = false
 
     val isConnected: Boolean get() = connected && running
@@ -303,18 +311,32 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // Keep a slow noise/echo baseline. The previous implementation
             // measured only silence, so a steady TTS echo looked like speech
             // and cancelled the answer after two frames.
-            val baselineLimit = if (outputPlaying || responseInProgress) 1.55 else 2.2
+            val echoWarmup = outputPlaying && !manualHold &&
+                SystemClock.elapsedRealtime() - outputPlaybackStartedAtMs < ECHO_WARMUP_MS
+            val baselineLimit = if (outputPlaying) 1.45 else 2.2
             if (rms < noiseFloor * baselineLimit || outputPlaying || responseInProgress) {
-                val alpha = if (outputPlaying || responseInProgress) 0.10 else 0.015
+                // A slow baseline follows speaker echo without following a
+                // real voice burst, which keeps the interrupt threshold stable.
+                val alpha = if (echoWarmup) 0.24 else if (outputPlaying) 0.03 else if (responseInProgress) 0.015 else 0.01
                 noiseFloor = noiseFloor * (1.0 - alpha) + rms.coerceAtLeast(20.0) * alpha
             }
-            val interruptWindow = outputPlaying || manualHold || responseInProgress
+            // A response that has not emitted audio yet must still be
+            // interruptible, but it should use the normal speech threshold.
+            // Only actual playback or a manual hold uses the stricter echo
+            // rejection threshold.
+            val interruptWindow = outputPlaying || manualHold
             val speechThreshold = if (interruptWindow) {
                 maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.8, noiseFloor + INTERRUPT_MIN_RISE_RMS)
             } else {
                 maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
             }
-            if (rms >= speechThreshold) {
+            if (echoWarmup) {
+                // Calibrate against the first loudspeaker frames before
+                // allowing barge-in. This removes the common mid-sentence
+                // self-cancel while adding at most a tiny one-off delay.
+                loudFrames = 0
+                quietFrames++
+            } else if (rms >= speechThreshold) {
                 loudFrames++
                 quietFrames = 0
             } else {
@@ -327,16 +349,26 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             val strongSpeech = rms >= speechThreshold * 1.55
             // Require a short stable run even for a loud frame. This keeps a
             // speaker echo, notification click, or key tone from cancelling TTS.
-            val requiredFrames = if (strongSpeech) 3 else REQUIRED_INTERRUPT_FRAMES
-            if (interruptWindow && loudFrames >= requiredFrames && !interruptedThisUtterance) {
+            val requiredFrames = if (interruptWindow && strongSpeech) 3 else REQUIRED_INTERRUPT_FRAMES
+            if (loudFrames >= requiredFrames && !localSpeechActive) {
+                localSpeechActive = true
                 interruptedThisUtterance = true
-                responseInProgress = false
-                inputSpeechCandidate = false
-                inputInterruptConfirmed = true
-                clearPlayback()
-                socket?.send(JSONObject().put("type", "response.cancel").toString())
+                val confirmsBargeIn = outputPlaying || responseInProgress || manualHold
+                if (confirmsBargeIn) {
+                    responseInProgress = false
+                    inputSpeechCandidate = false
+                    inputInterruptConfirmed = true
+                    clearPlayback()
+                }
+                // The server trusts this explicit local-VAD event and ignores
+                // its own upstream VAD for cancellation decisions.
+                socket?.send(JSONObject().put("type", "input.speech_started").put("source", "client_vad").toString())
                 val latencyMs = if (strongSpeech) 20L else loudFrames * 20L
                 post { listener.onInputSpeechStarted(latencyMs) }
+            }
+            if (localSpeechActive && quietFrames >= 12) {
+                localSpeechActive = false
+                socket?.send(JSONObject().put("type", "input.speech_stopped").put("source", "client_vad").toString())
             }
             val ws = socket ?: continue
             if (ws.queueSize() > MAX_WEBSOCKET_QUEUE_BYTES) {
@@ -359,10 +391,19 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 continue
             }
             val bytes = try { playbackQueue.poll(300, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { null }
-                ?: continue
+            if (bytes == null) {
+                if (!responseInProgress && !playbackWriting && playbackQueue.isEmpty()) outputPlaying = false
+                maybeDeliverOutputDone()
+                continue
+            }
             outputPlaying = true
+            playbackWriting = true
             try { track?.write(bytes, 0, bytes.size, AudioTrack.WRITE_BLOCKING) } catch (_: Throwable) {}
-            if (playbackQueue.isEmpty()) outputPlaying = false
+            playbackWriting = false
+            if (playbackQueue.isEmpty() && !responseInProgress) {
+                outputPlaying = false
+                maybeDeliverOutputDone()
+            }
         }
     }
 
@@ -371,6 +412,12 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         when (event.optString("type")) {
             "session.ready" -> post { listener.onConnected(event.optString("model", "qwen-realtime")) }
             "input.speech_started" -> {
+                val source = event.optString("source")
+                // Local VAD already notified the UI and stopped playback. The
+                // server echo of that event must not produce a second state
+                // transition; server-VAD events remain informational only
+                // while audio is playing.
+                if (source == "client_vad") return
                 inputText = StringBuilder()
                 inputSpeechCandidate = true
                 inputInterruptConfirmed = false
@@ -413,17 +460,18 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             }
             "output.started" -> {
                 responseInProgress = true
+                outputDonePending = false
+                pendingOutputText = ""
+                outputPlaybackStartedAtMs = 0L
                 outputText = StringBuilder()
                 post { listener.onOutputStarted() }
             }
             "output.audio.delta" -> {
                 val bytes = try { Base64.decode(event.optString("audio"), Base64.DEFAULT) } catch (_: Exception) { null }
                 if (bytes != null && bytes.isNotEmpty()) {
+                    if (!outputPlaying) outputPlaybackStartedAtMs = SystemClock.elapsedRealtime()
                     outputPlaying = true
-                    if (!playbackQueue.offer(bytes)) {
-                        playbackQueue.poll()
-                        playbackQueue.offer(bytes)
-                    }
+                    try { playbackQueue.put(bytes) } catch (_: InterruptedException) {}
                 }
             }
             "output.transcript.delta" -> {
@@ -441,9 +489,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             }
             "output.done" -> {
                 responseInProgress = false
-                outputPlaying = playbackQueue.isNotEmpty()
-                val text = event.optString("text").ifBlank { outputText.toString() }
-                post { listener.onOutputDone(text) }
+                pendingOutputText = event.optString("text").ifBlank { outputText.toString() }
+                outputDonePending = true
+                if (playbackQueue.isEmpty() && !playbackWriting) outputPlaying = false
+                maybeDeliverOutputDone()
             }
             "tool.action" -> event.optJSONObject("action")?.let { action -> post { listener.onAction(action) } }
             "delegation.started" -> post { listener.onDelegationStarted(event.optString("task")) }
@@ -462,12 +511,22 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private fun clearPlayback() {
         playbackQueue.clear()
         outputPlaying = false
+        playbackWriting = false
+        outputPlaybackStartedAtMs = 0L
         responseInProgress = false
         try {
             track?.pause()
             track?.flush()
             track?.play()
         } catch (_: Throwable) {}
+    }
+
+    private fun maybeDeliverOutputDone() {
+        if (!outputDonePending || outputPlaying || playbackQueue.isNotEmpty()) return
+        outputDonePending = false
+        val text = pendingOutputText
+        pendingOutputText = ""
+        post { listener.onOutputDone(text) }
     }
 
     private fun fail(turn: Long, message: String, retryable: Boolean) {
@@ -489,6 +548,11 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         running = false
         playbackQueue.clear()
         outputPlaying = false
+        playbackWriting = false
+        outputPlaybackStartedAtMs = 0L
+        outputDonePending = false
+        pendingOutputText = ""
+        localSpeechActive = false
         manualHold = false
         try { recorder?.stop() } catch (_: Throwable) {}
         try { track?.pause(); track?.flush(); track?.stop() } catch (_: Throwable) {}
@@ -527,6 +591,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val INTERRUPT_MIN_SPEECH_RMS = 120.0
         const val INTERRUPT_MIN_RISE_RMS = 70.0
         const val REQUIRED_INTERRUPT_FRAMES = 4
+        const val ECHO_WARMUP_MS = 180L
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }

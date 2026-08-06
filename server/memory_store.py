@@ -141,12 +141,12 @@ class MemoryStore:
                 (user_id[:64], user_id[:64]),
             )
 
-    def recent_turns(self, user_id: str, limit: int = 6) -> list[dict]:
+    def recent_turns(self, user_id: str, limit: int = 20) -> list[dict]:
         with self._connect() as db:
             rows = db.execute(
                 "SELECT role, content, created_at FROM conversation_turns "
                 "WHERE user_id=? ORDER BY id DESC LIMIT ?",
-                (user_id[:64], max(1, min(limit, 12))),
+                (user_id[:64], max(1, min(limit, 20))),
             ).fetchall()
         return [dict(row) for row in reversed(rows)]
 

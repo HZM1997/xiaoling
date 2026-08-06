@@ -32,10 +32,19 @@ def _system_prompt(profile: dict | None, scene: str, runtime_context: dict | Non
     dynamic = runtime_context or {}
     memories = dynamic.get("memories") if isinstance(dynamic.get("memories"), list) else []
     device = dynamic.get("device") if isinstance(dynamic.get("device"), dict) else {}
+    recent_turns = dynamic.get("recent_turns") if isinstance(dynamic.get("recent_turns"), list) else []
     context_note = json.dumps(
         {
             "local_time": dynamic.get("local_time", ""),
             "relevant_memories": memories[:6],
+            "recent_turns": [
+                {
+                    "role": item.get("role"),
+                    "content": str(item.get("content", ""))[:600],
+                }
+                for item in recent_turns[-20:]
+                if isinstance(item, dict) and item.get("role") in {"user", "assistant"}
+            ],
             "device_summary": device,
         },
         ensure_ascii=False,
@@ -149,7 +158,7 @@ def understand(text: str, user_id: str = "guest", profile: dict | None = None,
     if isinstance(recent, list) and recent:
         messages += [
             {"role": item.get("role", "user"), "content": str(item.get("content", ""))[:600]}
-            for item in recent[-6:]
+            for item in recent[-20:]
             if item.get("role") in {"user", "assistant"} and item.get("content")
         ]
     else:

@@ -42,12 +42,12 @@ def build_context(
             memories.append({"kind": "device", "memory_key": key, "value": value})
             known.add(marker)
 
-    recent = store.recent_turns(user_id, limit=10)
+    recent = store.recent_turns(user_id, limit=20)
     if not recent:
         incoming_turns = incoming.get("recent_turns") if isinstance(incoming.get("recent_turns"), list) else []
         recent = [
             {"role": str(item.get("role")), "content": str(item.get("content"))[:600]}
-            for item in incoming_turns[-10:]
+            for item in incoming_turns[-20:]
             if isinstance(item, dict) and item.get("role") in {"user", "assistant"} and item.get("content")
         ]
     for item in memories:

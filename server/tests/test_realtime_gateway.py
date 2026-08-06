@@ -14,6 +14,7 @@ def clean_realtime_environment(monkeypatch):
         "XL_QWEN_REALTIME_URL",
         "XL_QWEN_REALTIME_MODEL",
         "XL_QWEN_REALTIME_VOICE",
+        "XL_QWEN_SERVER_INTERRUPT",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -76,12 +77,42 @@ def test_qwen_session_uses_semantic_vad_and_nested_tools(tmp_path, monkeypatch):
     assert session["turn_detection"]["threshold"] <= 0.35
     assert session["turn_detection"]["silence_duration_ms"] <= 600
     assert session["turn_detection"]["create_response"] is True
-    assert session["turn_detection"]["interrupt_response"] is True
+    assert session["turn_detection"]["interrupt_response"] is False
     assert "tool_choice" not in session
     assert "parallel_tool_calls" not in session
     assert {tool["function"]["name"] for tool in session["tools"]} >= {
         "call_contact", "set_reminder", "play_media", "check_fraud", "ask_kimi", "delegate_complex_task"
     }
+
+
+def test_qwen_server_side_interrupt_is_explicit_opt_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("XL_MEMORY_DB", str(tmp_path / "memory.sqlite3"))
+    monkeypatch.setenv("XL_QWEN_SERVER_INTERRUPT", "true")
+    update = realtime_gateway._session_update("elder-qwen", {})
+    assert update["session"]["turn_detection"]["interrupt_response"] is True
+
+
+def test_kimi_receives_ordered_twenty_turn_window(monkeypatch):
+    captured = {}
+
+    def fake_chat(messages, **kwargs):
+        captured["messages"] = messages
+        captured["kwargs"] = kwargs
+        return {"content": "好的"}
+
+    monkeypatch.setattr(realtime_gateway.llm_gateway, "chat", fake_chat)
+    turns = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": f"turn-{index}"}
+        for index in range(24)
+    ]
+    result = realtime_gateway._ask_kimi("current-question", {"recent_turns": turns})
+
+    assert result == "好的"
+    assert [item["content"] for item in captured["messages"][1:-1]] == [
+        f"turn-{index}" for index in range(4, 24)
+    ]
+    assert captured["messages"][-1] == {"role": "user", "content": "current-question"}
+    assert captured["kwargs"]["model_override"] == "kimi-k3"
 
 
 def test_qwen_input_audio_is_streamed_from_24khz_to_16khz():

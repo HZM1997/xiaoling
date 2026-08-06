@@ -53,6 +53,19 @@ def test_dynamic_context_recovers_device_memory_and_turns(tmp_path):
     assert context["recent_turns"][-1]["content"] == "我记住了"
 
 
+def test_dynamic_context_keeps_latest_twenty_turns_in_order(tmp_path):
+    store = MemoryStore(tmp_path / "memory.sqlite3")
+    for index in range(25):
+        store.record_turn("elder-window", "user" if index % 2 == 0 else "assistant", f"turn-{index}")
+
+    context = build_context(store, "elder-window", "current", {})
+
+    assert len(context["recent_turns"]) == 20
+    assert [item["content"] for item in context["recent_turns"]] == [
+        f"turn-{index}" for index in range(5, 25)
+    ]
+
+
 def test_multi_provider_falls_back_in_order(monkeypatch):
     providers = [
         {"name": "first", "key": "a", "base": "https://first.invalid", "model": "m1"},
