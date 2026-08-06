@@ -28,6 +28,7 @@ class Tts(
     private val main = Handler(Looper.getMainLooper())
     private val pending = ConcurrentHashMap<String, Long>()
     private val started = ConcurrentHashMap.newKeySet<String>()
+    private val startedAt = ConcurrentHashMap<String, Long>()
     /** 最近一次正常播报的内容(供打断后恢复) */
     @Volatile var lastSpoken: String = ""
         private set
@@ -48,7 +49,10 @@ class Tts(
                 val cb = onDone   // 捕获,避免与 UtteranceProgressListener.onDone 同名方法递归
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) {
-                        id?.let(started::add)
+                        id?.takeIf { pending.containsKey(it) }?.let {
+                            started.add(it)
+                            startedAt.putIfAbsent(it, SystemClock.elapsedRealtime())
+                        }
                         main.post { onStarted(id) }
                     }
                     override fun onDone(id: String?) { finishPending(id, cb) }
@@ -56,7 +60,11 @@ class Tts(
                     override fun onError(id: String?, errorCode: Int) { finishPending(id, cb) }
                     override fun onStop(id: String?, interrupted: Boolean) {
                         if (interrupted) {
-                            id?.let { pending.remove(it); started.remove(it) }
+                            id?.let {
+                                pending.remove(it)
+                                started.remove(it)
+                                startedAt.remove(it)
+                            }
                         } else finishPending(id, cb)
                     }
                 })
@@ -107,11 +115,21 @@ class Tts(
     /** 部分 MIUI TTS 会播完却漏掉 onDone；轮询 isSpeaking，保证连续对话不会永久卡住。 */
     private fun monitorCompletion(id: String, callback: (String?) -> Unit) {
         main.postDelayed(object : Runnable {
+            private var silentPolls = 0
+
             override fun run() {
                 val deadline = pending[id] ?: return
                 val engineSpeaking = try { tts?.isSpeaking == true } catch (_: Throwable) { false }
-                if (engineSpeaking) started.add(id)
-                val finishedNormally = started.contains(id) && !engineSpeaking
+                if (engineSpeaking) {
+                    started.add(id)
+                    startedAt.putIfAbsent(id, SystemClock.elapsedRealtime())
+                    silentPolls = 0
+                } else if (started.contains(id)) {
+                    silentPolls++
+                }
+                val elapsed = SystemClock.elapsedRealtime() - (startedAt[id] ?: Long.MAX_VALUE)
+                val finishedNormally = started.contains(id) &&
+                    silentPolls >= SILENT_POLLS_REQUIRED && elapsed >= MIN_PLAYBACK_GUARD_MS
                 if (finishedNormally || SystemClock.elapsedRealtime() >= deadline) {
                     finishPending(id, callback)
                 } else {
@@ -124,6 +142,7 @@ class Tts(
     private fun finishPending(id: String?, callback: (String?) -> Unit) {
         if (id == null || pending.remove(id) == null) return
         started.remove(id)
+        startedAt.remove(id)
         main.post { callback(id) }
     }
 
@@ -146,5 +165,12 @@ class Tts(
     /** 立即停止当前播报(打断用) */
     fun stop() { tts?.stop() }
 
-    fun shutdown() { pending.clear(); started.clear(); tts?.stop(); tts?.shutdown(); tts = null }
+    fun shutdown() { pending.clear(); started.clear(); startedAt.clear(); tts?.stop(); tts?.shutdown(); tts = null }
+
+    private companion object {
+        // 220 ms polling * 4 lets MIUI recover from a transient false isSpeaking
+        // value without delaying the normal onDone callback path.
+        const val SILENT_POLLS_REQUIRED = 4
+        const val MIN_PLAYBACK_GUARD_MS = 900L
+    }
 }

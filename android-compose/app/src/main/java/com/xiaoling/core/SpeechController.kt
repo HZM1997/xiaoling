@@ -83,7 +83,8 @@ class SpeechController(private val ctx: Context) {
         onSpeechStart: () -> Unit = {},
         onEndOfSpeech: () -> Unit = {},
         onText: (String) -> Unit,
-        onError: (Int) -> Unit
+        onError: (Int) -> Unit,
+        keepPlayback: Boolean = false,
     ) {
         if (!hasPermission) { onError(SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS); return }
         if (!isAvailable) { onError(SpeechRecognizer.ERROR_CLIENT); return }
@@ -94,7 +95,7 @@ class SpeechController(private val ctx: Context) {
         val textCb = onText
         val errCb = onError
         var lastPartial = ""
-        requestRecognitionFocus()
+        if (!keepPlayback) requestRecognitionFocus()
         if ((!systemAvailable || preferCloud) && cloudAvailable) {
             val started = cloud.start(
                 onReady = readyCb,

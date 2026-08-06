@@ -116,6 +116,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private var speechTimeoutJob: Job? = null
     private var micFeedbackJob: Job? = null
     @Volatile private var interrupted = false // 本次按住是"打断"播报触发的(松手无新指令则恢复原播报)
+    @Volatile private var awaitingLegacyBargeIn = false // 先用 ASR 确认真人语音,再停止 TTS
     @Volatile private var memoMode = false   // 亲情语音留言录制模式:下一次按住录音频而非识别
     private var memoTimeoutJob: Job? = null   // 进入留言模式后若迟迟不按住,自动取消,避免劫持下次按住说话
     @Volatile private var alarmUntil = 0L    // 警惕态持续到的时间戳(多个事件叠加不早退)
@@ -411,6 +412,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         realtimeCaptionJob?.cancel()
         realtime.stop(notify = false)
         autoListenJob?.cancel()
+        awaitingLegacyBargeIn = false
         if (recognitionActive || holding) cancelActiveRecognition()
         if (speaking) {
             curUtt = ""
@@ -438,7 +440,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         beginListening(automatic = false)
     }
 
-    private fun beginListening(automatic: Boolean) {
+    private fun beginListening(automatic: Boolean, preserveSpeechForBargeIn: Boolean = false) {
         if (holding) return
         bargeIn.stop()
         if (recognitionActive) {
@@ -478,8 +480,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 mascot = MascotState.Listening) }
             return
         }
-        interrupted = interrupted || speaking // 正在播报时按住/开口 = 打断
-        if (speaking) { tts.stop(); speaking = false }
+        val preserveSpeech = preserveSpeechForBargeIn && awaitingLegacyBargeIn && speaking
+        interrupted = interrupted || (speaking && !preserveSpeech) // 正在播报时按住/开口 = 打断
+        if (speaking && !preserveSpeech) { tts.stop(); speaking = false }
         holding = !automatic
         recognitionActive = true
         currentSpeechDetected = false
@@ -495,6 +498,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 if (session == listenSession && recognitionActive && p.isNotBlank()) {
                     currentSpeechDetected = true
                     latestSpeechText = p.trim()
+                    if (awaitingLegacyBargeIn && p.count { !it.isWhitespace() } >= 2) {
+                        awaitingLegacyBargeIn = false
+                        interrupted = true
+                        if (speaking) {
+                            tts.stop()
+                            speaking = false
+                        }
+                    }
                     _state.update { it.copy(caption = p) }
                 }
             },
@@ -526,6 +537,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 if (t.isNotBlank()) latestSpeechText = t.trim()
                 if (!finishRecognition(session)) return@listen
                 if (t.isNotBlank()) {
+                    if (awaitingLegacyBargeIn) {
+                        awaitingLegacyBargeIn = false
+                        interrupted = true
+                        if (speaking) {
+                            tts.stop()
+                            speaking = false
+                        }
+                    }
                     interrupted = false
                     automaticMisses = 0
                     process(t)
@@ -541,7 +560,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 } else {
                     onHeardNothing(automatic, detected)
                 }
-            }
+            },
+            keepPlayback = preserveSpeech
         )
         if (automatic && session == listenSession && recognitionActive) {
             speechTimeoutJob = viewModelScope.launch {
@@ -678,6 +698,37 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     /** 没听清/没内容:温和语音提示,不弹冷冰冰文字。若是打断场景则恢复原播报。 */
     private fun onHeardNothing(automatic: Boolean, speechDetected: Boolean = true) {
+        if (awaitingLegacyBargeIn) {
+            // The raw level detector was only a candidate. If ASR produced no
+            // useful text, keep the original answer running and do not replace
+            // it with a generic error prompt.
+            awaitingLegacyBargeIn = false
+            if (speaking) {
+                _state.update { it.copy(listening = false, micPressed = false, busy = false,
+                    speaking = true, micFeedback = "", caption = tts.lastSpoken,
+                    mascot = MascotState.Talking) }
+                viewModelScope.launch {
+                    delay(450)
+                    if (speaking && voiceSessionActive && !recognitionActive && AppForeground.active) {
+                        bargeIn.start()
+                        bargeIn.arm()
+                    }
+                }
+            } else {
+                _state.update { it.copy(listening = false, micPressed = false, busy = false,
+                    speaking = false, micFeedback = "", caption = "", mascot = MascotState.Idle) }
+                if (automatic && voiceSessionActive && AppForeground.active) {
+                    autoListenJob?.cancel()
+                    autoListenJob = viewModelScope.launch {
+                        delay(90)
+                        if (voiceSessionActive && !holding && !recognitionActive && !speaking && AppForeground.active) {
+                            beginListening(automatic = true)
+                        }
+                    }
+                }
+            }
+            return
+        }
         if (interrupted && tts.lastSpoken.isNotBlank()) {
             interrupted = false
             speaking = true
@@ -1007,16 +1058,16 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onLegacyBargeIn(latencyMs: Long) {
-        if (!voiceSessionActive || realtimeActive || recognitionActive || !speaking || !AppForeground.active) return
+        if (!voiceSessionActive || realtimeActive || recognitionActive || !speaking || !AppForeground.active || !speech.isAvailable) return
         viewModelScope.launch { BrainClient.qualityEvent(app, "barge_in_legacy", latencyMs, true) }
-        interrupted = true
+        // A level spike is only a candidate. Start ASR while TTS continues;
+        // onPartial/onText will stop the utterance once real words arrive.
+        awaitingLegacyBargeIn = true
         bargeIn.stop()
-        tts.stop()
-        speaking = false
         _state.update { it.copy(speaking = false, listening = true, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
         if (voiceSessionActive && !realtimeActive && !recognitionActive && AppForeground.active) {
-            beginListening(automatic = true)
+            beginListening(automatic = true, preserveSpeechForBargeIn = true)
         }
     }
 
@@ -1066,6 +1117,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeInputStarted(latencyMs: Long) {
         if (!realtimeActive) return
+        // A server-side VAD event without local confirmation can be speaker
+        // echo. Keep the current TTS output until local VAD or a transcript
+        // confirms that the user really started speaking.
+        if (latencyMs < 0L && speaking && !holding) return
         realtimeResponseJob?.cancel()
         realtimeOutputJob?.cancel()
         val interruptedOutput = speaking

@@ -78,6 +78,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private var gainControl: AutomaticGainControl? = null
     private var inputText = StringBuilder()
     private var outputText = StringBuilder()
+    @Volatile private var inputSpeechCandidate = false
+    @Volatile private var inputInterruptConfirmed = false
     private var weakNetworkReported = false
 
     val isConnected: Boolean get() = connected && running
@@ -188,6 +190,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         running = false
         socket?.close(1000, "client stop")
         socket = null
+        inputSpeechCandidate = false
+        inputInterruptConfirmed = false
         releaseAudio()
         if (notify && wasConnected) post { listener.onDisconnected("实时会话已停止", false) }
     }
@@ -296,12 +300,17 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             val count = try { recorder?.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING) ?: -1 } catch (_: Throwable) { -1 }
             if (count <= 0) break
             val rms = pcmRms(frame, count)
-            if (!outputPlaying && !responseInProgress && rms < noiseFloor * 2.2) {
-                noiseFloor = noiseFloor * 0.96 + rms.coerceAtLeast(20.0) * 0.04
+            // Keep a slow noise/echo baseline. The previous implementation
+            // measured only silence, so a steady TTS echo looked like speech
+            // and cancelled the answer after two frames.
+            val baselineLimit = if (outputPlaying || responseInProgress) 1.55 else 2.2
+            if (rms < noiseFloor * baselineLimit || outputPlaying || responseInProgress) {
+                val alpha = if (outputPlaying || responseInProgress) 0.10 else 0.015
+                noiseFloor = noiseFloor * (1.0 - alpha) + rms.coerceAtLeast(20.0) * alpha
             }
             val interruptWindow = outputPlaying || manualHold || responseInProgress
             val speechThreshold = if (interruptWindow) {
-                maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.35)
+                maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.8, noiseFloor + INTERRUPT_MIN_RISE_RMS)
             } else {
                 maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
             }
@@ -315,10 +324,15 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     interruptedThisUtterance = false
                 }
             }
-            val strongSpeech = rms >= speechThreshold * 1.65
-            if (interruptWindow && (strongSpeech || loudFrames >= 2) && !interruptedThisUtterance) {
+            val strongSpeech = rms >= speechThreshold * 1.55
+            // Require a short stable run even for a loud frame. This keeps a
+            // speaker echo, notification click, or key tone from cancelling TTS.
+            val requiredFrames = if (strongSpeech) 3 else REQUIRED_INTERRUPT_FRAMES
+            if (interruptWindow && loudFrames >= requiredFrames && !interruptedThisUtterance) {
                 interruptedThisUtterance = true
                 responseInProgress = false
+                inputSpeechCandidate = false
+                inputInterruptConfirmed = true
                 clearPlayback()
                 socket?.send(JSONObject().put("type", "response.cancel").toString())
                 val latencyMs = if (strongSpeech) 20L else loudFrames * 20L
@@ -358,22 +372,44 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             "session.ready" -> post { listener.onConnected(event.optString("model", "qwen-realtime")) }
             "input.speech_started" -> {
                 inputText = StringBuilder()
-                responseInProgress = false
-                clearPlayback()
-                post { listener.onInputSpeechStarted(-1L) }
+                inputSpeechCandidate = true
+                inputInterruptConfirmed = false
+                // Server VAD can hear the phone speaker through a weak AEC.
+                // Do not stop output on this event alone; wait for local VAD or
+                // a real transcript before confirming an interruption.
+                if (!outputPlaying && !responseInProgress && !manualHold) {
+                    post { listener.onInputSpeechStarted(-1L) }
+                }
             }
             "input.transcript.delta" -> {
                 val delta = event.optString("text")
                 if (delta.isNotBlank()) {
                     inputText.append(delta)
                     val text = inputText.toString()
+                    if (inputSpeechCandidate && !inputInterruptConfirmed && text.count { !it.isWhitespace() } >= 2) {
+                        inputInterruptConfirmed = true
+                        responseInProgress = false
+                        clearPlayback()
+                        socket?.send(JSONObject().put("type", "response.cancel").toString())
+                        post { listener.onInputSpeechStarted(0L) }
+                    }
                     post { listener.onInputTranscript(text, false) }
                 }
             }
             "input.transcript.done" -> {
                 val text = event.optString("text").ifBlank { inputText.toString() }
                 inputText = StringBuilder()
-                if (text.isNotBlank()) post { listener.onInputTranscript(text, true) }
+                if (text.isNotBlank()) {
+                    if (inputSpeechCandidate && !inputInterruptConfirmed) {
+                        inputInterruptConfirmed = true
+                        responseInProgress = false
+                        clearPlayback()
+                        socket?.send(JSONObject().put("type", "response.cancel").toString())
+                        post { listener.onInputSpeechStarted(0L) }
+                    }
+                    inputSpeechCandidate = false
+                    post { listener.onInputTranscript(text, true) }
+                }
             }
             "output.started" -> {
                 responseInProgress = true
@@ -443,6 +479,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         running = false
         releaseAudio()
         socket = null
+        inputSpeechCandidate = false
+        inputInterruptConfirmed = false
         if (shouldNotify) post { listener.onDisconnected(message, retryable) }
     }
 
@@ -486,7 +524,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val SAMPLE_RATE = 24_000
         const val FRAME_BYTES = 960 // 20 ms, PCM16 mono;每秒 50 次本地打断判断
         const val LOCAL_MIN_SPEECH_RMS = 90.0
-        const val INTERRUPT_MIN_SPEECH_RMS = 60.0
+        const val INTERRUPT_MIN_SPEECH_RMS = 120.0
+        const val INTERRUPT_MIN_RISE_RMS = 70.0
+        const val REQUIRED_INTERRUPT_FRAMES = 4
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }
