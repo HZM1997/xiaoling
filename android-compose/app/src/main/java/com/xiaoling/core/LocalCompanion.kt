@@ -1,21 +1,34 @@
 package com.xiaoling.core
 
+import android.content.Context
+
 /** 云端暂不可用时的轻量陪伴回复,避免重复固定宣传话术。 */
 object LocalCompanion {
     private val sequence = java.util.concurrent.atomic.AtomicInteger()
 
-    fun reply(text: String, previousUser: String = ""): Reply {
+    fun reply(ctx: Context, text: String, previousUser: String = ""): Reply {
         val compact = text.trim().replace(Regex("\\s+"), " ").take(28)
+        val name = ConversationMemory.fact(ctx, "name")
+        val likes = ConversationMemory.fact(ctx, "likes")
+        val address = name.takeIf(String::isNotBlank)?.let { "$it," }.orEmpty()
         val speech = when {
+            Regex("我叫什么|你记得我吗|还记得我叫什么").containsMatchIn(compact) && name.isNotBlank() ->
+                "记得,您叫$name。我们接着聊。"
+            Regex("我喜欢什么|我爱听什么|记得我喜欢").containsMatchIn(compact) && likes.isNotBlank() ->
+                "记得,您喜欢$likes。要不要就聊这个?"
             Regex("你好|您好|在吗|小灵").containsMatchIn(compact) -> listOf(
-                "在呢,您慢慢说,我一直听着。",
-                "您好,我在这儿。今天想聊点什么?",
-                "听见了,您说吧,我陪着您。"
+                "${address}我在呢,您慢慢说。",
+                "${address}听见了。今天想聊点什么?",
+                "我在这儿,您接着说,不用着急。"
             )[sequence.getAndIncrement().mod(3)]
             Regex("孤单|寂寞|想聊天|陪我|睡不着").containsMatchIn(compact) ->
-                "我陪着您。今天有什么事一直放在心里?"
+                listOf("我陪着您。今天有什么事一直放在心里?", "我在,今晚咱们慢慢聊。您先从最想说的那件事讲起。")
+                    [sequence.getAndIncrement().mod(2)]
             Regex("不开心|生气|难过|烦|担心").containsMatchIn(compact) ->
-                "听起来这件事让您不太好受。您慢慢讲,我听着呢。"
+                listOf("听起来这件事让您不太好受。您慢慢讲,我听着呢。", "这事确实让人心里不舒服。您想先说经过,还是想让我帮您想办法?")
+                    [sequence.getAndIncrement().mod(2)]
+            Regex("开心|高兴|太好了|不错").containsMatchIn(compact) ->
+                "听您这么说我也替您高兴。是什么好事呀?"
             Regex("谢谢|多谢").containsMatchIn(compact) ->
                 "不用客气,能帮上您就好。"
             Regex("再见|不聊了|休息了").containsMatchIn(compact) ->

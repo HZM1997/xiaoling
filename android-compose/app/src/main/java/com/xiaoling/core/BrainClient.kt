@@ -144,6 +144,8 @@ object BrainClient {
             val mergedCtx = (context ?: JSONObject()).apply {
                 Profile.toJson(ctx)?.let { put("profile", it) }
                 put("device", DeviceContext.toJson(ctx))
+                put("recent_turns", ConversationMemory.recentTurns(ctx))
+                put("local_memories", ConversationMemory.relevantFacts(ctx, text))
                 if (!has("scene")) put("scene", "voice_chat")
             }
             val hasCtx = mergedCtx.length() > 0

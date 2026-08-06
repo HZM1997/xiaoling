@@ -29,7 +29,27 @@ def build_context(
         local_time = datetime.now().astimezone().isoformat(timespec="minutes")
 
     profile = incoming.get("profile") if isinstance(incoming.get("profile"), dict) else {}
-    memories = store.recall(user_id, text, limit=6)
+    memories = store.recall(user_id, text, limit=8)
+    local_memories = incoming.get("local_memories") if isinstance(incoming.get("local_memories"), list) else []
+    known = {(item["kind"], item["memory_key"], item["value"]) for item in memories}
+    for item in local_memories[:8]:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "")[:64]
+        value = str(item.get("value") or "")[:120]
+        marker = ("device", key, value)
+        if key and value and marker not in known:
+            memories.append({"kind": "device", "memory_key": key, "value": value})
+            known.add(marker)
+
+    recent = store.recent_turns(user_id, limit=10)
+    if not recent:
+        incoming_turns = incoming.get("recent_turns") if isinstance(incoming.get("recent_turns"), list) else []
+        recent = [
+            {"role": str(item.get("role")), "content": str(item.get("content"))[:600]}
+            for item in incoming_turns[-10:]
+            if isinstance(item, dict) and item.get("role") in {"user", "assistant"} and item.get("content")
+        ]
     for item in memories:
         if item["kind"] == "profile" and item["memory_key"] not in profile:
             profile[item["memory_key"]] = item["value"]
@@ -42,6 +62,6 @@ def build_context(
             {"kind": item["kind"], "key": item["memory_key"], "value": item["value"]}
             for item in memories
         ],
-        "recent_turns": store.recent_turns(user_id, limit=6),
+        "recent_turns": recent,
         "device": device,
     }

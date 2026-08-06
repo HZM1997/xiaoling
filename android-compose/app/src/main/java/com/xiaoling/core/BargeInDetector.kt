@@ -100,6 +100,15 @@ class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
                 loudFrames = 0
                 continue
             }
+            // Give the speaker/AEC a short settling window. MIUI often leaks the
+            // first TTS frame into the communication input; treating it as speech
+            // immediately causes a stop-listen-resume loop.
+            if (SystemClock.elapsedRealtime() - armedAtElapsed < SETTLE_MS) {
+                baseline = baseline * 0.86 + rms.coerceAtLeast(25.0) * 0.14
+                frames = 0
+                loudFrames = 0
+                continue
+            }
             frames++
             // Let acoustic echo cancellation settle, then track the residual speaker level.
             if (frames <= CALIBRATION_FRAMES) {
@@ -107,7 +116,7 @@ class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
                 continue
             }
             if (rms < baseline * 1.35) baseline = baseline * 0.97 + rms.coerceAtLeast(25.0) * 0.03
-            val threshold = maxOf(MIN_SPEECH_RMS, baseline * 1.28, baseline + MIN_RISE_RMS)
+            val threshold = maxOf(MIN_SPEECH_RMS, baseline * 1.65, baseline + MIN_RISE_RMS)
             if (rms >= threshold) {
                 if (loudFrames == 0) candidateStartedAt = SystemClock.elapsedRealtime()
                 loudFrames++
@@ -159,8 +168,9 @@ class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
         const val SAMPLE_RATE = 16_000
         const val FRAME_BYTES = 640
         const val CALIBRATION_FRAMES = 1
-        const val REQUIRED_LOUD_FRAMES = 1
-        const val MIN_SPEECH_RMS = 55.0
-        const val MIN_RISE_RMS = 24.0
+        const val REQUIRED_LOUD_FRAMES = 3
+        const val MIN_SPEECH_RMS = 110.0
+        const val MIN_RISE_RMS = 48.0
+        const val SETTLE_MS = 140L
     }
 }

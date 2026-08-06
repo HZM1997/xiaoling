@@ -5,7 +5,7 @@ name: Build Compose APK
 on:
   workflow_dispatch:
   push:
-    branches: ['fix/redmi-asr-v1.0.29-ci']
+    branches: ['fix/voice-continuity-v1.0.30-ci']
     tags: ['v*']
 
 jobs:

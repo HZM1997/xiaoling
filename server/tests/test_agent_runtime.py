@@ -40,6 +40,19 @@ def test_dynamic_context_only_keeps_safe_device_summary(tmp_path):
     assert context["memories"][0]["value"] == "越剧"
 
 
+def test_dynamic_context_recovers_device_memory_and_turns(tmp_path):
+    store = MemoryStore(tmp_path / "memory.sqlite3")
+    context = build_context(store, "elder-local", "我喜欢什么", {
+        "local_memories": [{"key": "likes", "value": "听评书", "updated": 1}],
+        "recent_turns": [
+            {"role": "user", "content": "我喜欢听评书"},
+            {"role": "assistant", "content": "我记住了"},
+        ],
+    })
+    assert any(item["key"] == "likes" and item["value"] == "听评书" for item in context["memories"])
+    assert context["recent_turns"][-1]["content"] == "我记住了"
+
+
 def test_multi_provider_falls_back_in_order(monkeypatch):
     providers = [
         {"name": "first", "key": "a", "base": "https://first.invalid", "model": "m1"},

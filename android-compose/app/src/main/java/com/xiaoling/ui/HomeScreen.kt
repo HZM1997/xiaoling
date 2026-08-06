@@ -5,6 +5,12 @@ import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -16,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +38,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -46,6 +56,7 @@ import com.xiaoling.service.AppForeground
 import com.xiaoling.service.WakeService
 import com.xiaoling.ui.theme.AccentBlue
 import com.xiaoling.ui.theme.InkColor
+import kotlin.math.sin
 
 @Composable
 fun HomeScreen(vm: AppState) {
@@ -127,7 +138,13 @@ fun HomeScreen(vm: AppState) {
             )
 
             if (!inPip) {
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(8.dp))
+                VoiceActivityIndicator(
+                    listening = ui.listening,
+                    speaking = ui.speaking,
+                    thinking = ui.busy,
+                )
+                Spacer(Modifier.height(12.dp))
                 MicrophoneButton(
                     listening = ui.micPressed,
                     onPress = {
@@ -154,6 +171,60 @@ fun HomeScreen(vm: AppState) {
                     modifier = Modifier.size(28.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun VoiceActivityIndicator(
+    listening: Boolean,
+    speaking: Boolean,
+    thinking: Boolean,
+) {
+    val transition = rememberInfiniteTransition(label = "voice-activity")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(
+                durationMillis = when {
+                    listening -> 620
+                    speaking -> 760
+                    thinking -> 1050
+                    else -> 1500
+                }
+            ),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "voice-phase",
+    )
+    val energy = when {
+        listening -> 0.94f
+        speaking -> 0.82f
+        thinking -> 0.48f
+        else -> 0.16f
+    }
+    val color = when {
+        listening -> Color(0xFF27A66B)
+        speaking -> AccentBlue
+        thinking -> Color(0xFF7C8696)
+        else -> Color(0xFFB8C0CC)
+    }
+
+    Canvas(Modifier.width(58.dp).height(25.dp)) {
+        val barWidth = size.width / 11f
+        val gap = barWidth * 1.45f
+        repeat(5) { index ->
+            val wave = ((sin((phase + index * 0.92f).toDouble()) + 1.0) * 0.5).toFloat()
+            val centerBias = 1f - kotlin.math.abs(index - 2) * 0.11f
+            val barHeight = size.height * (0.18f + energy * (0.34f + wave * 0.44f) * centerBias)
+            val left = (size.width - (barWidth * 5 + gap * 4)) / 2f + index * (barWidth + gap)
+            drawRoundRect(
+                color = color,
+                topLeft = Offset(left, (size.height - barHeight) / 2f),
+                size = Size(barWidth, barHeight),
+                cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+            )
         }
     }
 }

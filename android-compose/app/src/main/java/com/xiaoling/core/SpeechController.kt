@@ -81,6 +81,7 @@ class SpeechController(private val ctx: Context) {
         onPartial: (String) -> Unit = {},
         onReady: () -> Unit = {},
         onSpeechStart: () -> Unit = {},
+        onEndOfSpeech: () -> Unit = {},
         onText: (String) -> Unit,
         onError: (Int) -> Unit
     ) {
@@ -89,6 +90,7 @@ class SpeechController(private val ctx: Context) {
         val partialCb = onPartial
         val readyCb = onReady
         val speechStartCb = onSpeechStart
+        val endOfSpeechCb = onEndOfSpeech
         val textCb = onText
         val errCb = onError
         var lastPartial = ""
@@ -181,7 +183,7 @@ class SpeechController(private val ctx: Context) {
                 }
                 override fun onRmsChanged(rmsdB: Float) {}
                 override fun onBufferReceived(buffer: ByteArray?) {}
-                override fun onEndOfSpeech() {}
+                override fun onEndOfSpeech() { endOfSpeechCb() }
                 override fun onEvent(eventType: Int, params: Bundle?) {}
             })
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {

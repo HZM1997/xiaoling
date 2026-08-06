@@ -108,6 +108,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var holding = false    // 老人正按住说话
     @Volatile private var recognitionActive = false
     @Volatile private var currentSpeechDetected = false
+    @Volatile private var latestSpeechText = ""
     @Volatile private var currentRecognizerReady = false
     private var recognitionEngineFailures = 0
     @Volatile private var listenSession = 0L
@@ -137,7 +138,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val QUICK_TAP_MS = 320L
         const val RESULT_TIMEOUT_MS = 3500L
-        const val AUTO_LISTEN_TIMEOUT_MS = 15000L
+        const val AUTO_LISTEN_TIMEOUT_MS = 9000L
         const val REALTIME_RETRY_MS = 1800L
     }
 
@@ -482,6 +483,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         holding = !automatic
         recognitionActive = true
         currentSpeechDetected = false
+        latestSpeechText = ""
         currentRecognizerReady = false
         pressStartedAt = if (automatic) 0L else SystemClock.elapsedRealtime()
         val session = ++listenSession
@@ -492,6 +494,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             onPartial = { p ->
                 if (session == listenSession && recognitionActive && p.isNotBlank()) {
                     currentSpeechDetected = true
+                    latestSpeechText = p.trim()
                     _state.update { it.copy(caption = p) }
                 }
             },
@@ -507,8 +510,20 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 // Automatic mode only treats an actual transcript as speech, avoiding a prompt/listen loop.
                 if (!automatic && session == listenSession && recognitionActive) currentSpeechDetected = true
             },
+            onEndOfSpeech = {
+                if (automatic && session == listenSession && recognitionActive) {
+                    // MIUI sometimes never emits the terminal result after VAD ends.
+                    // Bound only the result tail, instead of waiting the full listen timeout.
+                    speechTimeoutJob?.cancel()
+                    speechTimeoutJob = viewModelScope.launch {
+                        delay(1800)
+                        timeoutRecognition(session, automatic = true)
+                    }
+                }
+            },
             onText = { t ->
                 val detected = currentSpeechDetected || t.isNotBlank()
+                if (t.isNotBlank()) latestSpeechText = t.trim()
                 if (!finishRecognition(session)) return@listen
                 if (t.isNotBlank()) {
                     interrupted = false
@@ -608,11 +623,18 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun timeoutRecognition(session: Long, automatic: Boolean) {
         if (session != listenSession || !recognitionActive) return
+        val partial = latestSpeechText.trim()
         listenSession++
         recognitionActive = false
         holding = false
         speech.cancel()
         _state.update { it.copy(listening = false, micPressed = false, busy = false) }
+        if (partial.count { !it.isWhitespace() } >= 2) {
+            interrupted = false
+            automaticMisses = 0
+            process(partial)
+            return
+        }
         if (automatic && !currentRecognizerReady) onRecognitionEngineFailure()
         else onHeardNothing(automatic, currentSpeechDetected)
     }
@@ -721,6 +743,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     // ---------- 处理:本地快通道优先,模型请求限时,连续失败快速熔断 ----------
     private fun process(text: String) {
         val spoken = LocalIntents.normalizeSpeech(text)
+        ConversationMemory.recordUser(app, spoken)
         if (AppForeground.companionMode && isCompanionReturnCommand(spoken)) {
             AppForeground.returnToApp()
             applyReply(Reply("好的,已经回到小灵。", null, "画中画语音返回", 0.0))
@@ -795,7 +818,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                     try { BrainClient.ask(app, spoken) } catch (_: Exception) { null }
                 }
             } else null
-            applyReply(reply ?: LocalCompanion.reply(spoken, previousUser))
+            applyReply(reply ?: LocalCompanion.reply(app, spoken, previousUser))
         }
     }
 
@@ -817,6 +840,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     private fun applyReply(reply: Reply) {
+        ConversationMemory.recordAssistant(app, reply.speech)
         val type = reply.action?.optString("type")
         if (type == "REMIND") {
             val raw = reply.action?.optString("raw").orEmpty()

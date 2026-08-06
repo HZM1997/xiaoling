@@ -135,7 +135,7 @@ class MemoryStore:
                 """
                 DELETE FROM conversation_turns
                 WHERE user_id=? AND id NOT IN (
-                    SELECT id FROM conversation_turns WHERE user_id=? ORDER BY id DESC LIMIT 40
+                    SELECT id FROM conversation_turns WHERE user_id=? ORDER BY id DESC LIMIT 200
                 )
                 """,
                 (user_id[:64], user_id[:64]),
