@@ -23,10 +23,10 @@ object LocalCompanion {
             )[sequence.getAndIncrement().mod(3)]
             Regex("孤单|寂寞|想聊天|陪我|睡不着").containsMatchIn(compact) ->
                 listOf("我陪着您。今天有什么事一直放在心里?", "我在,今晚咱们慢慢聊。您先从最想说的那件事讲起。")
-                    [sequence.getAndIncrement().mod(2)]
+                    .get(sequence.getAndIncrement().mod(2))
             Regex("不开心|生气|难过|烦|担心").containsMatchIn(compact) ->
                 listOf("听起来这件事让您不太好受。您慢慢讲,我听着呢。", "这事确实让人心里不舒服。您想先说经过,还是想让我帮您想办法?")
-                    [sequence.getAndIncrement().mod(2)]
+                    .get(sequence.getAndIncrement().mod(2))
             Regex("开心|高兴|太好了|不错").containsMatchIn(compact) ->
                 "听您这么说我也替您高兴。是什么好事呀?"
             Regex("谢谢|多谢").containsMatchIn(compact) ->
