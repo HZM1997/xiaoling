@@ -134,6 +134,8 @@ fun HomeScreen(vm: AppState) {
             Avatar3DView(
                 state = ui.mascot,
                 talking = ui.speaking,
+                voiceLevel = ui.voiceLevel,
+                caption = ui.caption,
                 modifier = Modifier.fillMaxWidth().weight(1f)
             )
 

@@ -25,7 +25,7 @@ import com.xiaoling.core.MascotState
 
 /** Reliable native avatar shown while the VRM renderer loads or when WebGL is unavailable. */
 @Composable
-fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
+fun Avatar(state: MascotState, voiceLevel: Float = 0f, modifier: Modifier = Modifier) {
     val animation = rememberInfiniteTransition(label = "avatar-fallback")
     val breathe by animation.animateFloat(0.99f, 1.02f, infiniteRepeatable(tween(2200), RepeatMode.Reverse), label = "breathe")
     val bob by animation.animateFloat(1.01f, 1.05f, infiniteRepeatable(tween(360), RepeatMode.Reverse), label = "bob")
@@ -41,7 +41,7 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
         durationMillis = 3200
         0f at 0; 0f at 2700; 1f at 2780; 1f at 2870; 0f at 2960; 0f at 3200
     }), label = "blink")
-    val mouth by animation.animateFloat(0.15f, 1f, infiniteRepeatable(tween(145), RepeatMode.Reverse), label = "mouth")
+    val mouthPulse by animation.animateFloat(0.15f, 1f, infiniteRepeatable(tween(145), RepeatMode.Reverse), label = "mouth")
     val glance by animation.animateFloat(-1f, 1f, infiniteRepeatable(tween(1150), RepeatMode.Reverse), label = "glance")
 
     val figure = Modifier.fillMaxSize().graphicsLayer {
@@ -113,6 +113,7 @@ fun Avatar(state: MascotState, modifier: Modifier = Modifier) {
                 }
             }
             if (state == MascotState.Talking) {
+                val mouth = if (voiceLevel > 0.01f) voiceLevel.coerceIn(0.08f, 1f) else mouthPulse * 0.22f
                 drawOval(
                     Color(0xFF8B3E47),
                     androidx.compose.ui.geometry.Offset(x(0.475f), y(0.594f - mouth * 0.007f)),

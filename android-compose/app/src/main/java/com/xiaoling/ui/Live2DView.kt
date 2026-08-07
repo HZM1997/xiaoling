@@ -24,7 +24,13 @@ import com.xiaoling.core.MascotState
  * 原生层按状态/说话经 JS 桥驱动表情 blendshape 与口型。缺模型/运行时显示提示,不影响 App。
  */
 @Composable
-fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modifier) {
+fun Avatar3DView(
+    state: MascotState,
+    talking: Boolean,
+    voiceLevel: Float,
+    caption: String,
+    modifier: Modifier = Modifier,
+) {
     val stateName = when (state) {
         MascotState.Alarm -> "alarm"
         MascotState.Listening -> "listen"
@@ -35,10 +41,14 @@ fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modi
     }
     val currentState by rememberUpdatedState(stateName)
     val currentTalking by rememberUpdatedState(talking)
+    val currentVoiceLevel by rememberUpdatedState(voiceLevel)
+    val currentEmotion by rememberUpdatedState(avatarEmotion(state, caption))
     var modelReady by remember { mutableStateOf(false) }
-    fun applyState(web: WebView, name: String, isTalking: Boolean) {
+    fun applyState(web: WebView, name: String, isTalking: Boolean, level: Float, emotion: String) {
         web.evaluateJavascript("window.XLAvatar&&XLAvatar.setState('$name')", null)
         web.evaluateJavascript("window.XLAvatar&&XLAvatar.setTalking($isTalking)", null)
+        web.evaluateJavascript("window.XLAvatar&&XLAvatar.setAudioLevel(${level.coerceIn(0f, 1f)})", null)
+        web.evaluateJavascript("window.XLAvatar&&XLAvatar.setEmotion('$emotion')", null)
     }
     Box(modifier) {
         AndroidView(
@@ -63,19 +73,34 @@ fun Avatar3DView(state: MascotState, talking: Boolean, modifier: Modifier = Modi
                             request.url.scheme != "file"
 
                         override fun onPageFinished(view: WebView, url: String) {
-                            applyState(view, currentState, currentTalking)
+                            applyState(view, currentState, currentTalking, currentVoiceLevel, currentEmotion)
                         }
                     }
                     loadUrl("file:///android_asset/avatar3d/index.html")
                 }
             },
-            update = { web -> applyState(web, stateName, talking) },
+            update = { web ->
+                applyState(web, stateName, talking, voiceLevel, avatarEmotion(state, caption))
+            },
             onRelease = { web ->
                 web.removeJavascriptInterface("XiaolingNative")
                 web.destroy()
             }
         )
-        if (!modelReady) Avatar(state, Modifier.fillMaxSize())
+        if (!modelReady) Avatar(state, voiceLevel, Modifier.fillMaxSize())
+    }
+}
+
+private fun avatarEmotion(state: MascotState, text: String): String {
+    if (state == MascotState.Alarm) return "serious"
+    if (state == MascotState.Caring) return "caring"
+    val value = text.lowercase()
+    return when {
+        listOf("危险", "诈骗", "报警", "立即", "警告", "不要转账").any(value::contains) -> "serious"
+        listOf("难过", "伤心", "担心", "害怕", "不舒服", "抱歉").any(value::contains) -> "caring"
+        listOf("太好了", "开心", "恭喜", "哈哈", "真棒").any(value::contains) -> "happy"
+        listOf("原来", "竟然", "真的吗", "没想到").any(value::contains) -> "surprised"
+        else -> "neutral"
     }
 }
 

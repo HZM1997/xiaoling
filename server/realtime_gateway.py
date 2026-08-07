@@ -23,6 +23,7 @@ import pipecat_bridge
 from agent_runtime import runtime
 from brain import _system_prompt
 from context_engine import build_context
+from llm import _reasoning_effort, _too_similar_to_recent
 
 
 _REALTIME_TOOLS = [
@@ -181,6 +182,8 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
         + "耗时研究、复杂比较或多步方案调用 delegate_complex_task；工具返回已受理后，简短告知后台正在处理，然后继续正常聊天。"
         + "按对话内容自然变化语气：事实问题直接、情绪话题温和、喜事轻快、风险场景坚定；"
         + "避免重复固定开场，允许简短的嗯、我在听等反馈，但不要抢话。"
+        + "每轮先在内部判断用户真正想表达什么、上文指代什么、该直接回答还是调用工具；不要输出思维过程。"
+        + "不要把每句陈述都变成反问。能推进话题时补充一个有用的新信息或自然回应。"
     )
 
 
@@ -316,8 +319,11 @@ def _ask_kimi(question: str, context: dict) -> str:
         {
             "role": "system",
             "content": (
-                "你是小灵，一位面向老年人的中文语音陪伴助手。先给结论，再用短句解释；"
-                "理解口语省略和语序混乱，不重复固定话术，不声称已执行未执行的现实操作。"
+                "你是小灵，一位面向老年人的中文实时语音智能体。理解口语省略、语序混乱、指代和话题跳转。"
+                "回答前在内部判断真实意图、相关记忆、情绪、缺失信息和安全风险，但不要输出思维过程。"
+                "先给结论，再用短句自然展开；能直接回答就回答，不要机械复述，也不要每句话都追问。"
+                "按话题调整语气：日常轻松、情绪温和、喜事活泼、风险坚定。"
+                "不重复固定开场，不声称已执行未执行的现实操作。"
             ),
         },
         {
@@ -340,20 +346,42 @@ def _ask_kimi(question: str, context: dict) -> str:
     if not history_messages or history_messages[-1]["role"] != "user" or history_messages[-1]["content"] != question[:1000]:
         messages.append({"role": "user", "content": question[:1800]})
 
+    effort = _reasoning_effort(question)
     message = llm_gateway.chat(
         messages,
-        max_tokens=900,
+        max_tokens=1100,
         timeout=15.0,
         model_override="kimi-k3",
         provider_override="kimi",
-        reasoning_effort="low",
+        reasoning_effort=effort,
     )
     if not message:
         return "Kimi 暂时没有连上，我先用本地能力陪您。您可以稍后再问一次。"
     content = message.get("content")
     if isinstance(content, list):
         content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
-    return str(content or "").strip()[:3000]
+    answer = str(content or "").strip()[:3000]
+    if answer and _too_similar_to_recent(answer, history_messages):
+        retry = llm_gateway.chat(
+            [
+                *messages,
+                {"role": "assistant", "content": answer},
+                {"role": "user", "content": "这段回答和前文太像。保留事实，换一种自然表达，并真正推进当前话题。"},
+            ],
+            max_tokens=1100,
+            timeout=10.0,
+            model_override="kimi-k3",
+            provider_override="kimi",
+            reasoning_effort="medium",
+        )
+        rewritten = (retry or {}).get("content", "")
+        if isinstance(rewritten, list):
+            rewritten = "".join(
+                str(item.get("text", "")) for item in rewritten if isinstance(item, dict)
+            )
+        if str(rewritten or "").strip():
+            answer = str(rewritten).strip()[:3000]
+    return answer
 
 
 async def handle(websocket: WebSocket) -> None:

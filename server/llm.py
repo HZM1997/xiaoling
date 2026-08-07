@@ -7,6 +7,7 @@
 from __future__ import annotations
 import hashlib
 import json
+from difflib import SequenceMatcher
 
 import llm_gateway
 from models import Utterance, Reply
@@ -17,9 +18,13 @@ _INTENT_TO_ACTION = {
     "translate": "TRANSLATE", "chat": None, "unknown": None,
 }
 
-_SYSTEM = ("你是老年人的贴心手机精灵'小灵'。说话简短、温暖、易懂,"
-           "像孙辈跟爷爷奶奶说话。识别用户意图并调用 dispatch。"
-           "遇到闲聊就用 intent=chat,好好陪老人说话。")
+_SYSTEM = (
+    "你是老年人的贴心手机智能体“小灵”。你不是命令复读机，要结合最近对话、用户偏好和当前语气，"
+    "理解省略、指代、口语混乱和话题跳转。先在内部判断真实意图、已知事实、缺失信息、情绪和安全风险，"
+    "再给自然回答，但不要输出思维过程。能直接回答就直接回答，不要每句话都追问，也不要机械复述用户原话。"
+    "事实问题清楚可靠，情绪话题先共情再回应，轻松话题自然活泼，风险场景坚定简短。"
+    "识别设备操作意图；闲聊和开放问题使用 intent=chat。"
+)
 
 
 def llm_reply(u: Utterance, runtime_context: dict | None = None) -> Reply:
@@ -53,20 +58,79 @@ def _json_object(content: str) -> dict | None:
     return None
 
 
+def _reasoning_effort(text: str) -> str:
+    normalized = " ".join(text.split())
+    score = int(len(normalized) >= 48) + int(len(normalized) >= 100)
+    score += sum(
+        marker in normalized
+        for marker in ("分析", "比较", "原因", "为什么", "怎么办", "计划", "方案", "利弊", "如果", "帮我想")
+    )
+    score += int(sum(normalized.count(mark) for mark in ("，", ",", "；", ";")) >= 3)
+    return "medium" if score >= 2 else "low"
+
+
+def _ordered_messages(text: str, recent: list[dict]) -> list[dict]:
+    messages = [{
+        "role": "system",
+        "content": _SYSTEM + (
+            "只输出JSON对象，格式为"
+            "{\"speech\":\"自然口语回复\",\"intent\":\"chat|call|navigate|play_music|translate|unknown\","
+            "\"slots\":{},\"tone\":\"neutral|warm|cheerful|serious|concerned\"}。"
+        ),
+    }]
+    for item in recent[-20:]:
+        if not isinstance(item, dict) or item.get("role") not in {"user", "assistant"}:
+            continue
+        content = str(item.get("content") or "").strip()
+        if content:
+            messages.append({"role": item["role"], "content": content[:800]})
+    messages.append({"role": "user", "content": text[:2000]})
+    return messages
+
+
+def _too_similar_to_recent(speech: str, recent: list[dict]) -> bool:
+    clean = "".join(speech.split())
+    if len(clean) < 10:
+        return False
+    assistants = [
+        "".join(str(item.get("content") or "").split())
+        for item in recent[-8:]
+        if isinstance(item, dict) and item.get("role") == "assistant"
+    ]
+    return any(previous and SequenceMatcher(None, clean, previous).ratio() >= 0.82 for previous in assistants)
+
+
 def _call_agent(text: str, runtime_context: dict | None = None) -> dict | None:
     recent = (runtime_context or {}).get("recent_turns") or []
-    context = json.dumps(recent[-6:], ensure_ascii=False)[:1200]
+    recent = recent if isinstance(recent, list) else []
+    messages = _ordered_messages(text, recent)
+    effort = _reasoning_effort(text)
     message = llm_gateway.chat(
-        messages=[
-            {"role": "system", "content": _SYSTEM +
-             "只输出JSON对象,格式为{\"speech\":\"回复\",\"intent\":\"chat|call|navigate|play_music|translate|unknown\",\"slots\":{}}。"},
-            {"role": "user", "content": f"最近对话:{context}\n当前用户:{text}"},
-        ],
-        temperature=0.25,
-        max_tokens=360,
-        timeout=5.0,
+        messages=messages,
+        temperature=0.68,
+        max_tokens=700,
+        timeout=8.0,
+        reasoning_effort=effort,
     )
-    return _json_object((message or {}).get("content", ""))
+    result = _json_object((message or {}).get("content", ""))
+    speech = str((result or {}).get("speech") or "").strip()
+    if result and _too_similar_to_recent(speech, recent):
+        retry_messages = [
+            *messages,
+            {"role": "assistant", "content": json.dumps(result, ensure_ascii=False)},
+            {"role": "user", "content": "这段回答与前面太像。保留事实，但换一种自然说法并推进话题，不要重复开场。只输出JSON。"},
+        ]
+        rewritten = llm_gateway.chat(
+            messages=retry_messages,
+            temperature=0.82,
+            max_tokens=700,
+            timeout=6.0,
+            reasoning_effort="medium",
+        )
+        retry_result = _json_object((rewritten or {}).get("content", ""))
+        if retry_result and str(retry_result.get("speech") or "").strip():
+            result = retry_result
+    return result
 
 
 def _offline_fallback(u: Utterance, runtime_context: dict | None = None) -> Reply:

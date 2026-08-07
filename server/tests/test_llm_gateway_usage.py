@@ -28,3 +28,49 @@ def test_fraud_review_parses_gateway_json(monkeypatch):
     result = llm.judge_fraud("对方让我购买礼品卡")
     assert result and result["is_fraud"] is True
     assert result["confidence"] == 0.93
+
+
+def test_agent_keeps_latest_twenty_ordered_turns_and_uses_reasoning(monkeypatch):
+    captured = {}
+
+    def fake_chat(**kwargs):
+        captured.update(kwargs)
+        return {"content": json.dumps({
+            "speech": "我先帮您比较两种方案，再说最稳妥的一种。",
+            "intent": "chat",
+            "slots": {},
+        }, ensure_ascii=False)}
+
+    monkeypatch.setattr(llm.llm_gateway, "chat", fake_chat)
+    recent = [
+        {"role": "user" if index % 2 == 0 else "assistant", "content": f"turn-{index}"}
+        for index in range(24)
+    ]
+
+    result = llm._call_agent("帮我分析比较这两个方案的利弊，然后给一个计划", {"recent_turns": recent})
+
+    assert result["intent"] == "chat"
+    assert captured["reasoning_effort"] == "medium"
+    messages = captured["messages"]
+    assert [item["content"] for item in messages[1:-1]] == [f"turn-{index}" for index in range(4, 24)]
+    assert messages[-1]["content"].startswith("帮我分析")
+
+
+def test_agent_rewrites_answer_that_repeats_recent_reply(monkeypatch):
+    calls = []
+    repeated = "我在呢，您慢慢说，我会一直陪着您。"
+
+    def fake_chat(**kwargs):
+        calls.append(kwargs)
+        speech = repeated if len(calls) == 1 else "听起来您今天有点累，我们先坐下歇一会儿。"
+        return {"content": json.dumps({"speech": speech, "intent": "chat", "slots": {}}, ensure_ascii=False)}
+
+    monkeypatch.setattr(llm.llm_gateway, "chat", fake_chat)
+    result = llm._call_agent(
+        "我今天感觉有点累",
+        {"recent_turns": [{"role": "assistant", "content": repeated}]},
+    )
+
+    assert len(calls) == 2
+    assert result["speech"].startswith("听起来")
+    assert calls[1]["reasoning_effort"] == "medium"

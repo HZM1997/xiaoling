@@ -42,6 +42,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         fun onInputSpeechStarted(latencyMs: Long)
         fun onInputTranscript(text: String, final: Boolean)
         fun onOutputStarted()
+        fun onOutputLevel(level: Float)
         fun onOutputTranscript(text: String, final: Boolean)
         fun onOutputDone(text: String)
         fun onAction(action: JSONObject)
@@ -88,6 +89,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     @Volatile private var outputDonePending = false
     @Volatile private var pendingOutputText = ""
     @Volatile private var outputPlaybackStartedAtMs = 0L
+    @Volatile private var outputLevelSmoothed = 0f
+    private var lastOutputLevelAtMs = 0L
     private var weakNetworkReported = false
 
     val isConnected: Boolean get() = connected && running
@@ -398,6 +401,14 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             }
             outputPlaying = true
             playbackWriting = true
+            val targetLevel = (pcmRms(bytes, bytes.size) / 5200.0).toFloat().coerceIn(0.04f, 1f)
+            outputLevelSmoothed = outputLevelSmoothed * 0.38f + targetLevel * 0.62f
+            val levelNow = SystemClock.elapsedRealtime()
+            if (levelNow - lastOutputLevelAtMs >= OUTPUT_LEVEL_INTERVAL_MS) {
+                lastOutputLevelAtMs = levelNow
+                val level = outputLevelSmoothed
+                post { listener.onOutputLevel(level) }
+            }
             try { track?.write(bytes, 0, bytes.size, AudioTrack.WRITE_BLOCKING) } catch (_: Throwable) {}
             playbackWriting = false
             if (playbackQueue.isEmpty() && !responseInProgress) {
@@ -513,6 +524,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         outputPlaying = false
         playbackWriting = false
         outputPlaybackStartedAtMs = 0L
+        outputLevelSmoothed = 0f
+        post { listener.onOutputLevel(0f) }
         responseInProgress = false
         try {
             track?.pause()
@@ -526,6 +539,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         outputDonePending = false
         val text = pendingOutputText
         pendingOutputText = ""
+        outputLevelSmoothed = 0f
+        post { listener.onOutputLevel(0f) }
         post { listener.onOutputDone(text) }
     }
 
@@ -550,6 +565,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         outputPlaying = false
         playbackWriting = false
         outputPlaybackStartedAtMs = 0L
+        outputLevelSmoothed = 0f
         outputDonePending = false
         pendingOutputText = ""
         localSpeechActive = false
@@ -592,6 +608,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val INTERRUPT_MIN_RISE_RMS = 70.0
         const val REQUIRED_INTERRUPT_FRAMES = 4
         const val ECHO_WARMUP_MS = 180L
+        const val OUTPUT_LEVEL_INTERVAL_MS = 40L
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }
