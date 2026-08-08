@@ -42,7 +42,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         fun onInputSpeechStarted(latencyMs: Long)
         fun onInputTranscript(text: String, final: Boolean)
         fun onOutputStarted()
-        fun onOutputLevel(level: Float)
+        fun onOutputVisual(open: Float, wide: Float, round: Float, emphasis: Boolean)
         fun onOutputTranscript(text: String, final: Boolean)
         fun onOutputDone(text: String)
         fun onAction(action: JSONObject)
@@ -90,6 +90,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     @Volatile private var pendingOutputText = ""
     @Volatile private var outputPlaybackStartedAtMs = 0L
     @Volatile private var outputLevelSmoothed = 0f
+    @Volatile private var outputWideSmoothed = 0f
+    @Volatile private var outputRoundSmoothed = 0f
+    private var previousVisualLevel = 0f
+    private var lastEmphasisAtMs = 0L
     private var lastOutputLevelAtMs = 0L
     private var weakNetworkReported = false
 
@@ -401,13 +405,23 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             }
             outputPlaying = true
             playbackWriting = true
-            val targetLevel = (pcmRms(bytes, bytes.size) / 5200.0).toFloat().coerceIn(0.04f, 1f)
-            outputLevelSmoothed = outputLevelSmoothed * 0.38f + targetLevel * 0.62f
+            val shape = pcmMouthShape(bytes, bytes.size)
+            val targetLevel = shape.open
+            outputLevelSmoothed = outputLevelSmoothed * 0.34f + targetLevel * 0.66f
+            outputWideSmoothed = outputWideSmoothed * 0.42f + shape.wide * 0.58f
+            outputRoundSmoothed = outputRoundSmoothed * 0.42f + shape.round * 0.58f
             val levelNow = SystemClock.elapsedRealtime()
             if (levelNow - lastOutputLevelAtMs >= OUTPUT_LEVEL_INTERVAL_MS) {
                 lastOutputLevelAtMs = levelNow
-                val level = outputLevelSmoothed
-                post { listener.onOutputLevel(level) }
+                val emphasis = outputLevelSmoothed >= 0.44f &&
+                    outputLevelSmoothed - previousVisualLevel >= 0.13f &&
+                    levelNow - lastEmphasisAtMs >= EMPHASIS_COOLDOWN_MS
+                if (emphasis) lastEmphasisAtMs = levelNow
+                previousVisualLevel = outputLevelSmoothed
+                val open = outputLevelSmoothed
+                val wide = outputWideSmoothed
+                val round = outputRoundSmoothed
+                post { listener.onOutputVisual(open, wide, round, emphasis) }
             }
             try { track?.write(bytes, 0, bytes.size, AudioTrack.WRITE_BLOCKING) } catch (_: Throwable) {}
             playbackWriting = false
@@ -525,7 +539,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         playbackWriting = false
         outputPlaybackStartedAtMs = 0L
         outputLevelSmoothed = 0f
-        post { listener.onOutputLevel(0f) }
+        outputWideSmoothed = 0f
+        outputRoundSmoothed = 0f
+        previousVisualLevel = 0f
+        post { listener.onOutputVisual(0f, 0f, 0f, false) }
         responseInProgress = false
         try {
             track?.pause()
@@ -540,7 +557,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         val text = pendingOutputText
         pendingOutputText = ""
         outputLevelSmoothed = 0f
-        post { listener.onOutputLevel(0f) }
+        outputWideSmoothed = 0f
+        outputRoundSmoothed = 0f
+        previousVisualLevel = 0f
+        post { listener.onOutputVisual(0f, 0f, 0f, false) }
         post { listener.onOutputDone(text) }
     }
 
@@ -566,6 +586,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         playbackWriting = false
         outputPlaybackStartedAtMs = 0L
         outputLevelSmoothed = 0f
+        outputWideSmoothed = 0f
+        outputRoundSmoothed = 0f
+        previousVisualLevel = 0f
         outputDonePending = false
         pendingOutputText = ""
         localSpeechActive = false
@@ -598,6 +621,33 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         return if (samples == 0) 0.0 else sqrt(sum / samples)
     }
 
+    private data class MouthShape(val open: Float, val wide: Float, val round: Float)
+
+    private fun pcmMouthShape(bytes: ByteArray, count: Int): MouthShape {
+        var sum = 0.0
+        var crossings = 0
+        var samples = 0
+        var previous = 0
+        var index = 0
+        while (index + 1 < count) {
+            val sample = ((bytes[index].toInt() and 0xff) or
+                (bytes[index + 1].toInt() shl 8)).toShort().toInt()
+            sum += sample.toDouble() * sample.toDouble()
+            if (samples > 0 && (sample >= 0) != (previous >= 0)) crossings++
+            previous = sample
+            samples++
+            index += 2
+        }
+        if (samples < 2) return MouthShape(0f, 0f, 0f)
+        val rms = sqrt(sum / samples)
+        val open = (rms / 5200.0).toFloat().coerceIn(0f, 1f)
+        val zeroCrossing = crossings.toFloat() / (samples - 1).toFloat()
+        val brightness = ((zeroCrossing - 0.035f) / 0.24f).coerceIn(0f, 1f)
+        val wide = (open * (0.12f + brightness * 0.72f)).coerceIn(0f, 0.82f)
+        val round = (open * (0.1f + (1f - brightness) * 0.64f)).coerceIn(0f, 0.78f)
+        return MouthShape(open, wide, round)
+    }
+
     private fun post(block: () -> Unit) { main.post(block) }
 
     private companion object {
@@ -609,6 +659,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val REQUIRED_INTERRUPT_FRAMES = 4
         const val ECHO_WARMUP_MS = 180L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L
+        const val EMPHASIS_COOLDOWN_MS = 420L
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
     }
 }

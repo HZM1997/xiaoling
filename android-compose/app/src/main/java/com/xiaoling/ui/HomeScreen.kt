@@ -135,6 +135,9 @@ fun HomeScreen(vm: AppState) {
                 state = ui.mascot,
                 talking = ui.speaking,
                 voiceLevel = ui.voiceLevel,
+                mouthWide = ui.voiceMouthWide,
+                mouthRound = ui.voiceMouthRound,
+                emphasisTick = ui.voiceEmphasisTick,
                 caption = ui.caption,
                 modifier = Modifier.fillMaxWidth().weight(1f)
             )

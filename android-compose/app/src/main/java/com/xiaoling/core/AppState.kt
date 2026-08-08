@@ -30,6 +30,9 @@ data class UiState(
     val micPressed: Boolean = false,
     val speaking: Boolean = false,
     val voiceLevel: Float = 0f,
+    val voiceMouthWide: Float = 0f,
+    val voiceMouthRound: Float = 0f,
+    val voiceEmphasisTick: Int = 0,
     val busy: Boolean = false,
     val micFeedback: String = "",
     val asrReady: Boolean = false,
@@ -96,7 +99,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         override fun onInputSpeechStarted(latencyMs: Long) = onRealtimeInputStarted(latencyMs)
         override fun onInputTranscript(text: String, final: Boolean) = onRealtimeInputText(text, final)
         override fun onOutputStarted() = onRealtimeOutputStarted()
-        override fun onOutputLevel(level: Float) = onRealtimeOutputLevel(level)
+        override fun onOutputVisual(open: Float, wide: Float, round: Float, emphasis: Boolean) =
+            onRealtimeOutputVisual(open, wide, round, emphasis)
         override fun onOutputTranscript(text: String, final: Boolean) = onRealtimeOutputText(text, final)
         override fun onOutputDone(text: String) = onRealtimeOutputDone(text)
         override fun onAction(action: JSONObject) = onRealtimeAction(action)
@@ -682,7 +686,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         interrupted = false
         val feedback = if (resumeInterrupted) "已取消,继续刚才的播报" else "已取消"
-        _state.update { it.copy(listening = false, micPressed = false, speaking = false, voiceLevel = 0f, busy = false,
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false, voiceLevel = 0f,
+            voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
             micFeedback = feedback, mascot = MascotState.Idle) }
         micFeedbackJob?.cancel()
         micFeedbackJob = viewModelScope.launch {
@@ -1085,7 +1090,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         realtimeActive = true
         if (recognitionActive || holding) cancelActiveRecognition(updateUi = false)
         speaking = false
-        _state.update { it.copy(listening = false, micPressed = false, speaking = false, voiceLevel = 0f, busy = false,
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false, voiceLevel = 0f,
+            voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
             caption = "", mascot = MascotState.Idle, asrReady = true,
             asrStatus = "实时语音已就绪 · $model") }
     }
@@ -1098,7 +1104,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         realtimeConnecting = false
         realtimeConnectJob?.cancel()
         speaking = false
-        _state.update { it.copy(listening = false, micPressed = false, speaking = false, voiceLevel = 0f, busy = false,
+        _state.update { it.copy(listening = false, micPressed = false, speaking = false, voiceLevel = 0f,
+            voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
             caption = "", mascot = MascotState.Idle, asrReady = false,
             asrStatus = if (retryable) "实时语音弱网降级" else message.take(36)) }
         if (voiceSessionActive && AppForeground.active && _state.value.screen == Screen.Home) {
@@ -1130,7 +1137,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         tts.stop()
         RemoteAudioPlayer.stop()
         speaking = false
-        _state.update { it.copy(listening = true, speaking = false, voiceLevel = 0f, busy = false,
+        _state.update { it.copy(listening = true, speaking = false, voiceLevel = 0f,
+            voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
         if (interruptedOutput && latencyMs >= 0L) viewModelScope.launch {
             BrainClient.qualityEvent(app, "barge_in_realtime", latencyMs, true)
@@ -1147,6 +1155,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         _state.update { it.copy(listening = !final, busy = final, speaking = false, voiceLevel = 0f,
+            voiceMouthWide = 0f, voiceMouthRound = 0f,
             caption = text, lastUser = if (final) text else it.lastUser,
             mascot = if (final) MascotState.Thinking else MascotState.Listening) }
         if (final) {
@@ -1174,15 +1183,26 @@ class AppState(application: Application) : AndroidViewModel(application) {
         realtimeResponseJob?.cancel()
         speaking = true
         _state.update { it.copy(listening = false, busy = false, speaking = true, voiceLevel = 0f,
+            voiceMouthWide = 0f, voiceMouthRound = 0f,
             mascot = MascotState.Talking) }
         armRealtimeOutputWatchdog()
     }
 
-    private fun onRealtimeOutputLevel(level: Float) {
+    private fun onRealtimeOutputVisual(open: Float, wide: Float, round: Float, emphasis: Boolean) {
         if (!realtimeActive) return
-        val safe = level.coerceIn(0f, 1f)
+        val safeOpen = open.coerceIn(0f, 1f)
+        val safeWide = wide.coerceIn(0f, 1f)
+        val safeRound = round.coerceIn(0f, 1f)
         _state.update {
-            if (kotlin.math.abs(it.voiceLevel - safe) < 0.015f) it else it.copy(voiceLevel = safe)
+            val unchanged = kotlin.math.abs(it.voiceLevel - safeOpen) < 0.015f &&
+                kotlin.math.abs(it.voiceMouthWide - safeWide) < 0.015f &&
+                kotlin.math.abs(it.voiceMouthRound - safeRound) < 0.015f && !emphasis
+            if (unchanged) it else it.copy(
+                voiceLevel = safeOpen,
+                voiceMouthWide = safeWide,
+                voiceMouthRound = safeRound,
+                voiceEmphasisTick = if (emphasis) it.voiceEmphasisTick + 1 else it.voiceEmphasisTick,
+            )
         }
     }
 
@@ -1201,6 +1221,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         speaking = false
         val finalText = text.ifBlank { _state.value.caption }
         _state.update { it.copy(listening = false, busy = true, speaking = false, voiceLevel = 0f,
+            voiceMouthWide = 0f, voiceMouthRound = 0f,
             caption = finalText, mascot = MascotState.Idle) }
         realtimeCaptionJob?.cancel()
         realtimeCaptionJob = viewModelScope.launch {
@@ -1220,7 +1241,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 realtimeConnecting = false
                 realtime.stop(notify = false)
                 speaking = false
-                _state.update { it.copy(listening = false, speaking = false, voiceLevel = 0f, busy = false,
+                _state.update { it.copy(listening = false, speaking = false, voiceLevel = 0f,
+                    voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
                     mascot = MascotState.Idle, asrReady = false,
                     asrStatus = "语音终态超时，已自动恢复") }
                 startLegacyVoiceFallback("实时语音已自动恢复")

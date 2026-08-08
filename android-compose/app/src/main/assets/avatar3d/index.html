@@ -71,6 +71,13 @@ let targetExpression = {...expressions.idle};
 let currentExpression = {};
 let audioLevel = 0;
 let smoothAudioLevel = 0;
+let mouthWide = 0;
+let mouthRound = 0;
+let smoothMouthWide = 0;
+let smoothMouthRound = 0;
+let lastEmphasisTick = 0;
+let emphasisStartedAt = -10;
+let emphasisSide = 1;
 let elapsed = 0;
 let nextBlink = 1.6;
 let blinkTime = -1;
@@ -98,6 +105,23 @@ window.XLAvatar = {
   setAudioLevel(value) {
     const parsed = Number(value);
     audioLevel = Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0;
+  },
+  setMouthShape(open, wide, round, emphasisTick) {
+    const safe = value => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0;
+    };
+    audioLevel = safe(open);
+    mouthWide = safe(wide);
+    mouthRound = safe(round);
+    const tick = Number(emphasisTick) || 0;
+    if (tick !== lastEmphasisTick) {
+      lastEmphasisTick = tick;
+      emphasisStartedAt = elapsed;
+      emphasisSide *= -1;
+      targetGazeX = 0;
+      targetGazeY = -0.012;
+    }
   },
   setEmotion(value) {
     avatarEmotion = emotionExpressions[value] ? value : 'neutral';
@@ -201,11 +225,15 @@ function animate() {
   }
   setExpression('blink', blink);
   smoothAudioLevel += (audioLevel - smoothAudioLevel) * Math.min(1, dt * 18);
-  const mouthEnergy = talking ? Math.max(smoothAudioLevel, audioLevel > 0.01 ? 0.04 : 0) : 0;
+  smoothMouthWide += (mouthWide - smoothMouthWide) * Math.min(1, dt * 16);
+  smoothMouthRound += (mouthRound - smoothMouthRound) * Math.min(1, dt * 16);
+  const fallbackMouth = talking && audioLevel < 0.01 ? 0.08 + Math.abs(Math.sin(elapsed * 11.5)) * 0.12 : 0;
+  const mouthEnergy = talking ? Math.max(smoothAudioLevel, fallbackMouth) : 0;
   const syllable = elapsed * 13.5;
-  setExpression('aa', mouthEnergy * (0.54 + Math.abs(Math.sin(syllable)) * 0.46));
-  setExpression('ih', mouthEnergy * Math.max(0, Math.sin(syllable + 2.1)) * 0.42);
-  setExpression('ou', mouthEnergy * Math.max(0, Math.sin(syllable + 4.2)) * 0.36);
+  const fallbackShape = audioLevel < 0.01 ? Math.abs(Math.sin(syllable)) * fallbackMouth : 0;
+  setExpression('aa', Math.max(fallbackShape, mouthEnergy * (1 - smoothMouthWide * 0.24 - smoothMouthRound * 0.2)));
+  setExpression('ih', talking ? smoothMouthWide : 0);
+  setExpression('ou', talking ? smoothMouthRound : 0);
 
   if (elapsed >= nextGaze) {
     const focus = avatarState === 'listen' ? 0.32 : 1;
@@ -218,12 +246,19 @@ function animate() {
 
   const gestureAge = elapsed - gestureStartedAt;
   const gesture = gestureAge < 1.2 ? Math.sin((gestureAge / 1.2) * Math.PI) : 0;
+  const emphasisAge = elapsed - emphasisStartedAt;
+  const speechEmphasis = emphasisAge >= 0 && emphasisAge < 0.52
+    ? Math.sin((emphasisAge / 0.52) * Math.PI) : 0;
   const speechEnergy = talking ? 0.35 + smoothAudioLevel * 0.65 : 0;
+  if (speechEmphasis > 0) {
+    setExpression('surprised', Math.min(1, (currentExpression.surprised || 0) + speechEmphasis * 0.08));
+  }
   const head = vrm.humanoid?.getNormalizedBoneNode('head');
   if (head) {
     head.rotation.y = gazeX + Math.sin(elapsed * 0.42) * 0.025;
     head.rotation.x = gazeY + Math.sin(elapsed * 0.72) * 0.018
       + (talking ? Math.sin(elapsed * 3.2) * 0.018 * speechEnergy : 0)
+      - speechEmphasis * 0.045
       + (avatarState === 'listen' ? -0.045 * gesture : 0);
   }
   const chest = vrm.humanoid?.getNormalizedBoneNode('chest');
@@ -240,12 +275,13 @@ function animate() {
   const leftArm = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
   const rightArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
   const talkGesture = Math.sin(elapsed * 1.9) * 0.055 * speechEnergy;
+  const emphasisGesture = speechEmphasis * 0.11 * emphasisSide;
   const caringGesture = avatarState === 'caring' ? gesture * 0.09 : 0;
   const alarmGesture = avatarState === 'alarm' ? gesture * 0.13 : 0;
-  if (leftArm) leftArm.rotation.z = 1.12 + talkGesture - caringGesture + alarmGesture;
+  if (leftArm) leftArm.rotation.z = 1.12 + talkGesture - caringGesture + alarmGesture + emphasisGesture;
   if (rightArm) {
     rightArm.rotation.z = -1.12 - Math.sin(elapsed * 1.9 + 0.8) * 0.055 * speechEnergy
-      + caringGesture + alarmGesture;
+      + caringGesture + alarmGesture + emphasisGesture;
   }
   vrm.scene.position.y = Math.sin(elapsed * 0.8) * 0.012;
   vrm.scene.rotation.y = Math.PI + Math.sin(elapsed * 0.32) * 0.022;

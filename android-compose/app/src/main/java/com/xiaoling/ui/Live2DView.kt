@@ -28,6 +28,9 @@ fun Avatar3DView(
     state: MascotState,
     talking: Boolean,
     voiceLevel: Float,
+    mouthWide: Float,
+    mouthRound: Float,
+    emphasisTick: Int,
     caption: String,
     modifier: Modifier = Modifier,
 ) {
@@ -42,12 +45,29 @@ fun Avatar3DView(
     val currentState by rememberUpdatedState(stateName)
     val currentTalking by rememberUpdatedState(talking)
     val currentVoiceLevel by rememberUpdatedState(voiceLevel)
+    val currentMouthWide by rememberUpdatedState(mouthWide)
+    val currentMouthRound by rememberUpdatedState(mouthRound)
+    val currentEmphasisTick by rememberUpdatedState(emphasisTick)
     val currentEmotion by rememberUpdatedState(avatarEmotion(state, caption))
     var modelReady by remember { mutableStateOf(false) }
-    fun applyState(web: WebView, name: String, isTalking: Boolean, level: Float, emotion: String) {
+    fun applyState(
+        web: WebView,
+        name: String,
+        isTalking: Boolean,
+        level: Float,
+        wide: Float,
+        round: Float,
+        emphasis: Int,
+        emotion: String,
+    ) {
         web.evaluateJavascript("window.XLAvatar&&XLAvatar.setState('$name')", null)
         web.evaluateJavascript("window.XLAvatar&&XLAvatar.setTalking($isTalking)", null)
-        web.evaluateJavascript("window.XLAvatar&&XLAvatar.setAudioLevel(${level.coerceIn(0f, 1f)})", null)
+        web.evaluateJavascript(
+            "window.XLAvatar&&XLAvatar.setMouthShape(" +
+                "${level.coerceIn(0f, 1f)},${wide.coerceIn(0f, 1f)}," +
+                "${round.coerceIn(0f, 1f)},$emphasis)",
+            null,
+        )
         web.evaluateJavascript("window.XLAvatar&&XLAvatar.setEmotion('$emotion')", null)
     }
     Box(modifier) {
@@ -73,14 +93,20 @@ fun Avatar3DView(
                             request.url.scheme != "file"
 
                         override fun onPageFinished(view: WebView, url: String) {
-                            applyState(view, currentState, currentTalking, currentVoiceLevel, currentEmotion)
+                            applyState(
+                                view, currentState, currentTalking, currentVoiceLevel,
+                                currentMouthWide, currentMouthRound, currentEmphasisTick, currentEmotion,
+                            )
                         }
                     }
                     loadUrl("file:///android_asset/avatar3d/index.html")
                 }
             },
             update = { web ->
-                applyState(web, stateName, talking, voiceLevel, avatarEmotion(state, caption))
+                applyState(
+                    web, stateName, talking, voiceLevel, mouthWide, mouthRound,
+                    emphasisTick, avatarEmotion(state, caption),
+                )
             },
             onRelease = { web ->
                 web.removeJavascriptInterface("XiaolingNative")
