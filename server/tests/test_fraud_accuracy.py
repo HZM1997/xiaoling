@@ -76,6 +76,19 @@ def test_precision_ok():
     assert r["precision"] >= 0.8, f"精确率过低(误报多): {r}"
 
 
+def test_script_chain_detects_generic_investment_transfer():
+    result = analyze("陌生网友让我投资，说今天必须转账才能进群", scene="voice_chat")
+    assert result.level in {"medium", "high"}
+    assert "陌生关系诱导投资" in result.hits
+    assert len(result.verification_steps) == 3
+
+
+def test_safe_result_has_no_alarm_steps():
+    result = analyze("女儿说晚上回家一起吃饭", caller="13800138000")
+    assert result.level == "safe"
+    assert result.verification_steps == []
+
+
 if __name__ == "__main__":
     r = evaluate()
     print("=" * 48)

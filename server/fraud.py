@@ -56,6 +56,7 @@ class FraudResult:
     hits: list[str] = field(default_factory=list)
     amplifiers: list[str] = field(default_factory=list)  # 命中的放大信号
     suggest_hangup: bool = False
+    verification_steps: list[str] = field(default_factory=list)
     report: Optional[dict] = None     # 可上报反诈中心的结构化载荷
 
     def to_dict(self) -> dict:
@@ -84,6 +85,26 @@ def _hits(words: list[str], text: str) -> list[str]:
     compact = folded.replace(" ", "")
     return [word for word in words
             if word.casefold() in folded or word.casefold().replace(" ", "") in compact]
+
+
+def _script_pattern(text: str) -> tuple[str, float, str] | None:
+    """Recognize relationships between scam stages, not isolated words."""
+    patterns = (
+        (r"(?:陌生人|网友|老师|导师|客服).{0,16}(?:投资|理财|炒股|虚拟币|带单|赚钱)",
+         "投资理财诱导", 0.48, "陌生关系诱导投资"),
+        (r"(?:投入|充值|投资).{0,16}(?:提现不了|解冻|保证金|认证金|税费)",
+         "虚假投资提现", 0.55, "先入金后以提现为由继续收费"),
+        (r"(?:儿子|女儿|孙子|孙女|领导).{0,14}(?:换号|借钱|转账|汇款|出事)",
+         "冒充亲友/领导", 0.48, "冒充熟人并提出资金要求"),
+        (r"(?:客服|平台).{0,16}(?:退款|理赔|自动扣费).{0,20}(?:验证码|下载|共享|转账|银行卡)",
+         "冒充客服退款", 0.52, "客服理由衔接敏感操作"),
+        (r"(?:警察|公安|检察院|法院|公检法).{0,20}(?:涉案|洗钱|通缉).{0,24}(?:转账|安全账户|保密)",
+         "冒充公检法", 0.62, "权威恐吓后要求资金或保密操作"),
+    )
+    for pattern, category, score, evidence in patterns:
+        if re.search(pattern, text, flags=re.I):
+            return category, score, evidence
+    return None
 
 
 def _url_risk(text: str) -> tuple[float, list[str]]:
@@ -142,7 +163,20 @@ def analyze(text: str, caller: str = "", scene: str = "incoming_call") -> FraudR
         if score > best_score:
             best_score, best_cat = score, c["label"]
 
+    script = _script_pattern(t)
+    if script:
+        script_cat, script_score, script_evidence = script
+        matched_cats += 1
+        all_hits.append(script_evidence)
+        if script_score > best_score:
+            best_score, best_cat = script_score, script_cat
+
     risk = base + best_score
+    # Fraud scripts often span categories: identity bait, urgency, and a
+    # payment step may each look harmless alone. Multiple categories are
+    # therefore evidence of a coordinated script rather than keyword density.
+    if matched_cats >= 2:
+        risk += min(0.24, 0.08 * (matched_cats - 1))
 
     url_score, url_hits = _url_risk(raw)
     risk += url_score
@@ -214,9 +248,20 @@ def _finalize(risk, category, hits, amps, reason, caller, text, scene, th) -> Fr
             "scene": scene, "caller": caller, "category": category,
             "risk": round(risk, 2), "hits": hits, "amplifiers": amps, "snippet": text[:60],
         }
+    verification_steps = []
+    if level != "safe":
+        verification_steps = [
+            "立即暂停转账、验证码、共享屏幕和下载软件等操作",
+            "挂断当前通话，只用官方应用或原来保存的号码独立核验",
+        ]
+        if level == "high":
+            verification_steps.append("如已付款或泄露信息，立即联系银行并向当地警方报案；在中国可拨打110或96110")
+        else:
+            verification_steps.append("让可信家人一起核对，在确认前不要继续操作")
     return FraudResult(risk=round(risk, 2), level=level, category=category,
                        reason=reason, hits=hits, amplifiers=amps,
-                       suggest_hangup=(level == "high"), report=report)
+                       suggest_hangup=(level == "high"),
+                       verification_steps=verification_steps, report=report)
 
 
 class ConversationTracker:

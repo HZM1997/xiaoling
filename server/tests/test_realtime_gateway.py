@@ -150,3 +150,5 @@ def test_realtime_tools_map_to_android_actions():
     action, result = realtime_gateway._action_for("check_fraud", {"text": "让我报验证码并转账"})
     assert action == {"type": "FRAUD_WARN"}
     assert result["level"] == "high"
+    assert result["response_protocol"]["pause"]
+    assert len(result["verification_steps"]) == 3

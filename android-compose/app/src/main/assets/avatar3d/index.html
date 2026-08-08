@@ -11,13 +11,28 @@
     pointer-events:none;box-sizing:border-box;transition:border-color .18s ease,filter .18s ease}
   #ring[data-state="listen"]{border-color:#1473e6;filter:drop-shadow(0 0 5px rgba(20,115,230,.45));animation:pulse 1.05s ease-in-out infinite}
   #ring[data-state="talk"]{border-color:#16a17b;filter:drop-shadow(0 0 5px rgba(22,161,123,.38));animation:pulse .72s ease-in-out infinite}
+  #agent-core{position:absolute;z-index:3;left:50%;top:58%;width:18px;height:18px;
+    transform:translate(-50%,-50%);border:2px solid #17a7bb;border-radius:50%;box-sizing:border-box;
+    box-shadow:0 0 0 5px rgba(23,167,187,.13),0 0 10px rgba(23,167,187,.42);pointer-events:none}
+  #agent-core::after{content:"";position:absolute;inset:4px;border-radius:50%;background:#f5fbff}
+  #agent-core[data-state="listen"]{border-color:#1473e6;animation:corePulse .72s ease-in-out infinite}
+  #agent-core[data-state="think"]{border-color:#8b63c7;animation:corePulse .48s ease-in-out infinite}
+  #agent-core[data-state="talk"]{border-color:#16a17b;animation:corePulse .58s ease-in-out infinite}
+  #agent-core[data-state="alarm"]{border-color:#d64c4c;box-shadow:0 0 0 5px rgba(214,76,76,.13),0 0 11px rgba(214,76,76,.48)}
+  #agent-orbit{position:absolute;z-index:2;left:50%;top:58%;width:52px;height:52px;
+    transform:translate(-50%,-50%);border:1px solid rgba(23,167,187,.55);border-right-color:transparent;
+    border-radius:50%;box-sizing:border-box;pointer-events:none;animation:orbit 7s linear infinite}
   @keyframes pulse{50%{transform:translate(-50%,-50%) scale(1.025);opacity:.72}}
+  @keyframes corePulse{50%{transform:translate(-50%,-50%) scale(1.16);opacity:.7}}
+  @keyframes orbit{to{transform:translate(-50%,-50%) rotate(360deg)}}
   #tip{display:none}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="ring" data-state="idle"></div>
+<div id="agent-orbit"></div>
+<div id="agent-core" data-state="idle"></div>
 <div id="tip">Loading avatar</div>
 <script type="importmap">
 {
@@ -77,6 +92,7 @@ window.XLAvatar = {
     avatarState = nextState;
     updateExpressionTarget();
     document.getElementById('ring').dataset.state = avatarState;
+    document.getElementById('agent-core').dataset.state = avatarState;
   },
   setTalking(value) { talking = !!value; },
   setAudioLevel(value) {
@@ -139,7 +155,15 @@ loader.load('./model.vrm', gltf => {
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     materials.filter(Boolean).forEach(material => {
       if (material.name === 'Arla Clothes' && material.color) {
-        material.color.set(0x17191d);
+        material.color.set(0x0e1820);
+        if (material.emissive) material.emissive.set(0x063642);
+        if ('emissiveIntensity' in material) material.emissiveIntensity = 0.28;
+        material.needsUpdate = true;
+      }
+      if (material.name === 'Helmet New' && material.color) {
+        material.color.set(0x29333d);
+        if (material.emissive) material.emissive.set(0x082d38);
+        if ('emissiveIntensity' in material) material.emissiveIntensity = 0.2;
         material.needsUpdate = true;
       }
     });

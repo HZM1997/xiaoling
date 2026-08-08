@@ -42,6 +42,18 @@ function amplifierHits(t) {
     if (sig.words.some(w => t.includes(w))) out.push(name);
   return out;
 }
+function scriptPattern(t) {
+  const patterns = [
+    [/(?:陌生人|网友|老师|导师|客服).{0,16}(?:投资|理财|炒股|虚拟币|带单|赚钱)/i, 0.48, '陌生关系诱导投资'],
+    [/(?:投入|充值|投资).{0,16}(?:提现不了|解冻|保证金|认证金|税费)/i, 0.55, '先入金后以提现为由继续收费'],
+    [/(?:儿子|女儿|孙子|孙女|领导).{0,14}(?:换号|借钱|转账|汇款|出事)/i, 0.48, '冒充熟人并提出资金要求'],
+    [/(?:客服|平台).{0,16}(?:退款|理赔|自动扣费).{0,20}(?:验证码|下载|共享|转账|银行卡)/i, 0.52, '客服理由衔接敏感操作'],
+    [/(?:警察|公安|检察院|法院|公检法).{0,20}(?:涉案|洗钱|通缉).{0,24}(?:转账|安全账户|保密)/i, 0.62, '权威恐吓后要求资金或保密操作'],
+  ];
+  for (const [pattern, score, evidence] of patterns)
+    if (pattern.test(t)) return {score, evidence};
+  return null;
+}
 function suppressorDelta(t) {
   let total = 0;
   for (const sig of Object.values((RULES.suppressors && RULES.suppressors.signals) || {}))
@@ -70,7 +82,14 @@ function analyze(text, caller) {
     const score = c.weight + 0.1 * (hits.length - 1);
     if (score > bestScore) bestScore = score;
   }
+  const script = scriptPattern(t);
+  if (script) {
+    matchedCats += 1;
+    allHits.push(script.evidence);
+    bestScore = Math.max(bestScore, script.score);
+  }
   let risk = base + bestScore;
+  if (matchedCats >= 2) risk += Math.min(0.24, 0.08 * (matchedCats - 1));
   const amps = amplifierHits(t);
   for (const k of amps) risk += RULES.amplifiers.signals[k].add;
   risk -= suppressorDelta(t);

@@ -8,6 +8,12 @@ import org.json.JSONObject
  */
 object LocalSafetyNet {
     private val sos = Regex("救命|摔倒|喘不上气|胸口疼|心脏|不行了|急救|晕倒|120")
+    private val fraudScript = Regex(
+        "(?:陌生人|网友|老师|导师|客服).{0,16}(?:投资|理财|炒股|虚拟币|带单|赚钱)|" +
+            "(?:投入|充值|投资).{0,16}(?:提现不了|解冻|保证金|认证金|税费)|" +
+            "(?:儿子|女儿|孙子|孙女|领导).{0,14}(?:换号|借钱|转账|汇款|出事)|" +
+            "(?:客服|平台).{0,16}(?:退款|理赔|自动扣费).{0,20}(?:验证码|下载|共享|转账|银行卡)"
+    )
     private val redline = listOf(
         "屏幕共享", "远程控制", "念一下收到的验证码", "验证码", "转到安全账户",
         "把钱转到", "输入银行卡密码", "扫这个码", "公检法", "涉嫌洗钱",
@@ -53,6 +59,14 @@ object LocalSafetyNet {
             return Reply(
                 "注意!这非常像诈骗:对方提到「$hit」。千万不要转账、不要提供验证码!",
                 a, "防诈骗预警", 0.96
+            )
+        }
+        if (fraudScript.containsMatchIn(text)) {
+            val action = JSONObject().put("type", "FRAUD_WARN")
+                .put("level", "medium").put("category", "诈骗话术链")
+            return Reply(
+                "先停止操作。这段话把身份理由和转账、投资或验证码串在了一起,风险很高。请挂断后只用官方应用或原来保存的号码核验。",
+                action, "防诈骗预警", 0.86
             )
         }
         if (consultation.containsMatchIn(normalized)) {

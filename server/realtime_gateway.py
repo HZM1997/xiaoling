@@ -271,6 +271,11 @@ def _action_for(name: str, args: dict) -> tuple[dict | None, dict]:
     if name == "check_fraud":
         text = str(args.get("text") or "").strip()[:800]
         result = fraud.analyze(text, scene="voice_chat").to_dict()
+        result["response_protocol"] = {
+            "pause": "停止转账、验证码、共享屏幕和安装软件",
+            "verify": "挂断后只通过官方应用或原来保存的号码独立核验",
+            "escalate": "已经付款或泄露信息时立即联系银行和当地警方",
+        }
         action = {"type": "FRAUD_WARN"} if result.get("level") in {"medium", "high"} else None
         return action, {"ok": True, **result}
     return None, {"ok": False, "error": "unsupported_tool"}

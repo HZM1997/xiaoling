@@ -60,12 +60,21 @@ def _json_object(content: str) -> dict | None:
 
 def _reasoning_effort(text: str) -> str:
     normalized = " ".join(text.split())
+    safety_markers = (
+        "诈骗", "骗子", "转账", "汇款", "验证码", "银行卡", "屏幕共享", "远程控制",
+        "贷款", "投资", "理财", "公检法", "安全账户", "礼品卡", "私钥", "助记词",
+    )
+    if any(marker in normalized for marker in safety_markers):
+        return "max"
     score = int(len(normalized) >= 48) + int(len(normalized) >= 100)
     score += sum(
         marker in normalized
         for marker in ("分析", "比较", "原因", "为什么", "怎么办", "计划", "方案", "利弊", "如果", "帮我想")
     )
     score += int(sum(normalized.count(mark) for mark in ("，", ",", "；", ";")) >= 3)
+    multi_intent = sum(normalized.count(mark) for mark in ("然后", "再", "同时", "另外", "并且"))
+    if score >= 4 or multi_intent >= 2:
+        return "high"
     return "medium" if score >= 2 else "low"
 
 
@@ -180,8 +189,9 @@ def judge_fraud(text: str, category: str = "") -> dict | None:
             {"role": "user", "content": f"疑似类型:{category}\n内容:{text}"},
         ],
         temperature=0.05,
-        max_tokens=180,
-        timeout=4.0,
+        max_tokens=320,
+        timeout=7.0,
+        reasoning_effort="max",
     )
     result = _json_object((message or {}).get("content", ""))
     if not result or not isinstance(result.get("is_fraud"), bool):

@@ -103,7 +103,9 @@ def anti_fraud(u: Utterance) -> Optional[Reply]:
     if r.level == "medium":
         verdict = judge_fraud(u.text, r.category)
         if verdict is not None:
-            if not verdict.get("is_fraud", True) and verdict.get("confidence", 0) >= 0.6:
+            if (not verdict.get("is_fraud", True)
+                    and verdict.get("confidence", 0) >= 0.92
+                    and not r.amplifiers):
                 return None   # 大模型确信非诈骗 → 不打扰
             if verdict.get("is_fraud") and verdict.get("confidence", 0) >= 0.85:
                 r.level = "high"   # 大模型高置信确认 → 升级

@@ -7,6 +7,12 @@ package com.xiaoling.core
 object FraudText {
     private val url = Regex("(?:https?://|www\\.)[^\\s，。！？]+", RegexOption.IGNORE_CASE)
     private val rawIp = Regex("https?://(?:\\d{1,3}\\.){3}\\d{1,3}(?:[:/]|$)", RegexOption.IGNORE_CASE)
+    private val scriptPatterns = listOf(
+        Regex("(?:陌生人|网友|老师|导师|客服).{0,16}(?:投资|理财|炒股|虚拟币|带单|赚钱)"),
+        Regex("(?:投入|充值|投资).{0,16}(?:提现不了|解冻|保证金|认证金|税费)"),
+        Regex("(?:儿子|女儿|孙子|孙女|领导).{0,14}(?:换号|借钱|转账|汇款|出事)"),
+        Regex("(?:客服|平台).{0,16}(?:退款|理赔|自动扣费).{0,20}(?:验证码|下载|共享|转账|银行卡)"),
+    )
     private val redline = listOf(
         "屏幕共享", "远程控制", "念一下收到的验证码", "验证码", "转到安全账户",
         "把钱转到", "输入银行卡密码", "扫这个码", "点击链接", "登录网址",
@@ -32,6 +38,8 @@ object FraudText {
         val t = text.lowercase()
         val red = redline.firstOrNull { it.lowercase() in t }
         if (red != null) return true to "对方要求「$red」,是诈骗典型手法"
+        val script = scriptPatterns.firstNotNullOfOrNull { it.find(text)?.value }
+        if (script != null) return true to "身份理由和资金操作被串在一起,请停止操作并独立核验"
         val hits = words.filter { it.lowercase() in t }
         if (hits.size >= 2) return true to ("提到「" + hits.take(2).joinToString("、") + "」")
         if (hits.size == 1) return true to "提到「${hits[0]}」,请提高警惕"
