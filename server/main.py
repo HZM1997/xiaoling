@@ -95,6 +95,10 @@ def vision_analyze(req: VisionRequest):
         return {"ok": False, "speech": "这张画面太大了，请再试一次。", "caption": "画面大小不合适"}
     provider = os.getenv("XL_VISION_PROVIDER", "").strip().lower() or None
     model = os.getenv("XL_VISION_MODEL", "").strip() or None
+    if provider is None and os.getenv("DASHSCOPE_API_KEY", "").strip():
+        provider = "qwen"
+    if model is None and provider == "qwen":
+        model = "qwen-vl-plus"
     if not llm_gateway.available():
         return {"ok": False, "speech": "视觉识别服务还没有配置好，暂时不能看清物品。", "caption": "视觉服务未配置"}
     data_url = "data:image/jpeg;base64," + req.image_base64

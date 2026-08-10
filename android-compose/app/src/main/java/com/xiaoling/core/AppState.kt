@@ -6,6 +6,7 @@ import android.speech.SpeechRecognizer
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
@@ -1381,9 +1382,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
         val prompt = _state.value.cameraPrompt
         _state.update { it.copy(cameraAnalyzing = true, caption = "正在看，请稍等") }
         viewModelScope.launch {
-            val result = BrainClient.analyzeImage(app, bitmap, prompt, lens)
-            val speech = result?.optString("speech").orEmpty().ifBlank {
-                "我暂时看不清楚这张画面，请把物品放近一些、光线亮一点再试试。"
+            val localResult = async { LocalVisionAnalyzer.describe(bitmap) }
+            val result = withTimeoutOrNull(4_500L) { BrainClient.analyzeImage(app, bitmap, prompt, lens) }
+            val cloudSpeech = result?.takeIf { it.optBoolean("ok", false) }
+                ?.optString("speech").orEmpty()
+            val speech = cloudSpeech.ifBlank { localResult.await().orEmpty() }.ifBlank {
+                "我暂时没能认出这个物品，请把它放在画面中央、离镜头近一点再试试。"
             }
             val caption = result?.optString("caption").orEmpty().ifBlank { speech }
             _state.update { it.copy(cameraAnalyzing = false, caption = caption, mascot = MascotState.Caring) }
