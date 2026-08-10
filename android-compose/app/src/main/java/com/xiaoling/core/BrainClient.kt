@@ -8,6 +8,8 @@ import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import android.graphics.Bitmap
+import java.io.ByteArrayOutputStream
 
 /** 云端大脑客户端:POST /dialogue,用平台 HttpURLConnection + org.json,零额外依赖 */
 object BrainClient {
@@ -100,6 +102,41 @@ object BrainClient {
             connection?.disconnect()
         }
     }
+
+    suspend fun analyzeImage(ctx: Context, bitmap: Bitmap, prompt: String, lens: String): JSONObject? =
+        withContext(Dispatchers.IO) {
+            val base = Settings.brainUrl(ctx).trim().trimEnd('/')
+            if (base.isBlank()) return@withContext null
+            val compressed = ByteArrayOutputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 72, out)
+                out.toByteArray()
+            }
+            if (compressed.isEmpty() || compressed.size > 2_000_000) return@withContext null
+            val body = JSONObject()
+                .put("image_base64", android.util.Base64.encodeToString(compressed, android.util.Base64.NO_WRAP))
+                .put("prompt", prompt.take(1200))
+                .put("lens", lens)
+                .toString()
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL("$base/vision/analyze").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 1800
+                    readTimeout = 15000
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("Accept", "application/json")
+                    ClientSecurity.apply(this)
+                }
+                connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                if (connection.responseCode !in 200..299) return@withContext null
+                JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+            } catch (_: Exception) {
+                null
+            } finally {
+                connection?.disconnect()
+            }
+        }
 
     /** Privacy-minimal product quality signal. No transcript, contact or identity data is sent. */
     suspend fun qualityEvent(

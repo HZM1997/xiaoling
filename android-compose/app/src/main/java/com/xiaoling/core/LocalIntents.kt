@@ -82,6 +82,18 @@ object LocalIntents {
     }
 
     private fun parseSingle(text: String): Reply? {
+        if (Regex("(退出|返回|关闭).*(相机|摄像头)").containsMatchIn(text)) {
+            return Reply("好的，回到主界面。", JSONObject().put("type", "CLOSE_CAMERA"), "关闭相机", 0.0)
+        }
+        if (Regex("(打开|开启|启动)(前置|后置)?(摄像头|相机)|(用|拿)(前置|后置)?(摄像头|相机).*(看|识别)|(看下|看看|识别).*(手上|手里|眼前).*(东西|物品|这个)").containsMatchIn(text)) {
+            val lens = if (text.contains("前置")) "front" else "back"
+            return Reply(
+                "好的，我打开相机帮您看看。",
+                JSONObject().put("type", "OPEN_CAMERA").put("lens", lens).put("prompt", text),
+                "视觉识别",
+                0.0
+            )
+        }
         // —— 举报诈骗号码(数据飞轮):"举报这个号码/这是骗子/拉黑这个号码" ——
         if (Regex("举报|拉黑|这是(个)?骗子|是诈骗|加入黑名单").containsMatchIn(text)) {
             return Reply("好的,正在为您举报这个号码。",

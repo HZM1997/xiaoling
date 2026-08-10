@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import com.xiaoling.service.AppForeground
 
-enum class Screen { Home, Settings, Login }
+enum class Screen { Home, Settings, Login, Camera }
 
 data class Choice(val label: String, val speech: String, val action: org.json.JSONObject?)
 
@@ -63,7 +63,11 @@ data class UiState(
     val fraudBlocked: Int = 0,
     val sosLabel: String = "无",
     val medsOk: Boolean = true,
-    val familySynced: Boolean = false
+    val familySynced: Boolean = false,
+    val cameraLens: String = "back",
+    val cameraPrompt: String = "识别相机画面中的物品，并用简洁中文告诉我它是什么、用途和需要注意的安全事项。",
+    val cameraAnalyzing: Boolean = false,
+    val cameraRequestId: Long = 0L
 )
 
 /** 编排:常听式语音识别 → 大脑(云端/本地兜底) → TTS → 执行动作 → 形象状态 */
@@ -1252,6 +1256,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeAction(action: JSONObject) {
         val type = action.optString("type")
+        if (type == "OPEN_CAMERA") {
+            openCamera(action)
+            return
+        }
+        if (type == "CLOSE_CAMERA") {
+            _state.update { it.copy(screen = Screen.Home, cameraAnalyzing = false, caption = "") }
+            return
+        }
         val hint = dispatchAction(action)
         if (type == "FRAUD_WARN") {
             FraudStore.inc(app)
@@ -1264,6 +1276,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     private fun dispatchAction(action: JSONObject): String? {
+        if (action.optString("type") == "OPEN_CAMERA") {
+            openCamera(action)
+            return null
+        }
+        if (action.optString("type") == "CLOSE_CAMERA") {
+            _state.update { it.copy(screen = Screen.Home, cameraAnalyzing = false, caption = "") }
+            return null
+        }
         val permissions = ActionDispatcher.missingRuntimePermissions(app, action)
         if (permissions.isNotEmpty()) {
             pendingPermissionAction = JSONObject(action.toString())
@@ -1273,6 +1293,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         return try { ActionDispatcher.execute(app, action) }
         catch (_: Exception) { "这个操作暂时没有执行成功。" }
+    }
+
+    private fun openCamera(action: JSONObject) {
+        val lens = if (action.optString("lens") == "front") "front" else "back"
+        val prompt = action.optString("prompt").ifBlank { _state.value.cameraPrompt }
+        _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraPrompt = prompt,
+            cameraAnalyzing = false, cameraRequestId = it.cameraRequestId + 1, caption = "") }
     }
 
     fun onActionPermissionsResult(result: Map<String, Boolean>) {
@@ -1335,12 +1362,34 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     // ---------- 设置 / 子女端 ----------
     fun showScreen(s: Screen) {
-        if (s != Screen.Home) {
+        if (s != Screen.Home && s != Screen.Camera) {
             voiceSessionActive = false
             autoListenJob?.cancel()
             if (recognitionActive || holding) cancelActiveRecognition()
         }
         _state.update { it.copy(screen = s, fraudBlocked = FraudStore.count(app)) }
+    }
+
+    fun setCameraLens(lens: String) {
+        _state.update { it.copy(cameraLens = if (lens == "front") "front" else "back",
+            cameraAnalyzing = false, cameraRequestId = it.cameraRequestId + 1) }
+    }
+
+    fun analyzeCameraFrame(bitmap: android.graphics.Bitmap) {
+        if (_state.value.cameraAnalyzing) return
+        val lens = _state.value.cameraLens
+        val prompt = _state.value.cameraPrompt
+        _state.update { it.copy(cameraAnalyzing = true, caption = "正在看，请稍等") }
+        viewModelScope.launch {
+            val result = BrainClient.analyzeImage(app, bitmap, prompt, lens)
+            val speech = result?.optString("speech").orEmpty().ifBlank {
+                "我暂时看不清楚这张画面，请把物品放近一些、光线亮一点再试试。"
+            }
+            val caption = result?.optString("caption").orEmpty().ifBlank { speech }
+            _state.update { it.copy(cameraAnalyzing = false, caption = caption, mascot = MascotState.Caring) }
+            speaking = true
+            curUtt = tts.speak(speech)
+        }
     }
 
     fun setBrainUrl(url: String) {

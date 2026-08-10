@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import base64
+import json
 
 from fastapi import FastAPI, Request, File, Form, UploadFile, WebSocket
 from pydantic import BaseModel, Field
@@ -23,6 +25,7 @@ import fraud
 import realtime_gateway
 import quality_store
 from agent_runtime import runtime
+import llm_gateway
 
 app = FastAPI(
     title="小灵 · AI手机精灵大脑",
@@ -73,6 +76,39 @@ class QualityEvent(BaseModel):
     event: str = Field(..., min_length=3, max_length=40)
     latency_ms: int = Field(default=0, ge=0, le=60_000)
     success: bool = True
+
+
+class VisionRequest(BaseModel):
+    image_base64: str = Field(..., min_length=32, max_length=2_800_000)
+    prompt: str = Field(default="识别画面中的物品，并用简洁中文说明它是什么、用途和安全注意事项。", max_length=1200)
+    lens: str = Field(default="back", pattern="^(front|back)$")
+
+
+@app.post("/vision/analyze")
+def vision_analyze(req: VisionRequest):
+    """Analyze one user-requested camera frame. Frames are decoded in memory and never persisted."""
+    try:
+        raw = base64.b64decode(req.image_base64, validate=True)
+    except Exception:
+        return {"ok": False, "speech": "我没能读取这张画面，请再试一次。", "caption": "无法读取画面"}
+    if len(raw) == 0 or len(raw) > 2_000_000:
+        return {"ok": False, "speech": "这张画面太大了，请再试一次。", "caption": "画面大小不合适"}
+    provider = os.getenv("XL_VISION_PROVIDER", "").strip().lower() or None
+    model = os.getenv("XL_VISION_MODEL", "").strip() or None
+    if not llm_gateway.available():
+        return {"ok": False, "speech": "视觉识别服务还没有配置好，暂时不能看清物品。", "caption": "视觉服务未配置"}
+    data_url = "data:image/jpeg;base64," + req.image_base64
+    messages = [{"role": "system", "content": "你是小灵的视觉助手。只根据用户提供的这一帧画面回答，不要声称已经执行现实世界动作。先给结论，再用一两句通俗中文说明；看不清就诚实说看不清。"},
+                {"role": "user", "content": [{"type": "text", "text": req.prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]
+    message = llm_gateway.chat(messages, temperature=0.2, max_tokens=500, timeout=15.0,
+                               model_override=model, provider_override=provider)
+    content = message.get("content") if isinstance(message, dict) else ""
+    if isinstance(content, list):
+        content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
+    answer = str(content or "").strip()[:1200]
+    if not answer:
+        return {"ok": False, "speech": "我暂时没看清楚，请把物品放近一点再试试。", "caption": "暂时看不清"}
+    return {"ok": True, "speech": answer, "caption": answer, "provider": message.get("_provider", "") if isinstance(message, dict) else ""}
 
 
 @app.post("/quality/event")

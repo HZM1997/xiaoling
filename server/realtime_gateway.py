@@ -29,6 +29,25 @@ from llm import _reasoning_effort, _too_similar_to_recent
 _REALTIME_TOOLS = [
     {
         "type": "function",
+        "name": "open_camera",
+        "description": "Open the user's camera only after an explicit spoken request to look at or identify something. Also use for 'look again' or switching front/back while the camera is visible. Automatically inspect one frame and answer by voice.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lens": {"type": "string", "enum": ["front", "back"]},
+                "prompt": {"type": "string"},
+            },
+            "required": ["prompt"],
+        },
+    },
+    {
+        "type": "function",
+        "name": "close_camera",
+        "description": "Close the camera and return to the main assistant when the user says return, exit, or close camera while the camera is visible.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "type": "function",
         "name": "call_contact",
         "description": "Call a contact on the Android phone after the user clearly asks to call.",
         "parameters": {
@@ -259,6 +278,12 @@ def _tool_call(event: dict) -> tuple[str, str, dict]:
 
 
 def _action_for(name: str, args: dict) -> tuple[dict | None, dict]:
+    if name == "open_camera":
+        lens = "front" if str(args.get("lens") or "back").strip().lower() == "front" else "back"
+        prompt = str(args.get("prompt") or "识别相机画面中的物品，并用简洁中文说明").strip()[:1200]
+        return {"type": "OPEN_CAMERA", "lens": lens, "prompt": prompt}, {"ok": True, "lens": lens, "prompt": prompt}
+    if name == "close_camera":
+        return {"type": "CLOSE_CAMERA"}, {"ok": True}
     if name == "call_contact":
         target = str(args.get("target") or "").strip()[:80]
         return {"type": "CALL", "target": target}, {"ok": bool(target), "target": target}
