@@ -142,6 +142,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private var realtimeCaptionJob: Job? = null
     @Volatile private var realtimeConnecting = false
     @Volatile private var realtimeActive = false
+    @Volatile private var cameraExitPending = false
     private var pendingReminder = ""
     private var pendingCallTarget = ""
     private var pendingRemoteAudioUrl = ""
@@ -157,6 +158,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
     /** 当前会员档位(登录跟账号,否则本地) */
     private fun tierNow(): String = if (Account.isLoggedIn(app)) Account.membership(app) else Membership.tier(app)
     private fun isPremium(): Boolean = tierNow() == "premium"
+    private fun isVoiceScreen(screen: Screen = _state.value.screen): Boolean =
+        screen == Screen.Home || screen == Screen.Camera
 
     init {
         // 启动加载完整翻译词库(assets/translate/phrases.json)
@@ -181,7 +184,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 _state.update { if (it.online == online) it else it.copy(online = online) }
                 if (changed && realtimeActive) realtime.updateContext()
                 if (changed && online && voiceSessionActive && AppForeground.active &&
-                    _state.value.screen == Screen.Home && !realtimeActive && !realtimeConnecting) {
+                    isVoiceScreen() && !realtimeActive && !realtimeConnecting) {
                     scheduleRealtimeRetry(immediate = true)
                 }
                 delay(4000)
@@ -297,7 +300,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             )
         }
         if (health.realtimeAvailable && voiceSessionActive && AppForeground.active &&
-            _state.value.screen == Screen.Home && !realtimeActive && !realtimeConnecting) {
+            isVoiceScreen() && !realtimeActive && !realtimeConnecting) {
             if (recognitionActive) cancelActiveRecognition(updateUi = false)
             scheduleRealtimeRetry(immediate = true)
         } else if (!health.realtimeAvailable && voiceSessionActive && (realtimeActive || realtimeConnecting)) {
@@ -395,12 +398,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     /** 保持免按键会话存活；网络或服务恢复后直接重连，不依赖健康检查缓存。 */
     private fun scheduleRealtimeRetry(immediate: Boolean = false) {
-        if (!voiceSessionActive || !AppForeground.active || _state.value.screen != Screen.Home) return
+        if (!voiceSessionActive || !AppForeground.active || !isVoiceScreen()) return
         realtimeRetryJob?.cancel()
         realtimeRetryJob = viewModelScope.launch {
             if (!immediate) delay(REALTIME_RETRY_MS)
             while (isActive && voiceSessionActive && AppForeground.active &&
-                _state.value.screen == Screen.Home && !realtimeActive && !realtimeConnecting) {
+                isVoiceScreen() && !realtimeActive && !realtimeConnecting) {
                 if (realtime.canConnect) {
                     startVoiceConversation()
                     return@launch
@@ -758,7 +761,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             autoListenJob = viewModelScope.launch {
                 delay(90)
                 if (voiceSessionActive && !holding && !recognitionActive && !speaking &&
-                    AppForeground.active && _state.value.screen == Screen.Home) {
+                    AppForeground.active && isVoiceScreen()) {
                     beginListening(automatic = true)
                 }
             }
@@ -1045,7 +1048,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         if (voiceSessionActive && !holding && !recognitionActive && !memoMode &&
-            AppForeground.active && _state.value.screen == Screen.Home) {
+            AppForeground.active && isVoiceScreen()) {
             autoListenJob?.cancel()
             autoListenJob = viewModelScope.launch {
                 delay(220)
@@ -1058,14 +1061,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onTtsStarted(id: String?) {
         if (id == "warmup" || id != curUtt || !speaking || !voiceSessionActive || realtimeActive ||
-            recognitionActive || holding || !AppForeground.active || _state.value.screen != Screen.Home) return
+            recognitionActive || holding || !AppForeground.active || !isVoiceScreen()) return
         bargeIn.start()
         bargeIn.arm()
     }
 
     private fun prepareLegacyBargeIn() {
         if (!speaking || !voiceSessionActive || realtimeActive || recognitionActive || holding ||
-            !AppForeground.active || _state.value.screen != Screen.Home) return
+            !AppForeground.active || !isVoiceScreen()) return
         bargeIn.start()
     }
 
@@ -1084,7 +1087,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onRealtimeConnected(model: String) {
-        if (!voiceSessionActive || !AppForeground.active || _state.value.screen != Screen.Home) {
+        if (!voiceSessionActive || !AppForeground.active || !isVoiceScreen()) {
             realtime.stop(notify = false)
             return
         }
@@ -1113,7 +1116,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
             caption = "", mascot = MascotState.Idle, asrReady = false,
             asrStatus = if (retryable) "实时语音弱网降级" else message.take(36)) }
-        if (voiceSessionActive && AppForeground.active && _state.value.screen == Screen.Home) {
+        if (voiceSessionActive && AppForeground.active && isVoiceScreen()) {
             viewModelScope.launch {
                 delay(180)
                 if (voiceSessionActive && !realtimeActive && !realtimeConnecting && !recognitionActive) {
@@ -1152,6 +1155,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeInputText(text: String, final: Boolean) {
         if (!realtimeActive || text.isBlank()) return
+        if (cameraExitPending) {
+            realtime.cancelResponse()
+            if (final) cameraExitPending = false
+            return
+        }
+        val normalized = LocalIntents.normalizeSpeech(text)
+        if (_state.value.screen == Screen.Camera && isCameraExitCommand(normalized)) {
+            cameraExitPending = !final
+            realtime.cancelResponse()
+            tts.stop()
+            RemoteAudioPlayer.stop()
+            speaking = false
+            _state.update { it.copy(screen = Screen.Home, listening = !final, busy = false,
+                speaking = false, caption = "", mascot = MascotState.Listening) }
+            return
+        }
         if (final && AppForeground.companionMode && isCompanionReturnCommand(LocalIntents.normalizeSpeech(text))) {
             realtime.cancelResponse()
             AppForeground.returnToApp()
@@ -1182,6 +1201,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun isCompanionReturnCommand(text: String): Boolean =
         Regex("^(退出|返回|回去|回到小灵|返回小灵|退出地图|关闭地图)$").matches(text)
+
+    private fun isCameraExitCommand(text: String): Boolean =
+        Regex("^(退出|返回|回去|关闭)(相机|摄像头|这个界面|应用相机)?(吧|一下|主界面)?$").matches(text) ||
+            text in setOf("返回应用", "返回小灵", "退出相机界面", "回到主界面")
 
     private fun onRealtimeOutputStarted() {
         if (!realtimeActive) return
