@@ -160,7 +160,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
-          cp xiaoling-v1.0.40-release.zip xiaoling-v1.0.40-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cp xiaoling-v1.0.40-release.apk xiaoling-v1.0.40-release.zip xiaoling-v1.0.40-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
           cd "$RUNNER_TEMP/xiaoling-delivery"
           git init
           git config user.name "github-actions[bot]"
@@ -176,6 +176,7 @@ jobs:
         with:
           name: xiaoling-v1.0.40-release
           path: |
+            android-compose/xiaoling-v1.0.40-release.apk
             android-compose/xiaoling-v1.0.40-release.zip
             android-compose/xiaoling-v1.0.40-release.apk.sha256
           if-no-files-found: error
