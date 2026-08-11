@@ -3,11 +3,17 @@ package com.xiaoling.ui
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
-import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
 import android.view.View
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
@@ -80,32 +86,49 @@ fun Avatar3DView(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
+                val assetLoader = WebViewAssetLoader.Builder()
+                    .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx))
+                    .build()
                 var retries = 0
                 lateinit var modelWebView: WebView
                 modelWebView = WebView(ctx).apply {
                     settings.javaScriptEnabled = true
-                    settings.allowFileAccess = true
-                    settings.allowFileAccessFromFileURLs = true
-                    settings.allowUniversalAccessFromFileURLs = false
+                    settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                    settings.allowFileAccess = false
                     settings.allowContentAccess = false
-                    settings.blockNetworkLoads = true
+                    settings.blockNetworkLoads = false
                     isClickable = false
                     isFocusable = false
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     setBackgroundColor(Color.TRANSPARENT)
                     addJavascriptInterface(AvatarLoadBridge(
                         onReady = { modelReady = true },
-                        onFailed = {
+                        onFailed = { reason ->
+                            Log.e("XiaolingAvatar", "3D model load failed: $reason")
                             modelReady = false
-                            if (retries < 2) {
+                            if (retries < 1) {
                                 retries++
-                                postDelayed({ modelWebView.reload() }, 650L * retries)
+                                postDelayed({ modelWebView.reload() }, 800L)
                             }
                         }
                     ), "XiaolingNative")
-                    webViewClient = object : WebViewClient() {
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                            Log.d(
+                                "XiaolingAvatar",
+                                "${message.message()} @${message.sourceId()}:${message.lineNumber()}",
+                            )
+                            return true
+                        }
+                    }
+                    webViewClient = object : WebViewClientCompat() {
+                        override fun shouldInterceptRequest(
+                            view: WebView,
+                            request: WebResourceRequest,
+                        ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-                            request.url.scheme != "file"
+                            request.url.host != "appassets.androidplatform.net"
 
                         override fun onPageFinished(view: WebView, url: String) {
                             applyState(
@@ -114,7 +137,7 @@ fun Avatar3DView(
                             )
                         }
                     }
-                    loadUrl("file:///android_asset/avatar3d/index.html")
+                    loadUrl("https://appassets.androidplatform.net/assets/avatar3d/index.html")
                 }
                 modelWebView
             },
@@ -154,10 +177,12 @@ private fun avatarEmotion(state: MascotState, text: String): String {
 
 private class AvatarLoadBridge(
     private val onReady: () -> Unit,
-    private val onFailed: () -> Unit,
+    private val onFailed: (String) -> Unit,
 ) {
     private val main = Handler(Looper.getMainLooper())
 
     @JavascriptInterface fun ready() { main.post(onReady) }
-    @JavascriptInterface fun failed() { main.post(onFailed) }
+    @JavascriptInterface fun failed(reason: String?) {
+        main.post { onFailed(reason.orEmpty().take(300)) }
+    }
 }
