@@ -168,9 +168,9 @@ class BargeInDetector(context: Context, private val onSpeech: (Long) -> Unit) {
         const val SAMPLE_RATE = 16_000
         const val FRAME_BYTES = 640
         const val CALIBRATION_FRAMES = 1
-        const val REQUIRED_LOUD_FRAMES = 3
+        const val REQUIRED_LOUD_FRAMES = 2
         const val MIN_SPEECH_RMS = 110.0
         const val MIN_RISE_RMS = 48.0
-        const val SETTLE_MS = 140L
+        const val SETTLE_MS = 90L
     }
 }

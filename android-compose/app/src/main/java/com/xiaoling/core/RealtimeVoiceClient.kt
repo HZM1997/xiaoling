@@ -658,8 +658,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val LOCAL_MIN_SPEECH_RMS = 90.0
         const val INTERRUPT_MIN_SPEECH_RMS = 120.0
         const val INTERRUPT_MIN_RISE_RMS = 70.0
-        const val REQUIRED_INTERRUPT_FRAMES = 4
-        const val ECHO_WARMUP_MS = 180L
+        // 20 ms PCM frames: three consecutive frames keeps clicks out while
+        // bringing barge-in onset below 100 ms after the echo settling window.
+        const val REQUIRED_INTERRUPT_FRAMES = 3
+        const val ECHO_WARMUP_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L
         const val EMPHASIS_COOLDOWN_MS = 420L
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L

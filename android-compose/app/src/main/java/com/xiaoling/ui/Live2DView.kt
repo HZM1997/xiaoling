@@ -99,7 +99,11 @@ fun Avatar3DView(
                     settings.blockNetworkLoads = false
                     isClickable = false
                     isFocusable = false
-                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
+                    // MIUI WebView can leave a transparent hardware canvas
+                    // blank; software compositing is reliable for this small
+                    // avatar and still keeps the rest of the UI accelerated.
+                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                    alpha = 1f
                     setBackgroundColor(Color.TRANSPARENT)
                     addJavascriptInterface(AvatarLoadBridge(
                         onReady = { modelReady = true },
@@ -131,6 +135,7 @@ fun Avatar3DView(
                             request.url.host != "appassets.androidplatform.net"
 
                         override fun onPageFinished(view: WebView, url: String) {
+                            modelReady = true
                             applyState(
                                 view, currentState, currentTalking, currentVoiceLevel,
                                 currentMouthWide, currentMouthRound, currentEmphasisTick, currentEmotion,

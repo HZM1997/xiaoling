@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.speech.RecognitionListener
 import android.speech.RecognitionService
 import android.speech.RecognizerIntent
@@ -62,9 +63,20 @@ class WakeService : Service() {
     override fun onCreate() {
         super.onCreate()
         try {
-            startForeground(NOTIF_ID, buildNotification())
+            // Android 10+ requires the foreground-service type to match the
+            // microphone declaration. Promote before any recognizer work.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIF_ID,
+                    buildNotification(),
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE,
+                )
+            } else {
+                startForeground(NOTIF_ID, buildNotification())
+            }
             running = true
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
+            Log.e("WakeService", "foreground promotion failed", e)
             shutdownAndStop()
         }
     }
@@ -319,8 +331,9 @@ class WakeService : Service() {
         fun pause(ctx: Context) {
             val i = Intent(ctx, WakeService::class.java).setAction(ACTION_PAUSE)
             try {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O)
-                    ctx.startForegroundService(i) else ctx.startService(i)
+                // The service is already promoted by start(); using a normal
+                // start avoids a second foreground-start deadline on MIUI.
+                ctx.startService(i)
             } catch (_: Throwable) {}
         }
 
