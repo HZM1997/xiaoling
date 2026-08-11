@@ -36,6 +36,7 @@ import androidx.core.content.ContextCompat
 import com.xiaoling.R
 import com.xiaoling.core.AppState
 import com.xiaoling.core.Screen
+import kotlinx.coroutines.isActive
 
 @Composable
 fun CameraScreen(vm: AppState) {
@@ -108,14 +109,21 @@ fun CameraScreen(vm: AppState) {
     }
 
     LaunchedEffect(previewView, ui.cameraLens, ui.cameraRequestId) {
-        if (previewView != null && !ui.cameraAnalyzing) {
+        if (previewView != null) {
             var frame: android.graphics.Bitmap? = null
             for (attempt in 0 until 8) {
                 kotlinx.coroutines.delay(if (attempt == 0) 700 else 250)
                 frame = previewView?.bitmap
                 if (frame != null) break
             }
-            frame?.let(vm::analyzeCameraFrame)
+            frame?.let { vm.analyzeCameraFrame(it, ui.cameraRequestId) }
+        }
+    }
+
+    LaunchedEffect(previewView, ui.cameraLens) {
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            kotlinx.coroutines.delay(2_200L)
+            previewView?.bitmap?.let(vm::observeCameraFrame)
         }
     }
 }

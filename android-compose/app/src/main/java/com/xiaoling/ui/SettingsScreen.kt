@@ -4,7 +4,6 @@ import android.app.role.RoleManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,7 +40,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -185,13 +183,12 @@ private fun UserTab(
 ) {
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(
-                painter = painterResource(R.drawable.avatar_clean),
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopCenter,
-                modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.White)
-            )
+            Box(
+                modifier = Modifier.size(60.dp).clip(CircleShape).background(AccentBlue),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("小灵", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            }
             Spacer(Modifier.size(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(if (ui.loggedIn) "已登录" else "未登录", fontSize = 20.sp, fontWeight = FontWeight.Bold)

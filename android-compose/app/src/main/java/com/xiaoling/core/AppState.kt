@@ -67,6 +67,8 @@ data class UiState(
     val familySynced: Boolean = false,
     val cameraLens: String = "back",
     val cameraPrompt: String = "识别相机画面中的物品，并用简洁中文告诉我它是什么、用途和需要注意的安全事项。",
+    val cameraObservation: String = "",
+    val cameraSceneHint: String = "",
     val cameraAnalyzing: Boolean = false,
     val cameraRequestId: Long = 0L
 )
@@ -143,6 +145,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var realtimeConnecting = false
     @Volatile private var realtimeActive = false
     @Volatile private var cameraExitPending = false
+    @Volatile private var cameraVisionPending = false
+    @Volatile private var cameraProcessingRequestId = -1L
+    @Volatile private var cameraObservationActive = false
     private var pendingReminder = ""
     private var pendingCallTarget = ""
     private var pendingRemoteAudioUrl = ""
@@ -815,6 +820,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
             applyReply(Reply("好的,已经回到小灵。", null, "画中画语音返回", 0.0))
             return
         }
+        if (_state.value.screen == Screen.Camera && isCameraVisionQuestion(spoken)) {
+            requestCameraRecognition(spoken)
+            return
+        }
         val previousUser = _state.value.lastUser
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken,
             lastUser = spoken, online = NetworkStatus.isOnline(app)) }
@@ -1171,6 +1180,18 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 speaking = false, caption = "", mascot = MascotState.Listening) }
             return
         }
+        if (final && _state.value.screen == Screen.Camera && isCameraVisionQuestion(normalized)) {
+            realtime.cancelResponse()
+            _state.update { it.copy(
+                listening = false,
+                speaking = false,
+                lastUser = normalized,
+                caption = normalized,
+                mascot = MascotState.Thinking,
+            ) }
+            requestCameraRecognition(normalized)
+            return
+        }
         if (final && AppForeground.companionMode && isCompanionReturnCommand(LocalIntents.normalizeSpeech(text))) {
             realtime.cancelResponse()
             AppForeground.returnToApp()
@@ -1206,8 +1227,20 @@ class AppState(application: Application) : AndroidViewModel(application) {
         Regex("^(退出|返回|回去|关闭)(相机|摄像头|这个界面|应用相机)?(吧|一下|主界面)?$").matches(text) ||
             text in setOf("返回应用", "返回小灵", "退出相机界面", "回到主界面")
 
+    private fun isCameraVisionQuestion(text: String): Boolean =
+        Regex(
+            "这(个|是|里|上面|下面)|那(个|是|里)|是什么|看(一下|下|看|清|到了)|" +
+                "识别|认(一下|得|出来)|上面(写|有)|写的什么|读一下|念一下|" +
+                "怎么用|做什么用|有什么用|能不能吃|什么药|安全吗|危险吗|真假|" +
+                "什么颜色|有几个|多少个|前面|旁边|左边|右边|刚才|现在|变了什么"
+        ).containsMatchIn(text)
+
     private fun onRealtimeOutputStarted() {
         if (!realtimeActive) return
+        if (cameraVisionPending) {
+            realtime.cancelResponse()
+            return
+        }
         realtimeResponseJob?.cancel()
         speaking = true
         _state.update { it.copy(listening = false, busy = false, speaking = true, voiceLevel = 0f,
@@ -1236,6 +1269,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeOutputText(text: String, final: Boolean) {
         if (!realtimeActive || text.isBlank()) return
+        if (cameraVisionPending) return
         speaking = true
         _state.update { it.copy(listening = false, busy = false, speaking = true,
             caption = text, mascot = MascotState.Talking) }
@@ -1244,6 +1278,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun onRealtimeOutputDone(text: String) {
         if (!realtimeActive) return
+        if (cameraVisionPending) return
         realtimeResponseJob?.cancel()
         realtimeOutputJob?.cancel()
         speaking = false
@@ -1285,7 +1320,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         if (type == "CLOSE_CAMERA") {
-            _state.update { it.copy(screen = Screen.Home, cameraAnalyzing = false, caption = "") }
+            showScreen(Screen.Home)
+            _state.update { it.copy(cameraAnalyzing = false, caption = "") }
             return
         }
         val hint = dispatchAction(action)
@@ -1305,7 +1341,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return null
         }
         if (action.optString("type") == "CLOSE_CAMERA") {
-            _state.update { it.copy(screen = Screen.Home, cameraAnalyzing = false, caption = "") }
+            showScreen(Screen.Home)
+            _state.update { it.copy(cameraAnalyzing = false, caption = "") }
             return null
         }
         val permissions = ActionDispatcher.missingRuntimePermissions(app, action)
@@ -1322,8 +1359,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun openCamera(action: JSONObject) {
         val lens = if (action.optString("lens") == "front") "front" else "back"
         val prompt = action.optString("prompt").ifBlank { _state.value.cameraPrompt }
+        cameraVisionPending = true
         _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraPrompt = prompt,
-            cameraAnalyzing = false, cameraRequestId = it.cameraRequestId + 1, caption = "") }
+            cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
+            cameraRequestId = it.cameraRequestId + 1, caption = "") }
     }
 
     fun onActionPermissionsResult(result: Map<String, Boolean>) {
@@ -1386,6 +1425,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     // ---------- 设置 / 子女端 ----------
     fun showScreen(s: Screen) {
+        if (s != Screen.Camera) {
+            cameraVisionPending = false
+            cameraProcessingRequestId = -1L
+        }
         if (s != Screen.Home && s != Screen.Camera) {
             voiceSessionActive = false
             autoListenJob?.cancel()
@@ -1395,29 +1438,102 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     fun setCameraLens(lens: String) {
+        cameraVisionPending = true
         _state.update { it.copy(cameraLens = if (lens == "front") "front" else "back",
-            cameraAnalyzing = false, cameraRequestId = it.cameraRequestId + 1) }
+            cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
+            cameraRequestId = it.cameraRequestId + 1) }
     }
 
-    fun analyzeCameraFrame(bitmap: android.graphics.Bitmap) {
-        if (_state.value.cameraAnalyzing) return
+    private fun requestCameraRecognition(prompt: String) {
+        cameraVisionPending = true
+        val nextId = _state.value.cameraRequestId + 1
+        _state.update { it.copy(
+            cameraPrompt = prompt,
+            cameraAnalyzing = false,
+            cameraRequestId = nextId,
+            lastUser = prompt,
+            caption = prompt,
+            busy = true,
+            mascot = MascotState.Thinking,
+        ) }
+    }
+
+    fun analyzeCameraFrame(bitmap: android.graphics.Bitmap, requestId: Long) {
+        if (_state.value.screen != Screen.Camera || requestId != _state.value.cameraRequestId ||
+            (cameraProcessingRequestId == requestId && _state.value.cameraAnalyzing)) {
+            bitmap.recycle()
+            return
+        }
+        cameraProcessingRequestId = requestId
         val lens = _state.value.cameraLens
         val prompt = _state.value.cameraPrompt
-        _state.update { it.copy(cameraAnalyzing = true, caption = "正在看，请稍等") }
+        val previousObservation = listOf(_state.value.cameraObservation, _state.value.cameraSceneHint)
+            .filter(String::isNotBlank).joinToString("；").take(1200)
+        _state.update { it.copy(cameraAnalyzing = true, busy = true, caption = "正在看，请稍等") }
+        if (cameraVisionPending) tts.speakBackchannel("嗯，我看看")
         viewModelScope.launch {
-            val localResult = async { LocalVisionAnalyzer.describe(bitmap, prompt) }
-            val result = withTimeoutOrNull(4_500L) { BrainClient.analyzeImage(app, bitmap, prompt, lens) }
-            val cloudSpeech = result?.takeIf { it.optBoolean("ok", false) }
-                ?.optString("speech").orEmpty()
-            val speech = cloudSpeech.ifBlank { localResult.await().orEmpty() }.ifBlank {
-                "我暂时没能认出这个物品，请把它放在画面中央、离镜头近一点再试试。"
+            try {
+                val localResult = async { LocalVisionAnalyzer.describe(bitmap, prompt) }
+                val result = withTimeoutOrNull(7_500L) {
+                    BrainClient.analyzeImage(app, bitmap, prompt, lens, previousObservation)
+                }
+                val cloudSpeech = result?.takeIf { it.optBoolean("ok", false) }
+                    ?.optString("speech").orEmpty()
+                val speech = cloudSpeech.ifBlank { localResult.await().orEmpty() }.ifBlank {
+                    "我暂时没能认出这个物品，请把它放在画面中央、离镜头近一点再试试。"
+                }
+                if (_state.value.screen != Screen.Camera || requestId != _state.value.cameraRequestId) return@launch
+                cameraVisionPending = false
+                _state.update { it.copy(
+                    cameraAnalyzing = false,
+                    cameraObservation = speech,
+                    caption = speech,
+                    busy = false,
+                    mascot = MascotState.Caring,
+                ) }
+                realtime.updateContext(cameraRealtimeContext(speech, _state.value.cameraSceneHint))
+                speaking = true
+                curUtt = tts.speak(speech)
+            } finally {
+                bitmap.recycle()
+                if (_state.value.cameraRequestId == requestId && _state.value.cameraAnalyzing) {
+                    cameraVisionPending = false
+                    _state.update { it.copy(cameraAnalyzing = false, busy = false) }
+                }
             }
-            val caption = result?.optString("caption").orEmpty().ifBlank { speech }
-            _state.update { it.copy(cameraAnalyzing = false, caption = caption, mascot = MascotState.Caring) }
-            speaking = true
-            curUtt = tts.speak(speech)
         }
     }
+
+    fun observeCameraFrame(bitmap: android.graphics.Bitmap) {
+        if (_state.value.screen != Screen.Camera || _state.value.cameraAnalyzing || cameraObservationActive) {
+            bitmap.recycle()
+            return
+        }
+        cameraObservationActive = true
+        viewModelScope.launch {
+            try {
+                val hint = LocalVisionAnalyzer.describe(bitmap, "持续观察当前画面").orEmpty()
+                if (hint.isNotBlank() && _state.value.screen == Screen.Camera) {
+                    val changed = hint != _state.value.cameraSceneHint
+                    _state.update { it.copy(cameraSceneHint = hint) }
+                    if (changed) {
+                        realtime.updateContext(cameraRealtimeContext(_state.value.cameraObservation, hint))
+                    }
+                }
+            } finally {
+                cameraObservationActive = false
+                bitmap.recycle()
+            }
+        }
+    }
+
+    private fun cameraRealtimeContext(observation: String, sceneHint: String): JSONObject =
+        JSONObject()
+            .put("scene", "camera_voice")
+            .put("vision", JSONObject()
+                .put("lens", _state.value.cameraLens)
+                .put("observation", observation.take(900))
+                .put("scene_hint", sceneHint.take(500)))
 
     fun setBrainUrl(url: String) {
         Settings.setBrainUrl(app, url)

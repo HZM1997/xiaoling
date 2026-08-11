@@ -40,6 +40,25 @@ def test_dynamic_context_only_keeps_safe_device_summary(tmp_path):
     assert context["memories"][0]["value"] == "越剧"
 
 
+def test_dynamic_context_keeps_bounded_camera_observation(tmp_path):
+    store = MemoryStore(tmp_path / "memory.sqlite3")
+    context = build_context(store, "elder-camera", "那这个怎么用", {
+        "scene": "camera_voice",
+        "vision": {
+            "lens": "back",
+            "observation": "画面中央是一盒降压药",
+            "scene_hint": "手里拿着包装盒",
+            "raw_image": "must-not-pass-through",
+        },
+    })
+    assert context["scene"] == "camera_voice"
+    assert context["vision"] == {
+        "lens": "back",
+        "observation": "画面中央是一盒降压药",
+        "scene_hint": "手里拿着包装盒",
+    }
+
+
 def test_dynamic_context_recovers_device_memory_and_turns(tmp_path):
     store = MemoryStore(tmp_path / "memory.sqlite3")
     context = build_context(store, "elder-local", "我喜欢什么", {

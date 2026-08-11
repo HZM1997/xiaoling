@@ -7,8 +7,11 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.WebResourceRequest
+import android.view.View
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -16,6 +19,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaoling.core.MascotState
 
@@ -74,7 +80,9 @@ fun Avatar3DView(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                WebView(ctx).apply {
+                var retries = 0
+                lateinit var modelWebView: WebView
+                modelWebView = WebView(ctx).apply {
                     settings.javaScriptEnabled = true
                     settings.allowFileAccess = true
                     settings.allowFileAccessFromFileURLs = true
@@ -83,10 +91,17 @@ fun Avatar3DView(
                     settings.blockNetworkLoads = true
                     isClickable = false
                     isFocusable = false
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     setBackgroundColor(Color.TRANSPARENT)
                     addJavascriptInterface(AvatarLoadBridge(
                         onReady = { modelReady = true },
-                        onFailed = { modelReady = false }
+                        onFailed = {
+                            modelReady = false
+                            if (retries < 2) {
+                                retries++
+                                postDelayed({ modelWebView.reload() }, 650L * retries)
+                            }
+                        }
                     ), "XiaolingNative")
                     webViewClient = object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
@@ -101,6 +116,7 @@ fun Avatar3DView(
                     }
                     loadUrl("file:///android_asset/avatar3d/index.html")
                 }
+                modelWebView
             },
             update = { web ->
                 applyState(
@@ -113,7 +129,13 @@ fun Avatar3DView(
                 web.destroy()
             }
         )
-        if (!modelReady) Avatar(state, voiceLevel, Modifier.fillMaxSize())
+        if (!modelReady) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center).size(42.dp),
+                color = ComposeColor(0xFF147D8F),
+                strokeWidth = 3.dp,
+            )
+        }
     }
 }
 

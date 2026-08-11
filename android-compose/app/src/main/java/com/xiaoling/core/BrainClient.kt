@@ -103,7 +103,13 @@ object BrainClient {
         }
     }
 
-    suspend fun analyzeImage(ctx: Context, bitmap: Bitmap, prompt: String, lens: String): JSONObject? =
+    suspend fun analyzeImage(
+        ctx: Context,
+        bitmap: Bitmap,
+        prompt: String,
+        lens: String,
+        previousObservation: String = "",
+    ): JSONObject? =
         withContext(Dispatchers.IO) {
             val base = Settings.brainUrl(ctx).trim().trimEnd('/')
             if (base.isBlank()) return@withContext null
@@ -116,6 +122,7 @@ object BrainClient {
                 .put("image_base64", android.util.Base64.encodeToString(compressed, android.util.Base64.NO_WRAP))
                 .put("prompt", prompt.take(1200))
                 .put("lens", lens)
+                .put("previous_observation", previousObservation.take(1200))
                 .toString()
             var connection: HttpURLConnection? = null
             try {

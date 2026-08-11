@@ -82,6 +82,7 @@ class VisionRequest(BaseModel):
     image_base64: str = Field(..., min_length=32, max_length=2_800_000)
     prompt: str = Field(default="识别画面中的物品，并用简洁中文说明它是什么、用途和安全注意事项。", max_length=1200)
     lens: str = Field(default="back", pattern="^(front|back)$")
+    previous_observation: str = Field(default="", max_length=1200)
 
 
 @app.post("/vision/analyze")
@@ -102,14 +103,23 @@ def vision_analyze(req: VisionRequest):
     if not llm_gateway.available():
         return {"ok": False, "speech": "视觉识别服务还没有配置好，暂时不能看清物品。", "caption": "视觉服务未配置"}
     data_url = "data:image/jpeg;base64," + req.image_base64
+    previous = req.previous_observation.strip()
     messages = [{"role": "system", "content": (
                     "你是小灵的视觉识别助手，服务对象包含老年用户。只依据这一帧画面回答用户的具体问题。"
-                    "依次完成：识别用户指向或画面中央的主要目标；读取与问题有关的清晰文字；说明用途；"
+                    "优先识别用户手持、指向或画面中央的目标，并理解颜色、数量、位置、动作和物体间关系；"
+                    "读取与问题有关的清晰文字、数字、日期和包装信息，再说明用途；"
                     "发现药品误服、火电刀具、陌生二维码、付款或疑似诈骗画面时给一句明确安全提醒。"
+                    "用户说‘这个、那个、刚才、现在’时，要结合上一帧摘要判断目标或变化，但当前画面优先。"
                     "先直接说结论，再用最多三句口语化中文说明。不能确认品牌、药名、真伪或人物身份时必须明确说不能确认，"
                     "不得根据模糊外观猜测，也不要声称已经执行现实世界动作。"
                 )},
-                {"role": "user", "content": [{"type": "text", "text": req.prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]
+                {"role": "user", "content": [
+                    {"type": "text", "text": (
+                        (f"上一帧摘要：{previous}\n" if previous else "") +
+                        f"用户当前问题：{req.prompt}"
+                    )},
+                    {"type": "image_url", "image_url": {"url": data_url}},
+                ]}]
     message = llm_gateway.chat(messages, temperature=0.2, max_tokens=500, timeout=15.0,
                                model_override=model, provider_override=provider)
     content = message.get("content") if isinstance(message, dict) else ""

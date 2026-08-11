@@ -181,12 +181,14 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         }
     }
 
-    fun updateContext() {
+    fun updateContext(extra: JSONObject? = null) {
         if (!isConnected) return
+        val context = JSONObject().put("device", DeviceContext.toJson(app))
+        extra?.keys()?.forEach { key -> context.put(key, extra.opt(key)) }
         socket?.send(
             JSONObject()
                 .put("type", "session.context")
-                .put("context", JSONObject().put("device", DeviceContext.toJson(app)))
+                .put("context", context)
                 .toString()
         )
     }

@@ -29,6 +29,13 @@ def build_context(
         local_time = datetime.now().astimezone().isoformat(timespec="minutes")
 
     profile = incoming.get("profile") if isinstance(incoming.get("profile"), dict) else {}
+    vision_in = incoming.get("vision") if isinstance(incoming.get("vision"), dict) else {}
+    vision = {
+        "lens": str(vision_in.get("lens") or "")[:16],
+        "observation": str(vision_in.get("observation") or "")[:900],
+        "scene_hint": str(vision_in.get("scene_hint") or "")[:500],
+    }
+    vision = {key: value for key, value in vision.items() if value}
     memories = store.recall(user_id, text, limit=8)
     local_memories = incoming.get("local_memories") if isinstance(incoming.get("local_memories"), list) else []
     known = {(item["kind"], item["memory_key"], item["value"]) for item in memories}
@@ -64,4 +71,5 @@ def build_context(
         ],
         "recent_turns": recent,
         "device": device,
+        "vision": vision,
     }
