@@ -89,6 +89,21 @@ def test_safe_result_has_no_alarm_steps():
     assert result.verification_steps == []
 
 
+def test_multiturn_customer_service_script_is_combined():
+    tracker = ConversationTracker(scene="voice_chat")
+    first = tracker.add("我是平台客服，你的会员会自动扣费")
+    assert first.level == "safe"
+    result = tracker.add("按我说的下载一个软件，再填写银行卡")
+    assert result.level in {"medium", "high"}
+    assert "客服理由衔接" in "、".join(result.hits)
+
+
+def test_deepfake_relative_video_still_requires_callback():
+    result = analyze("视频里是我孙子本人，现在急用钱，马上转账给我")
+    assert result.level in {"medium", "high"}
+    assert "音视频身份不能替代独立回拨核验" in result.hits
+
+
 if __name__ == "__main__":
     r = evaluate()
     print("=" * 48)

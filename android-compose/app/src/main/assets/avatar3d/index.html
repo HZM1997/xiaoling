@@ -34,19 +34,14 @@
 <div id="agent-orbit"></div>
 <div id="agent-core" data-state="idle"></div>
 <div id="tip">Loading avatar</div>
-<script type="importmap">
-{
-  "imports": {
-    "three": "./vendor/three.module.js",
-    "three/addons/": "./vendor/jsm/",
-    "@pixiv/three-vrm": "./vendor/three-vrm.module.min.js"
-  }
-}
+<script>
+window.addEventListener('error', () => window.XiaolingNative?.failed());
+window.addEventListener('unhandledrejection', () => window.XiaolingNative?.failed());
 </script>
 <script type="module">
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import * as THREE from './vendor/three.module.js';
+import { GLTFLoader } from './vendor/jsm/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin, VRMUtils } from './vendor/three-vrm.module.min.js';
 
 const expressions = {
   idle: { neutral: 1 },
@@ -87,6 +82,9 @@ let gazeY = 0;
 let targetGazeX = 0;
 let targetGazeY = 0;
 let gestureStartedAt = 0;
+let nextSpontaneousGesture = 2.4;
+let spontaneousGestureStartedAt = -10;
+let spontaneousGestureKind = 0;
 
 function updateExpressionTarget() {
   targetExpression = {...expressions[avatarState], ...(emotionExpressions[avatarEmotion] || {})};
@@ -250,6 +248,14 @@ function animate() {
   const speechEmphasis = emphasisAge >= 0 && emphasisAge < 0.52
     ? Math.sin((emphasisAge / 0.52) * Math.PI) : 0;
   const speechEnergy = talking ? 0.35 + smoothAudioLevel * 0.65 : 0;
+  if (elapsed >= nextSpontaneousGesture) {
+    spontaneousGestureStartedAt = elapsed;
+    spontaneousGestureKind = Math.floor(Math.random() * 3);
+    nextSpontaneousGesture = elapsed + (talking ? 2.2 : 4.5) + Math.random() * 3.2;
+  }
+  const spontaneousAge = elapsed - spontaneousGestureStartedAt;
+  const spontaneous = spontaneousAge >= 0 && spontaneousAge < 1.4
+    ? Math.sin((spontaneousAge / 1.4) * Math.PI) : 0;
   if (speechEmphasis > 0) {
     setExpression('surprised', Math.min(1, (currentExpression.surprised || 0) + speechEmphasis * 0.08));
   }
@@ -260,6 +266,13 @@ function animate() {
       + (talking ? Math.sin(elapsed * 3.2) * 0.018 * speechEnergy : 0)
       - speechEmphasis * 0.045
       + (avatarState === 'listen' ? -0.045 * gesture : 0);
+  }
+  const neck = vrm.humanoid?.getNormalizedBoneNode('neck');
+  if (neck) {
+    neck.rotation.y = Math.sin(elapsed * 0.31) * 0.016
+      + (avatarState === 'think' ? 0.055 : 0)
+      + (spontaneousGestureKind === 0 ? spontaneous * 0.025 : 0);
+    neck.rotation.z = avatarState === 'think' ? -0.035 : 0;
   }
   const chest = vrm.humanoid?.getNormalizedBoneNode('chest');
   if (chest) {
@@ -274,6 +287,8 @@ function animate() {
   if (hips) hips.rotation.y = Math.sin(elapsed * 0.36) * 0.035;
   const leftArm = vrm.humanoid?.getNormalizedBoneNode('leftUpperArm');
   const rightArm = vrm.humanoid?.getNormalizedBoneNode('rightUpperArm');
+  const leftLowerArm = vrm.humanoid?.getNormalizedBoneNode('leftLowerArm');
+  const rightLowerArm = vrm.humanoid?.getNormalizedBoneNode('rightLowerArm');
   const talkGesture = Math.sin(elapsed * 1.9) * 0.055 * speechEnergy;
   const emphasisGesture = speechEmphasis * 0.11 * emphasisSide;
   const caringGesture = avatarState === 'caring' ? gesture * 0.09 : 0;
@@ -283,7 +298,16 @@ function animate() {
     rightArm.rotation.z = -1.12 - Math.sin(elapsed * 1.9 + 0.8) * 0.055 * speechEnergy
       + caringGesture + alarmGesture + emphasisGesture;
   }
+  if (leftLowerArm) {
+    leftLowerArm.rotation.y = -0.08 - speechEnergy * 0.12
+      - (spontaneousGestureKind === 1 ? spontaneous * 0.13 : 0);
+  }
+  if (rightLowerArm) {
+    rightLowerArm.rotation.y = 0.08 + speechEnergy * 0.12
+      + (spontaneousGestureKind === 2 ? spontaneous * 0.13 : 0);
+  }
   vrm.scene.position.y = Math.sin(elapsed * 0.8) * 0.012;
+  vrm.scene.position.z = avatarState === 'listen' ? 0.025 : 0;
   vrm.scene.rotation.y = Math.PI + Math.sin(elapsed * 0.32) * 0.022;
   vrm.update(dt);
   renderer.render(scene, camera);

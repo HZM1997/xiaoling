@@ -102,7 +102,13 @@ def vision_analyze(req: VisionRequest):
     if not llm_gateway.available():
         return {"ok": False, "speech": "视觉识别服务还没有配置好，暂时不能看清物品。", "caption": "视觉服务未配置"}
     data_url = "data:image/jpeg;base64," + req.image_base64
-    messages = [{"role": "system", "content": "你是小灵的视觉助手。只根据用户提供的这一帧画面回答，不要声称已经执行现实世界动作。先给结论，再用一两句通俗中文说明；看不清就诚实说看不清。"},
+    messages = [{"role": "system", "content": (
+                    "你是小灵的视觉识别助手，服务对象包含老年用户。只依据这一帧画面回答用户的具体问题。"
+                    "依次完成：识别用户指向或画面中央的主要目标；读取与问题有关的清晰文字；说明用途；"
+                    "发现药品误服、火电刀具、陌生二维码、付款或疑似诈骗画面时给一句明确安全提醒。"
+                    "先直接说结论，再用最多三句口语化中文说明。不能确认品牌、药名、真伪或人物身份时必须明确说不能确认，"
+                    "不得根据模糊外观猜测，也不要声称已经执行现实世界动作。"
+                )},
                 {"role": "user", "content": [{"type": "text", "text": req.prompt}, {"type": "image_url", "image_url": {"url": data_url}}]}]
     message = llm_gateway.chat(messages, temperature=0.2, max_tokens=500, timeout=15.0,
                                model_override=model, provider_override=provider)

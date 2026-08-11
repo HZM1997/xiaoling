@@ -8,7 +8,7 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
 object LocalVisionAnalyzer {
-    suspend fun describe(bitmap: Bitmap): String? = suspendCoroutine { continuation ->
+    suspend fun describe(bitmap: Bitmap, prompt: String = ""): String? = suspendCoroutine { continuation ->
         val labeler = ImageLabeling.getClient(
             ImageLabelerOptions.Builder().setConfidenceThreshold(0.45f).build()
         )
@@ -20,9 +20,22 @@ object LocalVisionAnalyzer {
                     .distinct()
                     .take(3)
                 labeler.close()
+                val subject = names.joinToString("、")
+                val safety = when {
+                    names.any { it == "药品" } -> "药名和用法请以包装或医生说明为准，不要只凭外观服用。"
+                    names.any { it == "刀具" || it == "工具" } -> "拿取时请注意锋利部位。"
+                    names.any { it == "食物" || it == "水果" || it == "蔬菜" } -> "食用前请再确认保质期和是否变质。"
+                    else -> ""
+                }
+                val askedForDetails = Regex("用途|怎么用|能不能吃|什么药|安全吗|真假").containsMatchIn(prompt)
                 continuation.resume(
                     if (names.isEmpty()) null
-                    else "我在画面里看到了${names.joinToString("、")}。请把要识别的物品放在画面中央，我能看得更准确。"
+                    else buildString {
+                        append("我在画面里看到了").append(subject).append("。")
+                        if (safety.isNotBlank()) append(safety)
+                        if (askedForDetails && safety.isBlank()) append("仅凭当前画面不能可靠判断具体型号或真假。")
+                        append("如果不对，请把目标放在画面中央并靠近一些。")
+                    }
                 )
             }
             .addOnFailureListener {
@@ -74,6 +87,11 @@ object LocalVisionAnalyzer {
             "bag" in text || "handbag" in text -> "包"
             "toy" in text -> "玩具"
             "tool" in text -> "工具"
+            "package" in text || "box" in text || "carton" in text -> "包装盒"
+            "document" in text || "paper" in text -> "纸张或文件"
+            "barcode" in text || "qr code" in text -> "条码或二维码"
+            "currency" in text || "money" in text || "banknote" in text -> "现金"
+            "appliance" in text -> "家用电器"
             else -> null
         }
     }

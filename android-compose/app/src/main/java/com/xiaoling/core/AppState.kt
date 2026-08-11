@@ -1405,7 +1405,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         val prompt = _state.value.cameraPrompt
         _state.update { it.copy(cameraAnalyzing = true, caption = "正在看，请稍等") }
         viewModelScope.launch {
-            val localResult = async { LocalVisionAnalyzer.describe(bitmap) }
+            val localResult = async { LocalVisionAnalyzer.describe(bitmap, prompt) }
             val result = withTimeoutOrNull(4_500L) { BrainClient.analyzeImage(app, bitmap, prompt, lens) }
             val cloudSpeech = result?.takeIf { it.optBoolean("ok", false) }
                 ?.optString("speech").orEmpty()

@@ -100,11 +100,20 @@ def _script_pattern(text: str) -> tuple[str, float, str] | None:
          "冒充客服退款", 0.52, "客服理由衔接敏感操作"),
         (r"(?:警察|公安|检察院|法院|公检法).{0,20}(?:涉案|洗钱|通缉).{0,24}(?:转账|安全账户|保密)",
          "冒充公检法", 0.62, "权威恐吓后要求资金或保密操作"),
+        (r"(?:视频|语音|声音|AI|换脸).{0,18}(?:儿子|女儿|孙子|孙女|亲友|领导).{0,24}(?:借钱|转账|汇款|急用钱)",
+         "AI深度伪造冒充熟人", 0.58, "音视频身份不能替代独立回拨核验"),
+        (r"(?:关闭手机|关机|飞行模式|不要接电话).{0,18}(?:取现|现金|黄金|转账|汇款)",
+         "隔离受害人后转移资金", 0.62, "要求切断联系后转移资金"),
+        (r"(?:客服|平台|银行).{0,20}(?:退款|取消|扣费|账户异常).{0,24}(?:下载软件|人脸认证|刷脸|开启摄像头|银行卡)",
+         "冒充客服窃取账户", 0.56, "客服理由衔接下载、刷脸或银行卡操作"),
     )
+    strongest = None
     for pattern, category, score, evidence in patterns:
         if re.search(pattern, text, flags=re.I):
-            return category, score, evidence
-    return None
+            candidate = (category, score, evidence)
+            if strongest is None or candidate[1] > strongest[1]:
+                strongest = candidate
+    return strongest
 
 
 def _url_risk(text: str) -> tuple[float, list[str]]:
@@ -278,11 +287,19 @@ class ConversationTracker:
         self.all_amps: set[str] = set()
         self.category = ""
         self.turns = 0
+        self.recent_text: list[str] = []
 
     def add(self, text: str) -> FraudResult:
         conv = _RULES.get("conversation", {})
         decay = conv.get("decay_per_turn", 0.85)
         one = analyze(text, self.caller, self.scene)
+        self.recent_text.append(text)
+        self.recent_text = self.recent_text[-4:]
+        # Re-run the latest short window as one script. This catches staged
+        # scams where identity, pretext and sensitive action arrive separately.
+        combined = analyze("。".join(self.recent_text), self.caller, self.scene)
+        if combined.risk > one.risk:
+            one = combined
         self.turns += 1
         # 旧证据衰减,叠加本句风险的增量(取本句风险与历史衰减的融合)
         self.cum_risk = max(one.risk, self.cum_risk * decay + one.risk * 0.5)
