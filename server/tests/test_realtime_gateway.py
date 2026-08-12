@@ -115,6 +115,31 @@ def test_kimi_receives_ordered_twenty_turn_window(monkeypatch):
     assert captured["kwargs"]["model_override"] == "kimi-k3"
 
 
+def test_kimi_failure_returns_no_repeated_spoken_fallback(monkeypatch):
+    monkeypatch.setattr(realtime_gateway.llm_gateway, "chat", lambda *args, **kwargs: None)
+
+    assert realtime_gateway._ask_kimi("今天怎么样", {}) == ""
+
+
+def test_realtime_instructions_allow_direct_companion_answers(tmp_path, monkeypatch):
+    monkeypatch.setenv("XL_MEMORY_DB", str(tmp_path / "memory.sqlite3"))
+    instructions = realtime_gateway._session_update("elder-direct", {})["session"]["instructions"]
+
+    assert "普通陪伴、生活问答和翻译由你直接自然回答" in instructions
+    assert "所有开放式问答、陪伴对话和解释必须调用 ask_kimi" not in instructions
+
+
+def test_realtime_session_update_keeps_camera_voice_context(tmp_path, monkeypatch):
+    monkeypatch.setenv("XL_MEMORY_DB", str(tmp_path / "memory.sqlite3"))
+    update = realtime_gateway._session_update("elder-camera", {
+        "scene": "camera_voice",
+        "vision": {"observation": "一只杯子", "scene_hint": "桌面"},
+    })
+
+    assert "camera_voice" in update["session"]["instructions"]
+    assert "一只杯子" in update["session"]["instructions"]
+
+
 def test_qwen_input_audio_is_streamed_from_24khz_to_16khz():
     samples = [1000 if index % 2 else -1000 for index in range(2400)]
     encoded = base64.b64encode(struct.pack(f"<{len(samples)}h", *samples)).decode("ascii")

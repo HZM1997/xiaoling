@@ -96,7 +96,7 @@ fun CameraScreen(vm: AppState) {
             icon = R.drawable.ic_close_camera,
             description = "退出相机",
             modifier = Modifier.align(Alignment.BottomStart).padding(start = 18.dp, bottom = 22.dp),
-            onClick = { vm.showScreen(Screen.Home) },
+            onClick = vm::exitCamera,
         )
         if (granted) {
             FlatCameraIconButton(
@@ -122,7 +122,10 @@ fun CameraScreen(vm: AppState) {
 
     LaunchedEffect(previewView, ui.cameraLens) {
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            kotlinx.coroutines.delay(2_200L)
+            // This is only context enrichment; user-requested recognition is
+            // handled above immediately. Sampling less often protects voice
+            // capture and rendering on entry-level phones.
+            kotlinx.coroutines.delay(4_000L)
             previewView?.bitmap?.let(vm::observeCameraFrame)
         }
     }

@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withTimeoutOrNull
@@ -106,6 +107,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         override fun onInputSpeechStarted(latencyMs: Long) = onRealtimeInputStarted(latencyMs)
         override fun onInputTranscript(text: String, final: Boolean) = onRealtimeInputText(text, final)
         override fun onOutputStarted() = onRealtimeOutputStarted()
+        override fun onOutputAudioActivity() = onRealtimeOutputAudioActivity()
         override fun onOutputVisual(open: Float, wide: Float, round: Float, emphasis: Boolean) =
             onRealtimeOutputVisual(open, wide, round, emphasis)
         override fun onOutputTranscript(text: String, final: Boolean) = onRealtimeOutputText(text, final)
@@ -824,6 +826,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
             requestCameraRecognition(spoken)
             return
         }
+        if (_state.value.screen == Screen.Camera && isCameraExitCommand(spoken)) {
+            exitCamera()
+            applyReply(Reply("好的，已经回到小灵。", null, "相机语音返回", 0.0))
+            return
+        }
         val previousUser = _state.value.lastUser
         _state.update { it.copy(busy = true, mascot = MascotState.Thinking, caption = spoken,
             lastUser = spoken, online = NetworkStatus.isOnline(app)) }
@@ -1173,11 +1180,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (_state.value.screen == Screen.Camera && isCameraExitCommand(normalized)) {
             cameraExitPending = !final
             realtime.cancelResponse()
-            tts.stop()
-            RemoteAudioPlayer.stop()
-            speaking = false
-            _state.update { it.copy(screen = Screen.Home, listening = !final, busy = false,
-                speaking = false, caption = "", mascot = MascotState.Listening) }
+            exitCamera(keepListening = !final)
             return
         }
         if (final && _state.value.screen == Screen.Camera && isCameraVisionQuestion(normalized)) {
@@ -1267,6 +1270,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun onRealtimeOutputAudioActivity() {
+        if (realtimeActive && speaking) armRealtimeOutputWatchdog()
+    }
+
     private fun onRealtimeOutputText(text: String, final: Boolean) {
         if (!realtimeActive || text.isBlank()) return
         if (cameraVisionPending) return
@@ -1320,8 +1327,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         if (type == "CLOSE_CAMERA") {
-            showScreen(Screen.Home)
-            _state.update { it.copy(cameraAnalyzing = false, caption = "") }
+            exitCamera()
             return
         }
         val hint = dispatchAction(action)
@@ -1341,8 +1347,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return null
         }
         if (action.optString("type") == "CLOSE_CAMERA") {
-            showScreen(Screen.Home)
-            _state.update { it.copy(cameraAnalyzing = false, caption = "") }
+            exitCamera()
             return null
         }
         val permissions = ActionDispatcher.missingRuntimePermissions(app, action)
@@ -1363,6 +1368,27 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraPrompt = prompt,
             cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
             cameraRequestId = it.cameraRequestId + 1, caption = "") }
+    }
+
+    /** Exit is shared by the visible icon and either realtime or fallback ASR.
+     * The voice session remains alive, so the user can continue speaking once
+     * the main assistant screen is back. */
+    fun exitCamera(keepListening: Boolean = false) {
+        cameraExitPending = false
+        cameraVisionPending = false
+        cameraProcessingRequestId = -1L
+        tts.stop()
+        RemoteAudioPlayer.stop()
+        speaking = false
+        _state.update { it.copy(
+            screen = Screen.Home,
+            cameraAnalyzing = false,
+            busy = false,
+            speaking = false,
+            listening = keepListening,
+            caption = "",
+            mascot = if (keepListening) MascotState.Listening else MascotState.Idle,
+        ) }
     }
 
     fun onActionPermissionsResult(result: Map<String, Boolean>) {
@@ -1473,7 +1499,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (cameraVisionPending) tts.speakBackchannel("嗯，我看看")
         viewModelScope.launch {
             try {
-                val localResult = async { LocalVisionAnalyzer.describe(bitmap, prompt) }
+                val localResult = async(Dispatchers.Default) { LocalVisionAnalyzer.describe(bitmap, prompt) }
                 val result = withTimeoutOrNull(7_500L) {
                     BrainClient.analyzeImage(app, bitmap, prompt, lens, previousObservation)
                 }
@@ -1492,8 +1518,24 @@ class AppState(application: Application) : AndroidViewModel(application) {
                     mascot = MascotState.Caring,
                 ) }
                 realtime.updateContext(cameraRealtimeContext(speech, _state.value.cameraSceneHint))
-                speaking = true
-                curUtt = tts.speak(speech)
+                if (realtimeActive) {
+                    // Keep camera answers inside the same duplex session: the
+                    // mic stays open, the answer is interruptible, and the
+                    // next question can refer to this observation.
+                    val submitted = realtime.sendConversationText(
+                        "相机观察结果：$speech。请根据用户刚才的问题“$prompt”直接回答，" +
+                            "不要重复欢迎语；用户可继续追问画面。"
+                    )
+                    if (submitted) {
+                        _state.update { it.copy(busy = true, mascot = MascotState.Thinking) }
+                    } else {
+                        speaking = true
+                        curUtt = tts.speak(speech)
+                    }
+                } else {
+                    speaking = true
+                    curUtt = tts.speak(speech)
+                }
             } finally {
                 bitmap.recycle()
                 if (_state.value.cameraRequestId == requestId && _state.value.cameraAnalyzing) {
@@ -1510,7 +1552,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         cameraObservationActive = true
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.Default) {
             try {
                 val hint = LocalVisionAnalyzer.describe(bitmap, "持续观察当前画面").orEmpty()
                 if (hint.isNotBlank() && _state.value.screen == Screen.Camera) {

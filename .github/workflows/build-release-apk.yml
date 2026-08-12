@@ -55,9 +55,9 @@ jobs:
           gradle-version: '8.7'
 
       - name: Validate production AI service
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_realtime_validation != true }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.skip_realtime_validation != true) }}
         env:
-          XL_BRAIN_URL: ${{ secrets.BRAIN_URL || 'http://47.93.221.156' }}
+          XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
           XL_REALTIME_CLIENT_TOKEN: ${{ secrets.REALTIME_CLIENT_TOKEN }}
         run: |
           python - "$XL_BRAIN_URL" <<'PY'
@@ -130,7 +130,7 @@ jobs:
           XL_KS_PASS: ${{ secrets.KS_PASS }}
           XL_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           XL_KEY_PASS: ${{ secrets.KEY_PASS }}
-          XL_BRAIN_URL: ${{ secrets.BRAIN_URL || 'http://47.93.221.156' }}
+          XL_BRAIN_URL: ${{ secrets.BRAIN_URL }}
           XL_PORCUPINE_ACCESS_KEY: ${{ secrets.PORCUPINE_ACCESS_KEY }}
           XL_REALTIME_CLIENT_TOKEN: ${{ secrets.REALTIME_CLIENT_TOKEN }}
         run: gradle assembleRelease --no-daemon --stacktrace
@@ -151,32 +151,32 @@ jobs:
 
       - name: Prepare transfer-safe release files
         run: |
-          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.43-release.apk
-          sha256sum xiaoling-v1.0.43-release.apk | tee xiaoling-v1.0.43-release.apk.sha256
-          zip -j xiaoling-v1.0.43-release.zip xiaoling-v1.0.43-release.apk xiaoling-v1.0.43-release.apk.sha256
+          cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.44-release.apk
+          sha256sum xiaoling-v1.0.44-release.apk | tee xiaoling-v1.0.44-release.apk.sha256
+          zip -j xiaoling-v1.0.44-release.zip xiaoling-v1.0.44-release.apk xiaoling-v1.0.44-release.apk.sha256
 
       - name: Publish delivery branch
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
-          cp xiaoling-v1.0.43-release.apk xiaoling-v1.0.43-release.zip xiaoling-v1.0.43-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cp xiaoling-v1.0.44-release.apk xiaoling-v1.0.44-release.zip xiaoling-v1.0.44-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
           cd "$RUNNER_TEMP/xiaoling-delivery"
           git init
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b artifacts/xiaoling-v1.0.43
+          git checkout -b artifacts/xiaoling-v1.0.44
           git add .
-          git commit -m "Publish signed Xiaoling v1.0.43"
+          git commit -m "Publish signed Xiaoling v1.0.44"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force origin artifacts/xiaoling-v1.0.43
+          git push --force origin artifacts/xiaoling-v1.0.44
 
       - name: Upload transfer-safe release ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: xiaoling-v1.0.43-release
+          name: xiaoling-v1.0.44-release
           path: |
-            android-compose/xiaoling-v1.0.43-release.apk
-            android-compose/xiaoling-v1.0.43-release.zip
-            android-compose/xiaoling-v1.0.43-release.apk.sha256
+            android-compose/xiaoling-v1.0.44-release.apk
+            android-compose/xiaoling-v1.0.44-release.zip
+            android-compose/xiaoling-v1.0.44-release.apk.sha256
           if-no-files-found: error

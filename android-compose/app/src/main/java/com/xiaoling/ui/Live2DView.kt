@@ -16,8 +16,11 @@ import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.Canvas
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,7 +30,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaoling.core.MascotState
 
@@ -135,7 +141,6 @@ fun Avatar3DView(
                             request.url.host != "appassets.androidplatform.net"
 
                         override fun onPageFinished(view: WebView, url: String) {
-                            modelReady = true
                             applyState(
                                 view, currentState, currentTalking, currentVoiceLevel,
                                 currentMouthWide, currentMouthRound, currentEmphasisTick, currentEmotion,
@@ -158,11 +163,75 @@ fun Avatar3DView(
             }
         )
         if (!modelReady) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center).size(42.dp),
-                color = ComposeColor(0xFF147D8F),
-                strokeWidth = 3.dp,
+            // Visible native fallback while a vendor WebView initializes
+            // WebGL. It prevents the assistant area from ever becoming blank
+            // if MIUI kills or rejects the isolated WebView renderer.
+            AvatarFallback(
+                state = currentState,
+                talking = currentTalking,
+                voiceLevel = currentVoiceLevel,
+                modifier = Modifier.fillMaxSize(),
             )
+        }
+    }
+}
+
+@Composable
+private fun AvatarFallback(
+    state: String,
+    talking: Boolean,
+    voiceLevel: Float,
+    modifier: Modifier = Modifier,
+) {
+    val transition = rememberInfiniteTransition(label = "avatar-fallback")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2).toFloat(),
+        animationSpec = infiniteRepeatable(tween(2300)),
+        label = "avatar-fallback-phase",
+    )
+    Canvas(modifier) {
+        val center = Offset(size.width / 2f, size.height * 0.49f)
+        val scale = minOf(size.width, size.height) / 360f
+        val bob = kotlin.math.sin(phase.toDouble()).toFloat() * 5f * scale
+        val headCenter = center + Offset(0f, -52f * scale + bob)
+        val bodyTop = center.y + 34f * scale + bob
+        val teal = ComposeColor(0xFF167C87)
+        val lightTeal = ComposeColor(0xFF5AD6C3)
+        val dark = ComposeColor(0xFF202C3A)
+        val skin = ComposeColor(0xFFF0C5B1)
+        val mouthOpen = if (talking) (10f + voiceLevel.coerceIn(0f, 1f) * 14f) * scale else 4f * scale
+
+        drawCircle(color = ComposeColor(0x1422A6A2), radius = 130f * scale, center = center + Offset(0f, bob))
+        drawRoundRect(
+            color = teal,
+            topLeft = Offset(center.x - 82f * scale, bodyTop),
+            size = Size(164f * scale, 154f * scale),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(52f * scale, 52f * scale),
+        )
+        drawCircle(color = dark, radius = 74f * scale, center = headCenter)
+        drawCircle(color = skin, radius = 62f * scale, center = headCenter + Offset(0f, 7f * scale))
+        drawArc(
+            color = dark, startAngle = 184f, sweepAngle = 172f, useCenter = true,
+            topLeft = headCenter + Offset(-68f * scale, -72f * scale),
+            size = Size(136f * scale, 95f * scale),
+        )
+        val eyeShift = if (state == "listen") 3f * scale else 0f
+        listOf(-24f, 24f).forEach { x ->
+            drawCircle(color = ComposeColor.White, radius = 13f * scale, center = headCenter + Offset(x * scale + eyeShift, 5f * scale))
+            drawCircle(color = ComposeColor(0xFF237F8A), radius = 7f * scale, center = headCenter + Offset(x * scale + eyeShift, 5f * scale))
+        }
+        drawRoundRect(
+            color = ComposeColor(0xFFA94459),
+            topLeft = headCenter + Offset(-16f * scale, 31f * scale),
+            size = Size(32f * scale, mouthOpen),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(10f * scale, 10f * scale),
+        )
+        drawCircle(color = lightTeal, radius = (10f + voiceLevel * 5f) * scale, center = Offset(center.x, bodyTop + 56f * scale))
+        drawCircle(color = ComposeColor(0x3326A79B), radius = 14f * scale, center = Offset(center.x, bodyTop + 56f * scale), style = Stroke(2f * scale))
+        if (state == "listen" || talking) {
+            val radius = (100f + kotlin.math.sin(phase.toDouble()).toFloat() * 8f) * scale
+            drawCircle(color = lightTeal.copy(alpha = 0.38f), radius = radius, center = center + Offset(0f, bob), style = Stroke(2f * scale, cap = StrokeCap.Round))
         }
     }
 }

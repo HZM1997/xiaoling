@@ -29,7 +29,7 @@ fun XiaolingApp(vm: AppState) {
             // 系统返回键:设置/登录页先回上一层,而不是退出 App
             BackHandler(enabled = ui.screen == Screen.Settings) { vm.showScreen(Screen.Home) }
             BackHandler(enabled = ui.screen == Screen.Login) { vm.showScreen(Screen.Settings) }
-            BackHandler(enabled = ui.screen == Screen.Camera) { vm.showScreen(Screen.Home) }
+            BackHandler(enabled = ui.screen == Screen.Camera) { vm.exitCamera() }
             AnimatedContent(
                 targetState = ui.screen,
                 transitionSpec = {

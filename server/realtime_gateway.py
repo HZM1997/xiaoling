@@ -197,7 +197,8 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
         + "自动识别用户说的语言。用户要求翻译或口译时直接使用目标语言回答，保留姓名和数字，不添加解释，也不要为了翻译调用后台复杂任务。"
         + "用户说得不完整时先结合最近上下文补全意图；仍有两个以上可能含义时，只追问一个最关键的问题。"
         + "打电话、提醒、播放和反诈研判必须调用对应工具。"
-        + "除简短寒暄外，所有开放式问答、陪伴对话和解释必须调用 ask_kimi，再自然播报 Kimi 的结果。"
+        + "普通陪伴、生活问答和翻译由你直接自然回答；需要长推理、专业解释或多轮复杂分析时优先调用 ask_kimi。"
+        + "若 ask_kimi 暂不可用，基于已有上下文自行回答，不要重复任何固定的服务故障话术。"
         + "耗时研究、复杂比较或多步方案调用 delegate_complex_task；工具返回已受理后，简短告知后台正在处理，然后继续正常聊天。"
         + "按对话内容自然变化语气：事实问题直接、情绪话题温和、喜事轻快、风险场景坚定；"
         + "避免重复固定开场，允许简短的嗯、我在听等反馈，但不要抢话。"
@@ -386,7 +387,9 @@ def _ask_kimi(question: str, context: dict) -> str:
         reasoning_effort=effort,
     )
     if not message:
-        return "Kimi 暂时没有连上，我先用本地能力陪您。您可以稍后再问一次。"
+        # The realtime model can still answer naturally. Returning a fixed
+        # spoken sentence here made every failed delegation sound identical.
+        return ""
     content = message.get("content")
     if isinstance(content, list):
         content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
@@ -705,6 +708,15 @@ async def _handle_session(websocket: WebSocket) -> None:
                 elif kind == "conversation.text":
                     text = str(incoming.get("text") or "").strip()[:2000]
                     if text:
+                        # Camera observations and other local results can
+                        # arrive immediately after a barge-in. Do not race a
+                        # still-cancelling response with a new response.
+                        if state["response_active"]:
+                            await cancel_active_response(upstream)
+                            deadline = asyncio.get_running_loop().time() + 1.2
+                            while state["response_active"] and asyncio.get_running_loop().time() < deadline:
+                                await asyncio.sleep(0.04)
+                        runtime.memory.record_turn(user_id, "user", text)
                         await send_upstream(
                             upstream,
                             {
@@ -775,16 +787,16 @@ async def _handle_session(websocket: WebSocket) -> None:
                         await send_client({"type": "output.started"})
                 elif kind in {"response.output_audio.delta", "response.audio.delta"}:
                     delta = event.get("delta")
-                    if isinstance(delta, str) and delta:
+                    if not state["response_cancel_pending"] and isinstance(delta, str) and delta:
                         await send_client({"type": "output.audio.delta", "audio": delta})
                 elif kind in {"response.output_audio_transcript.delta", "response.audio_transcript.delta", "response.text.delta"}:
                     delta = str(event.get("delta") or "")
-                    if delta:
+                    if not state["response_cancel_pending"] and delta:
                         assistant_text.append(delta)
                         await send_client({"type": "output.transcript.delta", "text": delta})
                 elif kind in {"response.output_audio_transcript.done", "response.audio_transcript.done", "response.text.done"}:
                     transcript = str(event.get("transcript") or event.get("text") or "").strip()
-                    if transcript:
+                    if not state["response_cancel_pending"] and transcript:
                         assistant_text[:] = [transcript]
                         await send_client({"type": "output.transcript.done", "text": transcript})
                 elif kind == "response.function_call_arguments.done":

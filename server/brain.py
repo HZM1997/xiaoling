@@ -35,6 +35,7 @@ def _system_prompt(profile: dict | None, scene: str, runtime_context: dict | Non
     recent_turns = dynamic.get("recent_turns") if isinstance(dynamic.get("recent_turns"), list) else []
     context_note = json.dumps(
         {
+            "scene": dynamic.get("scene", scene),
             "local_time": dynamic.get("local_time", ""),
             "relevant_memories": memories[:6],
             "recent_turns": [
@@ -46,6 +47,7 @@ def _system_prompt(profile: dict | None, scene: str, runtime_context: dict | Non
                 if isinstance(item, dict) and item.get("role") in {"user", "assistant"}
             ],
             "device_summary": device,
+            "vision": dynamic.get("vision", {}),
         },
         ensure_ascii=False,
         separators=(",", ":"),
