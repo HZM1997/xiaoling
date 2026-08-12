@@ -468,6 +468,7 @@ async def _handle_session(websocket: WebSocket) -> None:
         "user_speaking": False,
         "confirmed_user_speaking": False,
         "response_sequence": 0,
+        "pending_text_response": False,
     }
 
     async def send_upstream(upstream, payload: dict) -> None:
@@ -486,6 +487,14 @@ async def _handle_session(websocket: WebSocket) -> None:
             return
         state["response_cancel_pending"] = True
         await send_upstream(upstream, {"type": "response.cancel"})
+
+    async def start_pending_text_response(upstream) -> None:
+        """Begin a camera/client text answer after the previous turn ends."""
+        if (not state["pending_text_response"] or state["response_active"] or
+                state["user_speaking"]):
+            return
+        state["pending_text_response"] = False
+        await send_upstream(upstream, {"type": "response.create"})
 
     async def submit_tool_output(upstream, call_id: str, output: dict) -> None:
         await send_upstream(
@@ -622,6 +631,7 @@ async def _handle_session(websocket: WebSocket) -> None:
             "user_speaking": False,
             "confirmed_user_speaking": False,
             "response_sequence": 0,
+            "pending_text_response": False,
         })
         await send_client({"type": "session.ready", "provider": provider, "model": model})
 
@@ -654,6 +664,7 @@ async def _handle_session(websocket: WebSocket) -> None:
             state["confirmed_user_speaking"] = False
             backchannel.speech_stopped()
             await send_client({"type": "input.speech_stopped"})
+            await start_pending_text_response(upstream)
 
         async def decision_loop() -> None:
             # Five control decisions per second. This loop never waits for the
@@ -708,14 +719,12 @@ async def _handle_session(websocket: WebSocket) -> None:
                 elif kind == "conversation.text":
                     text = str(incoming.get("text") or "").strip()[:2000]
                     if text:
-                        # Camera observations and other local results can
-                        # arrive immediately after a barge-in. Do not race a
-                        # still-cancelling response with a new response.
+                        # Camera observations can arrive while the previous
+                        # answer is still unwinding. Queue the new response so
+                        # an old response.done cannot terminate it midway.
                         if state["response_active"]:
                             await cancel_active_response(upstream)
-                            deadline = asyncio.get_running_loop().time() + 1.2
-                            while state["response_active"] and asyncio.get_running_loop().time() < deadline:
-                                await asyncio.sleep(0.04)
+                            state["pending_text_response"] = True
                         runtime.memory.record_turn(user_id, "user", text)
                         await send_upstream(
                             upstream,
@@ -724,7 +733,8 @@ async def _handle_session(websocket: WebSocket) -> None:
                                 "item": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]},
                             },
                         )
-                        await send_upstream(upstream, {"type": "response.create"})
+                        if not state["response_active"]:
+                            await send_upstream(upstream, {"type": "response.create"})
                 elif kind == "session.context":
                     update = incoming.get("context")
                     if isinstance(update, dict):
@@ -806,13 +816,20 @@ async def _handle_session(websocket: WebSocket) -> None:
                     if item.get("type") in {"function_call", "tool_call"}:
                         await handle_tool(upstream, event)
                 elif kind in {"response.done", "response.cancelled"}:
+                    was_cancelled = state["response_cancel_pending"] or kind == "response.cancelled"
                     state["response_active"] = False
                     state["response_cancel_pending"] = False
                     complete = "".join(assistant_text).strip()
                     assistant_text.clear()
-                    if complete:
+                    # A cancelled partial reply is neither a memory turn nor
+                    # a UI completion. Delivering it after the user has
+                    # started a new request lets stale state overwrite the
+                    # new response, especially in camera conversations.
+                    if complete and not was_cancelled:
                         runtime.memory.record_turn(user_id, "assistant", complete)
-                    await send_client({"type": "output.done", "text": complete})
+                    if not was_cancelled:
+                        await send_client({"type": "output.done", "text": complete})
+                    await start_pending_text_response(upstream)
                 elif kind == "error":
                     error = event.get("error") if isinstance(event.get("error"), dict) else {}
                     message = str(error.get("message") or event.get("message") or "Realtime error")

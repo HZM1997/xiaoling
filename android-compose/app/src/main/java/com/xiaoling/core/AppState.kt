@@ -146,6 +146,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private var realtimeCaptionJob: Job? = null
     @Volatile private var realtimeConnecting = false
     @Volatile private var realtimeActive = false
+    @Volatile private var realtimeLastProgressAt = 0L
     @Volatile private var cameraExitPending = false
     @Volatile private var cameraVisionPending = false
     @Volatile private var cameraProcessingRequestId = -1L
@@ -1180,7 +1181,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (_state.value.screen == Screen.Camera && isCameraExitCommand(normalized)) {
             cameraExitPending = !final
             realtime.cancelResponse()
-            exitCamera(keepListening = !final)
+            exitCamera(keepListening = voiceSessionActive)
             return
         }
         if (final && _state.value.screen == Screen.Camera && isCameraVisionQuestion(normalized)) {
@@ -1245,6 +1246,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         realtimeResponseJob?.cancel()
+        realtimeLastProgressAt = SystemClock.elapsedRealtime()
         speaking = true
         _state.update { it.copy(listening = false, busy = false, speaking = true, voiceLevel = 0f,
             voiceMouthWide = 0f, voiceMouthRound = 0f,
@@ -1271,13 +1273,17 @@ class AppState(application: Application) : AndroidViewModel(application) {
     }
 
     private fun onRealtimeOutputAudioActivity() {
-        if (realtimeActive && speaking) armRealtimeOutputWatchdog()
+        if (realtimeActive && speaking) {
+            realtimeLastProgressAt = SystemClock.elapsedRealtime()
+            armRealtimeOutputWatchdog()
+        }
     }
 
     private fun onRealtimeOutputText(text: String, final: Boolean) {
         if (!realtimeActive || text.isBlank()) return
         if (cameraVisionPending) return
         speaking = true
+        realtimeLastProgressAt = SystemClock.elapsedRealtime()
         _state.update { it.copy(listening = false, busy = false, speaking = true,
             caption = text, mascot = MascotState.Talking) }
         armRealtimeOutputWatchdog()
@@ -1305,8 +1311,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun armRealtimeOutputWatchdog() {
         realtimeOutputJob?.cancel()
         realtimeOutputJob = viewModelScope.launch {
-            delay(12_000L)
-            if (realtimeActive && speaking) {
+            // Do not tear down a healthy long answer on a fixed 12-second
+            // timer. Downstream audio activity and explicit barge-in own the
+            // response lifecycle; the socket stays available for follow-up.
+            delay(30_000L)
+            if (realtimeActive && speaking && realtimeLastProgressAt > 0L &&
+                SystemClock.elapsedRealtime() - realtimeLastProgressAt >= 30_000L) {
                 realtimeActive = false
                 realtimeConnecting = false
                 realtime.stop(notify = false)
@@ -1368,6 +1378,12 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraPrompt = prompt,
             cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
             cameraRequestId = it.cameraRequestId + 1, caption = "") }
+        // Camera is another view of the same assistant session. If a weak
+        // connection dropped while navigating here, retry realtime rather
+        // than silently reducing the user to one-shot system recognition.
+        if (voiceSessionActive && !realtimeActive && !realtimeConnecting) {
+            scheduleRealtimeRetry(immediate = true)
+        }
     }
 
     /** Exit is shared by the visible icon and either realtime or fallback ASR.

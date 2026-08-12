@@ -58,10 +58,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private val app = ctx.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private val generation = AtomicLong(0)
-    // A long queue makes an answer feel delayed and leaves too much stale
-    // audio after an interruption. 1.4 seconds absorbs jitter but remains
-    // quick to flush on a real barge-in.
-    private val playbackQueue = ArrayBlockingQueue<ByteArray>(72)
+    // Keep the output queue deliberately short. A voice conversation is more
+    // natural when a transient network burst drops old audio than when the
+    // listener hears a second of stale speech after they have spoken again.
+    private val playbackQueue = ArrayBlockingQueue<ByteArray>(30)
     private val client = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -272,7 +272,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                         .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
                         .build()
                 )
-                .setBufferSizeInBytes(maxOf(playMin, FRAME_BYTES * 4))
+                .setBufferSizeInBytes(maxOf(playMin, FRAME_BYTES * 2))
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
             if (audioRecord.state != AudioRecord.STATE_INITIALIZED || audioTrack.state != AudioTrack.STATE_INITIALIZED) {
@@ -477,7 +477,12 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 if (delta.isNotBlank()) {
                     inputText.append(delta)
                     val text = inputText.toString()
-                    if (inputSpeechCandidate && !inputInterruptConfirmed && text.count { !it.isWhitespace() } >= 2) {
+                    // Upstream ASR can transcribe speaker echo on entry-level
+                    // phones. A transcript alone is never enough to stop the
+                    // answer; only the local microphone VAD (or a held mic)
+                    // may confirm a barge-in.
+                    if (inputSpeechCandidate && localSpeechActive && !inputInterruptConfirmed &&
+                        text.count { !it.isWhitespace() } >= 2) {
                         inputInterruptConfirmed = true
                         responseInProgress = false
                         clearPlayback()
@@ -491,7 +496,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 val text = event.optString("text").ifBlank { inputText.toString() }
                 inputText = StringBuilder()
                 if (text.isNotBlank()) {
-                    if (inputSpeechCandidate && !inputInterruptConfirmed) {
+                    if (inputSpeechCandidate && localSpeechActive && !inputInterruptConfirmed) {
                         inputInterruptConfirmed = true
                         responseInProgress = false
                         clearPlayback()
@@ -519,7 +524,13 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     val now = SystemClock.elapsedRealtime()
                     if (!outputPlaying) outputPlaybackStartedAtMs = now
                     outputPlaying = true
-                    try { playbackQueue.put(bytes) } catch (_: InterruptedException) {}
+                    // Never block OkHttp's websocket callback behind stale
+                    // playback. Keep the most recent audio when the device
+                    // cannot consume an upstream burst quickly enough.
+                    if (!playbackQueue.offer(bytes)) {
+                        playbackQueue.poll()
+                        playbackQueue.offer(bytes)
+                    }
                     if (now - lastOutputActivityAtMs >= OUTPUT_ACTIVITY_INTERVAL_MS) {
                         lastOutputActivityAtMs = now
                         post { listener.onOutputAudioActivity() }

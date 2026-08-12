@@ -64,6 +64,11 @@ fun CameraScreen(vm: AppState) {
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         PreviewView(ctx).also { view ->
+                            // Texture-backed preview makes bitmap snapshots
+                            // reliable on MIUI; SurfaceView often returns a
+                            // blank bitmap, which made voice-requested visual
+                            // recognition appear to do nothing.
+                            view.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                             previewView = view
                             val future = ProcessCameraProvider.getInstance(ctx)
                             future.addListener({
