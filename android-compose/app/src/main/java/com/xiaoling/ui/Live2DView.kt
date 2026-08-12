@@ -1,6 +1,7 @@
 package com.xiaoling.ui
 
 import android.graphics.Color
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -23,10 +24,8 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -67,7 +66,7 @@ fun Avatar3DView(
     val currentMouthRound by rememberUpdatedState(mouthRound)
     val currentEmphasisTick by rememberUpdatedState(emphasisTick)
     val currentEmotion by rememberUpdatedState(avatarEmotion(state, caption))
-    var modelReady by remember { mutableStateOf(false) }
+    val useWebGlAvatar = remember { supportsWebGlAvatar() }
     fun applyState(
         web: WebView,
         name: String,
@@ -89,9 +88,20 @@ fun Avatar3DView(
         web.evaluateJavascript("window.XLAvatar&&XLAvatar.setEmotion('$emotion')", null)
     }
     Box(modifier) {
-        AndroidView(
+        // Always keep a native animated avatar underneath the WebView. Older
+        // MIUI WebView versions can execute JavaScript but fail to composite a
+        // transparent WebGL canvas; hiding this fallback after JS startup left
+        // the whole assistant area blank on those devices.
+        AvatarFallback(
+            state = currentState,
+            talking = currentTalking,
+            voiceLevel = currentVoiceLevel,
             modifier = Modifier.fillMaxSize(),
-            factory = { ctx ->
+        )
+        if (useWebGlAvatar) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
                 val assetLoader = WebViewAssetLoader.Builder()
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx))
                     .build()
@@ -105,17 +115,18 @@ fun Avatar3DView(
                     settings.blockNetworkLoads = false
                     isClickable = false
                     isFocusable = false
-                    // MIUI WebView can leave a transparent hardware canvas
-                    // blank; software compositing is reliable for this small
-                    // avatar and still keeps the rest of the UI accelerated.
-                    setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                    // Three.js needs a hardware-backed WebGL canvas. The
+                    // native avatar below remains visible if a legacy WebView
+                    // cannot produce that canvas.
+                    setLayerType(View.LAYER_TYPE_HARDWARE, null)
                     alpha = 1f
                     setBackgroundColor(Color.TRANSPARENT)
                     addJavascriptInterface(AvatarLoadBridge(
-                        onReady = { modelReady = true },
+                        onReady = {
+                            Log.d("XiaolingAvatar", "3D avatar renderer ready")
+                        },
                         onFailed = { reason ->
                             Log.e("XiaolingAvatar", "3D model load failed: $reason")
-                            modelReady = false
                             if (retries < 1) {
                                 retries++
                                 postDelayed({ modelWebView.reload() }, 800L)
@@ -150,30 +161,30 @@ fun Avatar3DView(
                     loadUrl("https://appassets.androidplatform.net/assets/avatar3d/index.html")
                 }
                 modelWebView
-            },
-            update = { web ->
-                applyState(
-                    web, stateName, talking, voiceLevel, mouthWide, mouthRound,
-                    emphasisTick, avatarEmotion(state, caption),
-                )
-            },
-            onRelease = { web ->
-                web.removeJavascriptInterface("XiaolingNative")
-                web.destroy()
-            }
-        )
-        if (!modelReady) {
-            // Visible native fallback while a vendor WebView initializes
-            // WebGL. It prevents the assistant area from ever becoming blank
-            // if MIUI kills or rejects the isolated WebView renderer.
-            AvatarFallback(
-                state = currentState,
-                talking = currentTalking,
-                voiceLevel = currentVoiceLevel,
-                modifier = Modifier.fillMaxSize(),
+                },
+                update = { web ->
+                    applyState(
+                        web, stateName, talking, voiceLevel, mouthWide, mouthRound,
+                        emphasisTick, avatarEmotion(state, caption),
+                    )
+                },
+                onRelease = { web ->
+                    web.removeJavascriptInterface("XiaolingNative")
+                    web.destroy()
+                }
             )
         }
     }
+}
+
+private fun supportsWebGlAvatar(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+    val version = WebView.getCurrentWebViewPackage()?.versionName.orEmpty()
+    val major = version.substringBefore('.').toIntOrNull() ?: return false
+    // Redmi A9 is currently on Android System WebView 97. It starts the JS
+    // module but leaves transparent WebGL canvases empty, so keep its native
+    // animated avatar visible instead of replacing it with a blank surface.
+    return major >= 110
 }
 
 @Composable
