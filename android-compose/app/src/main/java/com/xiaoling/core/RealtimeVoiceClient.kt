@@ -330,7 +330,6 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         val frame = ByteArray(FRAME_BYTES)
         var loudFrames = 0
         var quietFrames = 0
-        var interruptedThisUtterance = false
         var noiseFloor = 35.0
         while (running && turn == generation.get()) {
             val count = try { recorder?.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING) ?: -1 } catch (_: Throwable) { -1 }
@@ -371,7 +370,6 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 quietFrames++
                 if (quietFrames >= 10) {
                     loudFrames = 0
-                    interruptedThisUtterance = false
                 }
             }
             val strongSpeech = rms >= speechThreshold * 1.55
@@ -380,7 +378,6 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             val requiredFrames = if (interruptWindow && strongSpeech) 2 else REQUIRED_INTERRUPT_FRAMES
             if (loudFrames >= requiredFrames && !localSpeechActive) {
                 localSpeechActive = true
-                interruptedThisUtterance = true
                 val confirmsBargeIn = outputPlaying || responseInProgress || manualHold
                 if (confirmsBargeIn) {
                     responseInProgress = false
