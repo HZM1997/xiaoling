@@ -98,6 +98,9 @@ fun Avatar3DView(
             emotion = currentEmotion,
             talking = currentTalking,
             voiceLevel = currentVoiceLevel,
+            mouthWide = currentMouthWide,
+            mouthRound = currentMouthRound,
+            emphasisTick = currentEmphasisTick,
             modifier = Modifier.fillMaxSize(),
         )
         if (useWebGlAvatar) {
@@ -195,6 +198,9 @@ private fun AvatarFallback(
     emotion: String,
     talking: Boolean,
     voiceLevel: Float,
+    mouthWide: Float,
+    mouthRound: Float,
+    emphasisTick: Int,
     modifier: Modifier = Modifier,
 ) {
     val transition = rememberInfiniteTransition(label = "avatar-fallback")
@@ -214,12 +220,15 @@ private fun AvatarFallback(
         val lightTeal = ComposeColor(0xFF5AD6C3)
         val dark = ComposeColor(0xFF202C3A)
         val skin = ComposeColor(0xFFF0C5B1)
-        val mouthOpen = if (talking) (10f + voiceLevel.coerceIn(0f, 1f) * 14f) * scale else 4f * scale
+        val mouthOpen = if (talking) {
+            (8f + voiceLevel.coerceIn(0f, 1f) * 15f + mouthRound.coerceIn(0f, 1f) * 4f) * scale
+        } else 4f * scale
+        val emphasisPose = when (emphasisTick % 4) { 1 -> -2.5f; 2 -> 2f; 3 -> -1f; else -> 0f }
         val headTilt = when (emotion) {
             "confused" -> 7f
             "shy", "playful" -> -5f
             "sad", "sleepy" -> 3f
-            else -> 0f
+            else -> emphasisPose
         } * scale
         val faceCenter = headCenter + Offset(headTilt, 0f)
 
@@ -309,7 +318,11 @@ private fun AvatarFallback(
             drawCircle(ComposeColor(0x55ED6E8C), 10f * scale, faceCenter + Offset(42f * scale, 24f * scale))
         }
         if (talking || emotion in setOf("surprised", "warning")) {
-            val width = when (emotion) { "surprised" -> 21f; "warning" -> 27f; else -> 32f } * scale
+            val width = when (emotion) {
+                "surprised" -> 21f
+                "warning" -> 27f
+                else -> 28f + mouthWide.coerceIn(0f, 1f) * 10f - mouthRound.coerceIn(0f, 1f) * 5f
+            } * scale
             drawRoundRect(
                 color = ComposeColor(0xFFA94459),
                 topLeft = faceCenter + Offset(-width / 2f, 31f * scale),

@@ -806,6 +806,11 @@ async def _handle_session(websocket: WebSocket) -> None:
                                 await set_user_speaking(False)
                 elif kind == "response.cancel":
                     await cancel_active_response(upstream)
+                elif kind == "input.speech_candidate":
+                    # The phone has paused playback on a possible voice onset,
+                    # but ASR has not confirmed a new instruction yet. Track
+                    # speech for backchannels without cancelling the answer.
+                    await set_user_speaking(True, confirmed=False)
                 elif kind == "input.speech_started":
                     # Explicit local VAD confirmation.  This is the only
                     # client event that is trusted to interrupt TTS.
