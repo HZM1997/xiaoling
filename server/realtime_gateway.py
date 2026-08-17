@@ -30,12 +30,20 @@ _REALTIME_TOOLS = [
     {
         "type": "function",
         "name": "open_camera",
-        "description": "Open the user's camera only after an explicit spoken request to look at or identify something. Also use for 'look again' or switching front/back while the camera is visible. Automatically inspect one frame and answer by voice.",
+        "description": "Open the user's camera only after an explicit spoken request to look at or identify something. Also use for 'look again' or switching front/back while the camera is visible. If the user asks for a photographic style at the same time, pass the requested filter. Automatically inspect one frame and answer by voice.",
         "parameters": {
             "type": "object",
             "properties": {
                 "lens": {"type": "string", "enum": ["front", "back"]},
                 "prompt": {"type": "string"},
+                "filter": {"type": "string", "enum": ["natural", "warm", "cream", "mist", "cool", "vivid", "sunset", "forest", "teal_orange", "vintage", "film", "hong_kong", "mono", "noir"]},
+                "filter_strength": {"type": "number", "minimum": 0.25, "maximum": 1.0},
+                "exposure": {"type": "number", "minimum": -0.35, "maximum": 0.35},
+                "saturation": {"type": "number", "minimum": 0.35, "maximum": 1.65},
+                "whitening": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                "smoothing": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                "style_description": {"type": "string", "description": "Short Chinese description of the interpreted visual mood."},
+                "capture": {"type": "boolean", "description": "True when the same utterance explicitly asks to take the photo."},
             },
             "required": ["prompt"],
         },
@@ -45,6 +53,24 @@ _REALTIME_TOOLS = [
         "name": "close_camera",
         "description": "Close the camera and return to the main assistant when the user says return, exit, or close camera while the camera is visible.",
         "parameters": {"type": "object", "properties": {}},
+    },
+    {
+        "type": "function",
+        "name": "set_camera_filter",
+        "description": "Interpret the user's natural photographic mood request and immediately change the open camera. Infer a preset and grading values for descriptions such as influencer portrait, clear cool tone, fallen ancient princess, cinematic, whitening, or skin smoothing. The user does not need to name a filter.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "filter": {"type": "string", "enum": ["natural", "warm", "cream", "mist", "cool", "vivid", "sunset", "forest", "teal_orange", "vintage", "film", "hong_kong", "mono", "noir"]},
+                "filter_strength": {"type": "number", "minimum": 0.25, "maximum": 1.0},
+                "exposure": {"type": "number", "minimum": -0.35, "maximum": 0.35},
+                "saturation": {"type": "number", "minimum": 0.35, "maximum": 1.65},
+                "whitening": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                "smoothing": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+                "style_description": {"type": "string"},
+            },
+            "required": ["filter"],
+        },
     },
     {
         "type": "function",
@@ -196,7 +222,7 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
         + "回答先说结论，通常一到三句；用户持续讲述较长内容时，可偶尔用很短的‘嗯’或‘我在听’回应，但不要频繁打断。"
         + "自动识别用户说的语言。用户要求翻译或口译时直接使用目标语言回答，保留姓名和数字，不添加解释，也不要为了翻译调用后台复杂任务。"
         + "用户说得不完整时先结合最近上下文补全意图；仍有两个以上可能含义时，只追问一个最关键的问题。"
-        + "打电话、提醒、播放和反诈研判必须调用对应工具。"
+        + "打电话、提醒、播放和反诈研判必须调用对应工具；相机已经打开时，用户用任何自然语言描述想要的照片感觉、色调、美白或磨皮，立即理解审美意图并调用 set_camera_filter，不要让用户先打开或选择滤镜库，也不要要求用户说滤镜名称。"
         + "普通陪伴、生活问答和翻译由你直接自然回答；需要长推理、专业解释或多轮复杂分析时优先调用 ask_kimi。"
         + "若 ask_kimi 暂不可用，基于已有上下文自行回答，不要重复任何固定的服务故障话术。"
         + "耗时研究、复杂比较或多步方案调用 delegate_complex_task；工具返回已受理后，简短告知后台正在处理，然后继续正常聊天。"
@@ -269,6 +295,16 @@ def _safe_json(value: str) -> dict:
         return {}
 
 
+def _bounded_float(value: Any, minimum: float, maximum: float) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not (minimum <= parsed <= maximum):
+        return None
+    return parsed
+
+
 def _tool_call(event: dict) -> tuple[str, str, dict]:
     item = event.get("item") if isinstance(event.get("item"), dict) else event
     return (
@@ -282,9 +318,69 @@ def _action_for(name: str, args: dict) -> tuple[dict | None, dict]:
     if name == "open_camera":
         lens = "front" if str(args.get("lens") or "back").strip().lower() == "front" else "back"
         prompt = str(args.get("prompt") or "识别相机画面中的物品，并用简洁中文说明").strip()[:1200]
-        return {"type": "OPEN_CAMERA", "lens": lens, "prompt": prompt}, {"ok": True, "lens": lens, "prompt": prompt}
+        requested_filter = str(args.get("filter") or "").strip().lower()
+        action = {"type": "OPEN_CAMERA", "lens": lens, "prompt": prompt}
+        allowed_filters = {"natural", "warm", "cream", "mist", "cool", "vivid", "sunset", "forest", "teal_orange", "vintage", "film", "hong_kong", "mono", "noir"}
+        if requested_filter in allowed_filters:
+            action["filter"] = requested_filter
+        strength = _bounded_float(args.get("filter_strength"), 0.25, 1.0)
+        exposure = _bounded_float(args.get("exposure"), -0.35, 0.35)
+        saturation = _bounded_float(args.get("saturation"), 0.35, 1.65)
+        if strength is not None:
+            action["filter_strength"] = strength
+        if exposure is not None:
+            action["exposure"] = exposure
+        if saturation is not None:
+            action["saturation"] = saturation
+        whitening = _bounded_float(args.get("whitening"), 0.0, 1.0)
+        smoothing = _bounded_float(args.get("smoothing"), 0.0, 1.0)
+        if whitening is not None:
+            action["whitening"] = whitening
+        if smoothing is not None:
+            action["smoothing"] = smoothing
+        description = str(args.get("style_description") or "").strip()[:32]
+        if description:
+            action["style_description"] = description
+        if bool(args.get("capture")):
+            action["capture"] = True
+        return action, {
+            "ok": True, "lens": lens, "prompt": prompt, "filter": action.get("filter", ""),
+            "filter_strength": action.get("filter_strength"), "exposure": action.get("exposure"),
+            "saturation": action.get("saturation"), "whitening": action.get("whitening"),
+            "smoothing": action.get("smoothing"), "style_description": action.get("style_description", ""),
+            "capture": bool(action.get("capture")),
+        }
     if name == "close_camera":
         return {"type": "CLOSE_CAMERA"}, {"ok": True}
+    if name == "set_camera_filter":
+        value = str(args.get("filter") or "natural").strip().lower()
+        allowed_filters = {"natural", "warm", "cream", "mist", "cool", "vivid", "sunset", "forest", "teal_orange", "vintage", "film", "hong_kong", "mono", "noir"}
+        filter_name = value if value in allowed_filters else "natural"
+        action = {"type": "SET_CAMERA_FILTER", "filter": filter_name}
+        strength = _bounded_float(args.get("filter_strength"), 0.25, 1.0)
+        exposure = _bounded_float(args.get("exposure"), -0.35, 0.35)
+        saturation = _bounded_float(args.get("saturation"), 0.35, 1.65)
+        if strength is not None:
+            action["filter_strength"] = strength
+        if exposure is not None:
+            action["exposure"] = exposure
+        if saturation is not None:
+            action["saturation"] = saturation
+        whitening = _bounded_float(args.get("whitening"), 0.0, 1.0)
+        smoothing = _bounded_float(args.get("smoothing"), 0.0, 1.0)
+        if whitening is not None:
+            action["whitening"] = whitening
+        if smoothing is not None:
+            action["smoothing"] = smoothing
+        description = str(args.get("style_description") or "").strip()[:32]
+        if description:
+            action["style_description"] = description
+        return action, {
+            "ok": True, "filter": filter_name,
+            "filter_strength": action.get("filter_strength"), "exposure": action.get("exposure"),
+            "saturation": action.get("saturation"), "whitening": action.get("whitening"),
+            "smoothing": action.get("smoothing"), "style_description": action.get("style_description", ""),
+        }
     if name == "call_contact":
         target = str(args.get("target") or "").strip()[:80]
         return {"type": "CALL", "target": target}, {"ok": bool(target), "target": target}

@@ -32,10 +32,17 @@ def build_context(
     vision_in = incoming.get("vision") if isinstance(incoming.get("vision"), dict) else {}
     vision = {
         "lens": str(vision_in.get("lens") or "")[:16],
+        "filter": str(vision_in.get("filter") or "")[:32],
+        "style_description": str(vision_in.get("style_description") or "")[:64],
         "observation": str(vision_in.get("observation") or "")[:900],
         "scene_hint": str(vision_in.get("scene_hint") or "")[:500],
     }
     vision = {key: value for key, value in vision.items() if value}
+    for key in ("filter_strength", "exposure", "saturation", "whitening", "smoothing"):
+        try:
+            vision[key] = round(float(vision_in[key]), 3)
+        except (KeyError, TypeError, ValueError):
+            pass
     memories = store.recall(user_id, text, limit=8)
     local_memories = incoming.get("local_memories") if isinstance(incoming.get("local_memories"), list) else []
     known = {(item["kind"], item["memory_key"], item["value"]) for item in memories}

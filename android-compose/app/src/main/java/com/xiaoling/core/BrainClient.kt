@@ -145,6 +145,42 @@ object BrainClient {
             }
         }
 
+    /** Analyze only photographic mood and grading. The image is compressed in
+     * memory, sent once, and never written to the app's local storage. */
+    suspend fun analyzeImageStyle(ctx: Context, bitmap: Bitmap): JSONObject? =
+        withContext(Dispatchers.IO) {
+            val base = Settings.brainUrl(ctx).trim().trimEnd('/')
+            if (base.isBlank()) return@withContext null
+            val compressed = ByteArrayOutputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 78, out)
+                out.toByteArray()
+            }
+            if (compressed.isEmpty() || compressed.size > 2_000_000) return@withContext null
+            val body = JSONObject()
+                .put("image_base64", android.util.Base64.encodeToString(compressed, android.util.Base64.NO_WRAP))
+                .put("prompt", "分析这张参考图片的摄影色调、氛围、人像美化程度，并返回适合实时相机的参数。")
+                .toString()
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL("$base/vision/style").openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    doOutput = true
+                    connectTimeout = 1800
+                    readTimeout = 15000
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                    setRequestProperty("Accept", "application/json")
+                    ClientSecurity.apply(this)
+                }
+                connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                if (connection.responseCode !in 200..299) return@withContext null
+                JSONObject(connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() })
+            } catch (_: Exception) {
+                null
+            } finally {
+                connection?.disconnect()
+            }
+        }
+
     /** Privacy-minimal product quality signal. No transcript, contact or identity data is sent. */
     suspend fun qualityEvent(
         ctx: Context,

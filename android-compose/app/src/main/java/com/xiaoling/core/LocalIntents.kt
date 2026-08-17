@@ -82,14 +82,45 @@ object LocalIntents {
     }
 
     private fun parseSingle(text: String): Reply? {
+        // A natural style request can open the camera and apply the inferred
+        // look in one step. There is no separate "open filter library" turn.
+        val spokenStyle = CameraFilter.parseVoice(text)
+        if (spokenStyle != null && Regex("相机|拍照|照片|自拍|滤镜|调色|风格|画面|给我拍").containsMatchIn(text)) {
+            val lens = if (text.contains("前置")) "front" else "back"
+            val action = JSONObject().put("type", "OPEN_CAMERA").put("lens", lens).put("prompt", text)
+            spokenStyle?.filter?.let { action.put("filter", it.id) }
+            spokenStyle?.strength?.let { action.put("filter_strength", it) }
+            spokenStyle?.exposure?.let { action.put("exposure", it) }
+            spokenStyle?.saturation?.let { action.put("saturation", it) }
+            spokenStyle?.whitening?.let { action.put("whitening", it) }
+            spokenStyle?.smoothing?.let { action.put("smoothing", it) }
+            spokenStyle?.description?.let { action.put("style_description", it) }
+            if (Regex("拍(照|一张|张)|给我拍|帮我拍|按快门").containsMatchIn(text)) action.put("capture", true)
+            return Reply(
+                "好的，我直接按您描述的感觉调整画面。",
+                action,
+                "相机滤镜",
+                0.0,
+            )
+        }
         if (Regex("(退出|返回|关闭).*(相机|摄像头)").containsMatchIn(text)) {
             return Reply("好的，回到主界面。", JSONObject().put("type", "CLOSE_CAMERA"), "关闭相机", 0.0)
         }
         if (Regex("(打开|开启|启动)(前置|后置)?(摄像头|相机)|(用|拿)(前置|后置)?(摄像头|相机).*(看|识别)|(看下|看看|识别).*(手上|手里|眼前).*(东西|物品|这个)").containsMatchIn(text)) {
             val lens = if (text.contains("前置")) "front" else "back"
+            val action = JSONObject().put("type", "OPEN_CAMERA").put("lens", lens).put("prompt", text)
+            CameraFilter.parseVoice(text)?.let { style ->
+                style.filter?.let { action.put("filter", it.id) }
+                style.strength?.let { action.put("filter_strength", it) }
+                style.exposure?.let { action.put("exposure", it) }
+                style.saturation?.let { action.put("saturation", it) }
+                style.whitening?.let { action.put("whitening", it) }
+                style.smoothing?.let { action.put("smoothing", it) }
+                style.description?.let { action.put("style_description", it) }
+            }
             return Reply(
                 "好的，我打开相机帮您看看。",
-                JSONObject().put("type", "OPEN_CAMERA").put("lens", lens).put("prompt", text),
+                action,
                 "视觉识别",
                 0.0
             )

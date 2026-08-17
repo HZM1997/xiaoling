@@ -67,11 +67,20 @@ data class UiState(
     val medsOk: Boolean = true,
     val familySynced: Boolean = false,
     val cameraLens: String = "back",
+    val cameraFilter: String = CameraFilter.Natural.id,
+    val cameraFilterStrength: Float = 1f,
+    val cameraExposure: Float = 0f,
+    val cameraSaturation: Float = 1f,
+    val cameraWhitening: Float = 0f,
+    val cameraSmoothing: Float = 0f,
+    val cameraStyleDescription: String = "原色",
     val cameraPrompt: String = "识别相机画面中的物品，并用简洁中文告诉我它是什么、用途和需要注意的安全事项。",
     val cameraObservation: String = "",
     val cameraSceneHint: String = "",
     val cameraAnalyzing: Boolean = false,
-    val cameraRequestId: Long = 0L
+    val cameraRequestId: Long = 0L,
+    val cameraReferenceRequestId: Long = 0L,
+    val cameraCaptureRequestId: Long = 0L,
 )
 
 /** 编排:常听式语音识别 → 大脑(云端/本地兜底) → TTS → 执行动作 → 形象状态 */
@@ -149,6 +158,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var realtimeLastProgressAt = 0L
     @Volatile private var cameraExitPending = false
     @Volatile private var cameraVisionPending = false
+    @Volatile private var cameraCaptureAfterReference = false
     @Volatile private var cameraProcessingRequestId = -1L
     @Volatile private var cameraObservationActive = false
     private var pendingReminder = ""
@@ -450,6 +460,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
      * 并记录 interrupted:松手后若没听到新指令,就恢复原来的播报。
      */
     fun pressToTalk() {
+        TactileFeedback.emit(app, TactileFeedback.Signal.VoiceListening)
         if (realtimeActive) {
             holding = true
             pressStartedAt = SystemClock.elapsedRealtime()
@@ -599,6 +610,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (realtimeActive) {
             holding = false
             val quick = SystemClock.elapsedRealtime() - pressStartedAt < QUICK_TAP_MS
+            TactileFeedback.emit(app, if (quick) TactileFeedback.Signal.Cancelled else TactileFeedback.Signal.Released)
             realtime.endManualInterruption()
             _state.update { it.copy(micPressed = false, listening = false,
                 micFeedback = if (quick) "已取消" else "", caption = if (quick) "" else it.caption,
@@ -613,6 +625,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         if (memoMode) {
+            TactileFeedback.emit(app, TactileFeedback.Signal.Released)
             holding = false; memoMode = false
             val f = VoiceMemo.stopRecord()
             speaking = true
@@ -638,9 +651,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
         val session = listenSession
         val heldFor = SystemClock.elapsedRealtime() - pressStartedAt
         if (heldFor < QUICK_TAP_MS) {
+            TactileFeedback.emit(app, TactileFeedback.Signal.Cancelled)
             cancelQuickTap()
             return
         }
+        TactileFeedback.emit(app, TactileFeedback.Signal.Released)
         // 某些识别服务会在手指松开前就返回终态;此时结果已经进入处理链,无需再次 stop。
         if (!recognitionActive) return
 
@@ -817,11 +832,25 @@ class AppState(application: Application) : AndroidViewModel(application) {
     // ---------- 处理:本地快通道优先,模型请求限时,连续失败快速熔断 ----------
     private fun process(text: String) {
         val spoken = LocalIntents.normalizeSpeech(text)
+        TactileFeedback.emit(app, TactileFeedback.Signal.VoiceRecognized)
         ConversationMemory.recordUser(app, spoken)
         if (AppForeground.companionMode && isCompanionReturnCommand(spoken)) {
             AppForeground.returnToApp()
             applyReply(Reply("好的,已经回到小灵。", null, "画中画语音返回", 0.0))
             return
+        }
+        if (_state.value.screen == Screen.Camera) {
+            val style = CameraFilter.parseVoice(spoken)
+            if (style != null) setCameraStyle(style, announce = !isCameraCaptureCommand(spoken))
+            if (isReferenceStyleCommand(spoken)) {
+                requestReferenceImage(captureAfter = isCameraCaptureCommand(spoken))
+                return
+            }
+            if (isCameraCaptureCommand(spoken)) {
+                requestCameraCapture()
+                return
+            }
+            if (style != null) return
         }
         if (_state.value.screen == Screen.Camera && isCameraVisionQuestion(spoken)) {
             requestCameraRecognition(spoken)
@@ -830,6 +859,16 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (_state.value.screen == Screen.Camera && isCameraExitCommand(spoken)) {
             exitCamera()
             applyReply(Reply("好的，已经回到小灵。", null, "相机语音返回", 0.0))
+            return
+        }
+        if (_state.value.screen != Screen.Camera && isReferenceStyleCommand(spoken)) {
+            openCamera(JSONObject().put("type", "OPEN_CAMERA").put("lens", "back").put("prompt", spoken))
+            requestReferenceImage(captureAfter = isCameraCaptureCommand(spoken))
+            return
+        }
+        if (_state.value.screen != Screen.Camera && isCameraCaptureCommand(spoken)) {
+            openCamera(JSONObject().put("type", "OPEN_CAMERA").put("lens", "back")
+                .put("prompt", spoken).put("capture", true))
             return
         }
         val previousUser = _state.value.lastUser
@@ -1035,6 +1074,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         curUtt = tts.speak(toSay, if (type == "SPEAK") reply.action?.optString("lang").orEmpty() else "mandarin")
         if (type == "FRAUD_WARN" || type == "SOS") {
+            if (type == "SOS") TactileFeedback.emit(app, TactileFeedback.Signal.Emergency)
             scheduleAlarmReset()
             if (isPremium()) {   // 跨设备家人推送:高级会员专享
                 val pushType = if (type == "SOS") "sos" else "fraud_sms"
@@ -1162,6 +1202,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         tts.stop()
         RemoteAudioPlayer.stop()
         speaking = false
+        TactileFeedback.emit(app, TactileFeedback.Signal.VoiceRecognized)
         _state.update { it.copy(listening = true, speaking = false, voiceLevel = 0f,
             voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
@@ -1183,6 +1224,58 @@ class AppState(application: Application) : AndroidViewModel(application) {
             realtime.cancelResponse()
             exitCamera(keepListening = voiceSessionActive)
             return
+        }
+        if (final && _state.value.screen != Screen.Camera) {
+            // Keep camera/filter navigation local even in a realtime session.
+            // This avoids asking the model to describe an action that the phone
+            // can execute immediately, especially on a weak connection.
+            val style = CameraFilter.parseVoice(normalized)
+            if (isReferenceStyleCommand(normalized)) {
+                realtime.cancelResponse()
+                openCamera(JSONObject().put("type", "OPEN_CAMERA").put("lens", "back").put("prompt", normalized))
+                requestReferenceImage(captureAfter = isCameraCaptureCommand(normalized))
+                return
+            }
+            if (isCameraCaptureCommand(normalized) && style == null) {
+                realtime.cancelResponse()
+                openCamera(JSONObject().put("type", "OPEN_CAMERA").put("lens", "back")
+                    .put("prompt", normalized).put("capture", true))
+                return
+            }
+            if (style != null && Regex("相机|拍照|照片|自拍|镜头|给我拍").containsMatchIn(normalized)) {
+                realtime.cancelResponse()
+                val action = JSONObject().put("type", "OPEN_CAMERA")
+                    .put("lens", if (normalized.contains("前置")) "front" else "back")
+                    .put("prompt", normalized)
+                style?.filter?.let { action.put("filter", it.id) }
+                style?.strength?.let { action.put("filter_strength", it) }
+                style?.exposure?.let { action.put("exposure", it) }
+                style?.saturation?.let { action.put("saturation", it) }
+                style?.whitening?.let { action.put("whitening", it) }
+                style?.smoothing?.let { action.put("smoothing", it) }
+                style?.description?.let { action.put("style_description", it) }
+                if (isCameraCaptureCommand(normalized)) action.put("capture", true)
+                openCamera(action)
+                return
+            }
+        }
+        if (final && _state.value.screen == Screen.Camera) {
+            val style = CameraFilter.parseVoice(normalized)
+            style?.let {
+                // Update the preview immediately; the realtime model can still
+                // provide its natural spoken acknowledgement for the same turn.
+                setCameraStyle(it, announce = false)
+            }
+            if (isReferenceStyleCommand(normalized)) {
+                realtime.cancelResponse()
+                requestReferenceImage(captureAfter = isCameraCaptureCommand(normalized))
+                return
+            }
+            if (isCameraCaptureCommand(normalized)) {
+                realtime.cancelResponse()
+                requestCameraCapture()
+                return
+            }
         }
         if (final && _state.value.screen == Screen.Camera && isCameraVisionQuestion(normalized)) {
             realtime.cancelResponse()
@@ -1237,6 +1330,15 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 "识别|认(一下|得|出来)|上面(写|有)|写的什么|读一下|念一下|" +
                 "怎么用|做什么用|有什么用|能不能吃|什么药|安全吗|危险吗|真假|" +
                 "什么颜色|有几个|多少个|前面|旁边|左边|右边|刚才|现在|变了什么"
+        ).containsMatchIn(text)
+
+    private fun isCameraCaptureCommand(text: String): Boolean =
+        Regex("拍(照|一张|张|下来)|照一张|给我拍|帮我拍|按快门|保存(这张|照片|画面)").containsMatchIn(text)
+
+    private fun isReferenceStyleCommand(text: String): Boolean =
+        Regex(
+            "(选择|上传|打开|从相册).*(参考图|图片|照片)|" +
+                "(参考|照着|按照|模仿).*(这张|那张|提供的|参考).*(图片|照片|图).*(感觉|色调|滤镜|风格)?"
         ).containsMatchIn(text)
 
     private fun onRealtimeOutputStarted() {
@@ -1336,6 +1438,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
             openCamera(action)
             return
         }
+        if (type == "SET_CAMERA_FILTER") {
+            setCameraStyle(cameraStyleFromAction(action), announce = false)
+            return
+        }
         if (type == "CLOSE_CAMERA") {
             exitCamera()
             return
@@ -1356,6 +1462,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
             openCamera(action)
             return null
         }
+        if (action.optString("type") == "SET_CAMERA_FILTER") {
+            setCameraStyle(cameraStyleFromAction(action), announce = false)
+            return null
+        }
         if (action.optString("type") == "CLOSE_CAMERA") {
             exitCamera()
             return null
@@ -1374,15 +1484,43 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun openCamera(action: JSONObject) {
         val lens = if (action.optString("lens") == "front") "front" else "back"
         val prompt = action.optString("prompt").ifBlank { _state.value.cameraPrompt }
+        val actionStyle = cameraStyleFromAction(action)
+        val voiceStyle = CameraFilter.parseVoice(prompt)
+        val requestedFilter = actionStyle.filter ?: voiceStyle?.filter ?: CameraFilter.fromId(_state.value.cameraFilter)
+        val newFilterRequested = actionStyle.filter != null || voiceStyle?.filter != null
+        val requestedStrength = actionStyle.strength ?: voiceStyle?.strength ?:
+            if (newFilterRequested) 1f else _state.value.cameraFilterStrength
+        val requestedExposure = actionStyle.exposure ?: voiceStyle?.exposure ?:
+            if (newFilterRequested) 0f else _state.value.cameraExposure
+        val requestedSaturation = actionStyle.saturation ?: voiceStyle?.saturation ?:
+            if (newFilterRequested) 1f else _state.value.cameraSaturation
+        val requestedWhitening = actionStyle.whitening ?: voiceStyle?.whitening ?:
+            if (newFilterRequested) 0f else _state.value.cameraWhitening
+        val requestedSmoothing = actionStyle.smoothing ?: voiceStyle?.smoothing ?:
+            if (newFilterRequested) 0f else _state.value.cameraSmoothing
+        val styleDescription = actionStyle.description ?: voiceStyle?.description ?: requestedFilter.label
         cameraVisionPending = true
-        _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraPrompt = prompt,
+        _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraFilter = requestedFilter.id,
+            cameraFilterStrength = requestedStrength.coerceIn(0.25f, 1f),
+            cameraExposure = requestedExposure.coerceIn(-0.35f, 0.35f),
+            cameraSaturation = requestedSaturation.coerceIn(0.35f, 1.65f),
+            cameraWhitening = requestedWhitening.coerceIn(0f, 1f),
+            cameraSmoothing = requestedSmoothing.coerceIn(0f, 1f),
+            cameraStyleDescription = styleDescription, cameraPrompt = prompt,
             cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
             cameraRequestId = it.cameraRequestId + 1, caption = "") }
+        TactileFeedback.emit(app, TactileFeedback.Signal.ActionConfirmed)
         // Camera is another view of the same assistant session. If a weak
         // connection dropped while navigating here, retry realtime rather
         // than silently reducing the user to one-shot system recognition.
         if (voiceSessionActive && !realtimeActive && !realtimeConnecting) {
             scheduleRealtimeRetry(immediate = true)
+        }
+        if (action.optBoolean("capture")) {
+            viewModelScope.launch {
+                delay(650L)
+                if (_state.value.screen == Screen.Camera) requestCameraCapture()
+            }
         }
     }
 
@@ -1392,6 +1530,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     fun exitCamera(keepListening: Boolean = false) {
         cameraExitPending = false
         cameraVisionPending = false
+        cameraCaptureAfterReference = false
         cameraProcessingRequestId = -1L
         tts.stop()
         RemoteAudioPlayer.stop()
@@ -1484,6 +1623,169 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(cameraLens = if (lens == "front") "front" else "back",
             cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
             cameraRequestId = it.cameraRequestId + 1) }
+    }
+
+    private fun requestReferenceImage(captureAfter: Boolean = false) {
+        cameraCaptureAfterReference = captureAfter
+        _state.update { it.copy(
+            cameraReferenceRequestId = it.cameraReferenceRequestId + 1,
+            caption = "请选择一张参考图片",
+            busy = false,
+        ) }
+    }
+
+    fun applyReferenceStyle(bitmap: android.graphics.Bitmap) {
+        if (_state.value.screen != Screen.Camera) {
+            bitmap.recycle()
+            return
+        }
+        TactileFeedback.emit(app, TactileFeedback.Signal.ReferenceAnalyzing)
+        _state.update { it.copy(cameraAnalyzing = true, busy = true, caption = "正在分析参考图片的色调") }
+        viewModelScope.launch {
+            val localStyle = CameraFilter.analyzeReferenceLocally(bitmap)
+            val result = try { BrainClient.analyzeImageStyle(app, bitmap) } finally { bitmap.recycle() }
+            if (_state.value.screen != Screen.Camera) return@launch
+            if (result?.optBoolean("ok") == true) {
+                setCameraStyle(cameraStyleFromAction(result), announce = false, emitHaptic = false)
+                TactileFeedback.emit(app, TactileFeedback.Signal.ReferenceApplied)
+                val speech = result.optString("speech").ifBlank { "好的，已经参考这张图片调整画面。" }
+                speaking = true
+                _state.update { it.copy(cameraAnalyzing = false, busy = false, speaking = true,
+                    caption = speech, mascot = MascotState.Caring) }
+                curUtt = tts.speak(speech)
+                if (cameraCaptureAfterReference) {
+                    cameraCaptureAfterReference = false
+                    viewModelScope.launch {
+                        delay(500L)
+                        if (_state.value.screen == Screen.Camera) requestCameraCapture()
+                    }
+                }
+            } else if (localStyle != null) {
+                setCameraStyle(localStyle, announce = false, emitHaptic = false)
+                TactileFeedback.emit(app, TactileFeedback.Signal.ReferenceApplied)
+                val speech = "网络不稳定，我先按参考图的冷暖和明暗帮您调好了。"
+                speaking = true
+                _state.update { it.copy(cameraAnalyzing = false, busy = false, speaking = true,
+                    caption = speech, mascot = MascotState.Caring) }
+                curUtt = tts.speak(speech)
+                if (cameraCaptureAfterReference) {
+                    cameraCaptureAfterReference = false
+                    viewModelScope.launch {
+                        delay(500L)
+                        if (_state.value.screen == Screen.Camera) requestCameraCapture()
+                    }
+                }
+            } else {
+                cameraCaptureAfterReference = false
+                val speech = "这张参考图暂时没有分析成功，请换一张清晰图片再试。"
+                speaking = true
+                _state.update { it.copy(cameraAnalyzing = false, busy = false, speaking = true,
+                    caption = speech, mascot = MascotState.Caring) }
+                curUtt = tts.speak(speech)
+            }
+        }
+    }
+
+    fun onReferenceImageLoadFailed() {
+        cameraCaptureAfterReference = false
+        val speech = "这张参考图片没有读取成功，请重新选择。"
+        speaking = true
+        _state.update { it.copy(cameraAnalyzing = false, busy = false, speaking = true,
+            caption = speech, mascot = MascotState.Caring) }
+        curUtt = tts.speak(speech)
+    }
+
+    private fun requestCameraCapture() {
+        TactileFeedback.emit(app, TactileFeedback.Signal.PhotoCountdown)
+        _state.update { it.copy(
+            cameraCaptureRequestId = it.cameraCaptureRequestId + 1,
+            caption = "正在拍照",
+            busy = true,
+        ) }
+    }
+
+    fun onCameraPhotoSaved(success: Boolean) {
+        TactileFeedback.emit(app, if (success) TactileFeedback.Signal.PhotoCaptured else TactileFeedback.Signal.Warning)
+        val speech = if (success) "拍好了，照片已经保存。" else "这次没有保存成功，请再拍一次。"
+        speaking = true
+        _state.update { it.copy(busy = false, speaking = true, caption = speech,
+            mascot = if (success) MascotState.Caring else MascotState.Idle) }
+        curUtt = tts.speak(speech)
+    }
+
+    /** Manual picker always applies a full, neutral version of the chosen style. */
+    fun setCameraFilter(filter: CameraFilter) {
+        setCameraStyle(CameraStyleIntent(filter = filter, strength = 1f, exposure = 0f, saturation = 1f,
+            whitening = 0f, smoothing = 0f, description = filter.label), announce = false)
+    }
+
+    /** Change only presentation of the live preview; visual recognition keeps the same feed. */
+    private fun setCameraStyle(style: CameraStyleIntent, announce: Boolean, emitHaptic: Boolean = true) {
+        if (_state.value.screen != Screen.Camera) return
+        val current = _state.value
+        val filter = style.filter ?: CameraFilter.fromId(current.cameraFilter)
+        val strength = (style.strength ?: if (style.filter != null) 1f else current.cameraFilterStrength)
+            .coerceIn(0.25f, 1f)
+        val exposure = (style.exposure ?: if (style.filter != null) 0f else current.cameraExposure)
+            .coerceIn(-0.35f, 0.35f)
+        val saturation = (style.saturation ?: if (style.filter != null) 1f else current.cameraSaturation)
+            .coerceIn(0.35f, 1.65f)
+        val whitening = (style.whitening ?: current.cameraWhitening).coerceIn(0f, 1f)
+        val smoothing = (style.smoothing ?: current.cameraSmoothing).coerceIn(0f, 1f)
+        val description = style.description ?: if (style.filter != null) filter.label else current.cameraStyleDescription
+        val changed = current.cameraFilter != filter.id ||
+            kotlin.math.abs(current.cameraFilterStrength - strength) > 0.01f ||
+            kotlin.math.abs(current.cameraExposure - exposure) > 0.01f ||
+            kotlin.math.abs(current.cameraSaturation - saturation) > 0.01f ||
+            kotlin.math.abs(current.cameraWhitening - whitening) > 0.01f ||
+            kotlin.math.abs(current.cameraSmoothing - smoothing) > 0.01f
+        _state.update {
+            it.copy(cameraFilter = filter.id, cameraFilterStrength = strength,
+                cameraExposure = exposure, cameraSaturation = saturation,
+                cameraWhitening = whitening, cameraSmoothing = smoothing,
+                cameraStyleDescription = description)
+        }
+        if (changed && emitHaptic) {
+            val beautyOnly = style.filter == null && (style.whitening != null || style.smoothing != null)
+            TactileFeedback.emit(app, if (beautyOnly) TactileFeedback.Signal.BeautyAdjusted else TactileFeedback.Signal.StyleApplied)
+        }
+        if (!announce || realtimeActive) return
+        val tone = when {
+            style.exposure != null && style.filter == null && style.exposure > 0f -> "已经调亮一点。"
+            style.exposure != null && style.filter == null -> "已经调暗一点。"
+            style.saturation != null && style.filter == null && style.saturation > 1f -> "好的，颜色已经更鲜明一点。"
+            style.saturation != null && style.filter == null -> "好的，颜色已经更柔和一点。"
+            style.whitening != null && style.filter == null -> if (whitening <= 0.01f) "好的，已经关闭美白。" else "好的，已经调整美白。"
+            style.smoothing != null && style.filter == null -> if (smoothing <= 0.01f) "好的，已经关闭磨皮。" else "好的，已经调整磨皮。"
+            style.strength != null && style.filter == null && style.strength < 0.7f -> "好的，已经把滤镜调淡一点。"
+            style.strength != null && style.filter == null -> "好的，已经把滤镜调明显一点。"
+            style.description != null -> "好的，已经调成${style.description}的感觉。"
+            filter == CameraFilter.Natural -> "好的，已经恢复原色。"
+            strength < 0.7f -> "好的，已经换成淡一点的${filter.label}滤镜。"
+            exposure > 0.05f -> "好的，已经换成更亮的${filter.label}滤镜。"
+            exposure < -0.05f -> "好的，已经换成暗一点的${filter.label}滤镜。"
+            else -> "好的，已经按您的描述调整画面。"
+        }
+        speaking = true
+        _state.update { it.copy(listening = false, busy = false, speaking = true,
+            caption = tone, mascot = MascotState.Caring) }
+        curUtt = tts.speak(tone)
+    }
+
+    private fun cameraStyleFromAction(action: JSONObject): CameraStyleIntent {
+        val filter = action.optString("filter").takeIf(String::isNotBlank)?.let(CameraFilter::fromId)
+        val strength = action.takeIf { it.has("filter_strength") }
+            ?.optDouble("filter_strength")?.toFloat()?.takeIf { it.isFinite() }
+        val exposure = action.takeIf { it.has("exposure") }
+            ?.optDouble("exposure")?.toFloat()?.takeIf { it.isFinite() }
+        val saturation = action.takeIf { it.has("saturation") }
+            ?.optDouble("saturation")?.toFloat()?.takeIf { it.isFinite() }
+        val whitening = action.takeIf { it.has("whitening") }
+            ?.optDouble("whitening")?.toFloat()?.takeIf { it.isFinite() }
+        val smoothing = action.takeIf { it.has("smoothing") }
+            ?.optDouble("smoothing")?.toFloat()?.takeIf { it.isFinite() }
+        val description = action.optString("style_description").takeIf(String::isNotBlank)
+        return CameraStyleIntent(filter, strength, exposure, saturation, whitening, smoothing, description)
     }
 
     private fun requestCameraRecognition(prompt: String) {
@@ -1590,6 +1892,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
             .put("scene", "camera_voice")
             .put("vision", JSONObject()
                 .put("lens", _state.value.cameraLens)
+                .put("filter", _state.value.cameraFilter)
+                .put("filter_strength", _state.value.cameraFilterStrength)
+                .put("exposure", _state.value.cameraExposure)
+                .put("saturation", _state.value.cameraSaturation)
+                .put("whitening", _state.value.cameraWhitening)
+                .put("smoothing", _state.value.cameraSmoothing)
+                .put("style_description", _state.value.cameraStyleDescription)
                 .put("observation", observation.take(900))
                 .put("scene_hint", sceneHint.take(500)))
 

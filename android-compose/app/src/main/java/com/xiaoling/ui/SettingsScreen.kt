@@ -27,6 +27,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -181,6 +182,8 @@ private fun UserTab(
     onBrainUrl: (String) -> Unit,
     onTestBrain: () -> Unit
 ) {
+    val context = LocalContext.current
+    var hapticsEnabled by remember { mutableStateOf(com.xiaoling.core.Settings.hapticsEnabled(context)) }
     GlassCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
@@ -225,6 +228,24 @@ private fun UserTab(
         }
         Divider()
         RowItem("隐私保护设置") { showText("隐私保护设置", "· 通话/短信仅用于本机防诈判定,默认不上传\n· 麦克风仅在唤起和连续对话时使用\n· 系统识别连续失败时,仅将本轮语音加密发送到已配置的自建 AI 服务转写\n· 可随时在系统设置撤销各项权限") }
+        Divider()
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("触觉反馈", fontSize = 16.sp, color = InkColor)
+                Text("触摸、聆听和重要提醒的轻震动", fontSize = 12.sp, color = DimColor)
+            }
+            Switch(
+                checked = hapticsEnabled,
+                onCheckedChange = {
+                    hapticsEnabled = it
+                    com.xiaoling.core.Settings.setHapticsEnabled(context, it)
+                },
+            )
+        }
         Divider()
         RowItem("意见反馈") { showText("意见反馈", "感谢您的使用!反馈请发送至 feedback@xiaoling.ai,我们会认真对待每一条建议。") }
         Divider()

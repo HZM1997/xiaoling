@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Build
 import android.app.PictureInPictureParams
 import android.util.Rational
+import android.view.MotionEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
@@ -18,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.core.content.ContextCompat
 import com.xiaoling.core.AppState
+import com.xiaoling.core.TactileFeedback
 import com.xiaoling.service.AppForeground
 import com.xiaoling.service.WakeService
 import com.xiaoling.ui.XiaolingApp
@@ -44,6 +46,13 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptWakeRequest(intent)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // Wear OS sends normal touch events. Give hardware-touch feedback there
+        // without changing the phone experience or requiring a watch-only API.
+        TactileFeedback.onWatchTouch(this, event)
+        return super.dispatchTouchEvent(event)
     }
 
     private fun acceptWakeRequest(intent: Intent?) {

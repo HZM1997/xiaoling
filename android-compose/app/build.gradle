@@ -11,8 +11,8 @@ android {
         applicationId 'com.xiaoling'
         minSdk 24
         targetSdk 34
-        versionCode 45
-        versionName '1.0.45'
+        versionCode 48
+        versionName '1.0.48'
         // Release 由 CI 注入公网 HTTPS 服务;本地调试也可通过环境变量覆盖。
         buildConfigField 'String', 'BRAIN_URL', groovy.json.JsonOutput.toJson(System.getenv('XL_BRAIN_URL') ?: '')
         buildConfigField 'String', 'PORCUPINE_ACCESS_KEY', groovy.json.JsonOutput.toJson(System.getenv('XL_PORCUPINE_ACCESS_KEY') ?: '')

@@ -8,6 +8,7 @@ object Settings {
     private const val PREF = "xiaoling"
     private const val KEY_URL = "brain_url"
     private const val KEY_UID = "user_id"
+    private const val KEY_HAPTICS = "haptics_enabled"
 
     /** 稳定的设备级用户 id,供大脑按 user_id 保留会话记忆 */
     fun userId(ctx: Context): String {
@@ -32,6 +33,14 @@ object Settings {
         if (!BuildConfig.DEBUG && normalized.isNotBlank() && !normalized.startsWith("https://")) return
         ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit().putString(KEY_URL, normalized).apply()
+    }
+
+    fun hapticsEnabled(ctx: Context): Boolean =
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getBoolean(KEY_HAPTICS, true)
+
+    fun setHapticsEnabled(ctx: Context, enabled: Boolean) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_HAPTICS, enabled).apply()
     }
 
 }

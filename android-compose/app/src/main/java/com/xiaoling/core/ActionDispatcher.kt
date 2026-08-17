@@ -5,11 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.app.SearchManager
 import android.net.Uri
-import android.os.Build
 import android.provider.MediaStore
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import org.json.JSONObject
 import androidx.core.content.ContextCompat
 import com.xiaoling.service.AppForeground
@@ -74,7 +70,7 @@ object ActionDispatcher {
                 }
                 null
             }
-            "FRAUD_WARN", "ALERT" -> { vibrate(app); null }
+            "FRAUD_WARN", "ALERT" -> { TactileFeedback.emit(app, TactileFeedback.Signal.Warning); null }
             "PLAY" -> {
                 val kw = action.optString("keyword", "戏曲")
                 val systemPlay = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).apply {
@@ -168,19 +164,4 @@ object ActionDispatcher {
         } catch (e: Exception) { /* 分享失败,忽略 */ }
     }
 
-    private fun vibrate(ctx: Context) {
-        try {
-            val vib = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                (ctx.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager).defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                ctx.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vib.vibrate(VibrationEffect.createOneShot(500, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION") vib.vibrate(500)
-            }
-        } catch (e: Exception) { /* 无震动器,忽略 */ }
-    }
 }

@@ -85,6 +85,11 @@ class VisionRequest(BaseModel):
     previous_observation: str = Field(default="", max_length=1200)
 
 
+class VisionStyleRequest(BaseModel):
+    image_base64: str = Field(..., min_length=32, max_length=2_800_000)
+    prompt: str = Field(default="分析参考图片的摄影风格并转换为实时相机参数。", max_length=500)
+
+
 @app.post("/vision/analyze")
 def vision_analyze(req: VisionRequest):
     """Analyze one user-requested camera frame. Frames are decoded in memory and never persisted."""
@@ -129,6 +134,70 @@ def vision_analyze(req: VisionRequest):
     if not answer:
         return {"ok": False, "speech": "我暂时没看清楚，请把物品放近一点再试试。", "caption": "暂时看不清"}
     return {"ok": True, "speech": answer, "caption": answer, "provider": message.get("_provider", "") if isinstance(message, dict) else ""}
+
+
+@app.post("/vision/style")
+def vision_style(req: VisionStyleRequest):
+    """Convert a reference image into bounded camera grading parameters; the image is never persisted."""
+    try:
+        raw = base64.b64decode(req.image_base64, validate=True)
+    except Exception:
+        return {"ok": False, "speech": "我没能读取这张参考图片。"}
+    if len(raw) == 0 or len(raw) > 2_000_000 or not llm_gateway.available():
+        return {"ok": False, "speech": "这张参考图片暂时无法分析。"}
+    provider = os.getenv("XL_VISION_PROVIDER", "").strip().lower() or None
+    model = os.getenv("XL_VISION_MODEL", "").strip() or None
+    if provider is None and os.getenv("DASHSCOPE_API_KEY", "").strip():
+        provider = "qwen"
+    if model is None and provider == "qwen":
+        model = "qwen-vl-plus"
+    data_url = "data:image/jpeg;base64," + req.image_base64
+    filters = ["natural", "warm", "cream", "mist", "cool", "vivid", "sunset", "forest",
+               "teal_orange", "vintage", "film", "hong_kong", "mono", "noir"]
+    messages = [{"role": "system", "content": (
+        "你是摄影调色师。分析参考图的冷暖、明暗、饱和度、年代感、电影感和人像美化程度。"
+        "只输出一个JSON对象，不要Markdown。filter只能从给定枚举选择；所有数值必须在指定范围。"
+        "不要识别人脸身份，也不要描述人物隐私。JSON字段：filter，filter_strength(0.25到1)，"
+        "exposure(-0.35到0.35)，saturation(0.35到1.65)，whitening(0到1)，smoothing(0到1)，"
+        "style_description(不超过16个中文字符)。可选filter：" + ",".join(filters)
+    )}, {"role": "user", "content": [
+        {"type": "text", "text": req.prompt},
+        {"type": "image_url", "image_url": {"url": data_url}},
+    ]}]
+    message = llm_gateway.chat(messages, temperature=0.1, max_tokens=220, timeout=15.0,
+                               model_override=model, provider_override=provider)
+    content = message.get("content") if isinstance(message, dict) else ""
+    if isinstance(content, list):
+        content = "".join(str(item.get("text", "")) for item in content if isinstance(item, dict))
+    text = str(content or "").strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    try:
+        style = json.loads(text)
+    except Exception:
+        return {"ok": False, "speech": "我看懂了参考图，但这次没能生成调色参数。"}
+    if not isinstance(style, dict):
+        return {"ok": False, "speech": "这张参考图没有生成可用的调色参数。"}
+
+    def bounded(name: str, low: float, high: float, default: float) -> float:
+        try:
+            return max(low, min(high, float(style.get(name, default))))
+        except (TypeError, ValueError):
+            return default
+
+    chosen = str(style.get("filter") or "natural").strip().lower()
+    chosen = chosen if chosen in filters else "natural"
+    description = str(style.get("style_description") or "参考图风格").strip()[:16]
+    return {
+        "ok": True,
+        "filter": chosen,
+        "filter_strength": bounded("filter_strength", 0.25, 1.0, 0.75),
+        "exposure": bounded("exposure", -0.35, 0.35, 0.0),
+        "saturation": bounded("saturation", 0.35, 1.65, 1.0),
+        "whitening": bounded("whitening", 0.0, 1.0, 0.0),
+        "smoothing": bounded("smoothing", 0.0, 1.0, 0.0),
+        "style_description": description,
+        "speech": f"好的，已经参考这张图片调成{description}。",
+        "provider": message.get("_provider", "") if isinstance(message, dict) else "",
+    }
 
 
 @app.post("/quality/event")

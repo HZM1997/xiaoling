@@ -25,3 +25,22 @@ def test_vision_request_includes_previous_observation(monkeypatch):
     assert "上一帧摘要：刚才看到一个玻璃杯" in user_text
     assert "用户当前问题：那这个怎么用" in user_text
     assert captured["messages"][1]["content"][1]["type"] == "image_url"
+
+
+def test_reference_image_returns_bounded_camera_style(monkeypatch):
+    monkeypatch.setattr(main.llm_gateway, "available", lambda: True)
+    monkeypatch.setattr(main.llm_gateway, "chat", lambda *_args, **_kwargs: {
+        "content": "```json\n{\"filter\":\"cool\",\"filter_strength\":0.72,\"exposure\":0.08,"
+                   "\"saturation\":0.9,\"whitening\":0.2,\"smoothing\":0.3,"
+                   "\"style_description\":\"清澈冷调\"}\n```",
+        "_provider": "test",
+    })
+    raw = b"fake-reference-image-contract-test"
+    result = main.vision_style(main.VisionStyleRequest(
+        image_base64=base64.b64encode(raw).decode("ascii"),
+    ))
+    assert result["ok"] is True
+    assert result["filter"] == "cool"
+    assert result["whitening"] == 0.2
+    assert result["smoothing"] == 0.3
+    assert result["style_description"] == "清澈冷调"

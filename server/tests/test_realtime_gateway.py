@@ -164,6 +164,34 @@ def test_qwen_function_call_event_is_parsed():
 
 
 def test_realtime_tools_map_to_android_actions():
+    action, result = realtime_gateway._action_for(
+        "open_camera", {
+            "lens": "back", "prompt": "帮我拍得复古一点", "filter": "vintage",
+            "filter_strength": 0.52, "exposure": -0.15, "saturation": 0.70,
+        }
+    )
+    assert action["filter"] == "vintage"
+    assert result["filter"] == "vintage"
+    assert action["filter_strength"] == 0.52
+    assert result["exposure"] == -0.15
+    assert action["saturation"] == 0.70
+
+    action, result = realtime_gateway._action_for(
+        "set_camera_filter", {"filter": "vintage", "filter_strength": 0.52, "exposure": 0.15, "saturation": 1.35}
+    )
+    assert action == {"type": "SET_CAMERA_FILTER", "filter": "vintage", "filter_strength": 0.52, "exposure": 0.15, "saturation": 1.35}
+    assert result == {"ok": True, "filter": "vintage", "filter_strength": 0.52, "exposure": 0.15,
+                      "saturation": 1.35, "whitening": None, "smoothing": None, "style_description": ""}
+
+    action, _ = realtime_gateway._action_for(
+        "set_camera_filter", {"filter": "cream", "whitening": 0.35, "smoothing": 0.4,
+                              "style_description": "网红通透人像"}
+    )
+    assert action["filter"] == "cream"
+    assert action["whitening"] == 0.35
+    assert action["smoothing"] == 0.4
+    assert action["style_description"] == "网红通透人像"
+
     action, result = realtime_gateway._action_for("call_contact", {"target": "女儿"})
     assert action == {"type": "CALL", "target": "女儿"}
     assert result["ok"] is True
