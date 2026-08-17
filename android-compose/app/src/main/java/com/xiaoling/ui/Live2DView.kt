@@ -29,6 +29,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
@@ -65,7 +66,7 @@ fun Avatar3DView(
     val currentMouthWide by rememberUpdatedState(mouthWide)
     val currentMouthRound by rememberUpdatedState(mouthRound)
     val currentEmphasisTick by rememberUpdatedState(emphasisTick)
-    val currentEmotion by rememberUpdatedState(avatarEmotion(state, caption))
+    val currentEmotion by rememberUpdatedState(avatarEmotion(state, caption, emphasisTick))
     val useWebGlAvatar = remember { supportsWebGlAvatar() }
     fun applyState(
         web: WebView,
@@ -94,6 +95,7 @@ fun Avatar3DView(
         // the whole assistant area blank on those devices.
         AvatarFallback(
             state = currentState,
+            emotion = currentEmotion,
             talking = currentTalking,
             voiceLevel = currentVoiceLevel,
             modifier = Modifier.fillMaxSize(),
@@ -165,7 +167,7 @@ fun Avatar3DView(
                 update = { web ->
                     applyState(
                         web, stateName, talking, voiceLevel, mouthWide, mouthRound,
-                        emphasisTick, avatarEmotion(state, caption),
+                        emphasisTick, avatarEmotion(state, caption, emphasisTick),
                     )
                 },
                 onRelease = { web ->
@@ -190,6 +192,7 @@ private fun supportsWebGlAvatar(): Boolean {
 @Composable
 private fun AvatarFallback(
     state: String,
+    emotion: String,
     talking: Boolean,
     voiceLevel: Float,
     modifier: Modifier = Modifier,
@@ -212,6 +215,13 @@ private fun AvatarFallback(
         val dark = ComposeColor(0xFF202C3A)
         val skin = ComposeColor(0xFFF0C5B1)
         val mouthOpen = if (talking) (10f + voiceLevel.coerceIn(0f, 1f) * 14f) * scale else 4f * scale
+        val headTilt = when (emotion) {
+            "confused" -> 7f
+            "shy", "playful" -> -5f
+            "sad", "sleepy" -> 3f
+            else -> 0f
+        } * scale
+        val faceCenter = headCenter + Offset(headTilt, 0f)
 
         drawCircle(color = ComposeColor(0x1422A6A2), radius = 130f * scale, center = center + Offset(0f, bob))
         drawRoundRect(
@@ -220,24 +230,101 @@ private fun AvatarFallback(
             size = Size(164f * scale, 154f * scale),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(52f * scale, 52f * scale),
         )
-        drawCircle(color = dark, radius = 74f * scale, center = headCenter)
-        drawCircle(color = skin, radius = 62f * scale, center = headCenter + Offset(0f, 7f * scale))
+        drawCircle(color = dark, radius = 74f * scale, center = faceCenter)
+        drawCircle(color = skin, radius = 62f * scale, center = faceCenter + Offset(0f, 7f * scale))
         drawArc(
             color = dark, startAngle = 184f, sweepAngle = 172f, useCenter = true,
-            topLeft = headCenter + Offset(-68f * scale, -72f * scale),
+            topLeft = faceCenter + Offset(-68f * scale, -72f * scale),
             size = Size(136f * scale, 95f * scale),
         )
-        val eyeShift = if (state == "listen") 3f * scale else 0f
-        listOf(-24f, 24f).forEach { x ->
-            drawCircle(color = ComposeColor.White, radius = 13f * scale, center = headCenter + Offset(x * scale + eyeShift, 5f * scale))
-            drawCircle(color = ComposeColor(0xFF237F8A), radius = 7f * scale, center = headCenter + Offset(x * scale + eyeShift, 5f * scale))
+        val eyeShift = when {
+            emotion == "thinking" -> Offset(4f, -4f)
+            emotion == "shy" -> Offset(7f, 3f)
+            state == "listen" -> Offset(3f, 0f)
+            else -> Offset.Zero
         }
-        drawRoundRect(
-            color = ComposeColor(0xFFA94459),
-            topLeft = headCenter + Offset(-16f * scale, 31f * scale),
-            size = Size(32f * scale, mouthOpen),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(10f * scale, 10f * scale),
-        )
+        val blink = ((kotlin.math.sin(phase.toDouble() * 0.73) + 1.0) / 2.0 > 0.985)
+        listOf(-1f, 1f).forEachIndexed { index, side ->
+            val eyeCenter = faceCenter + Offset(side * 24f * scale + eyeShift.x * scale, (5f + eyeShift.y) * scale)
+            val closed = blink || emotion == "sleepy" || (emotion == "playful" && index == 1)
+            when {
+                emotion == "love" -> drawHeart(eyeCenter, 12f * scale, ComposeColor(0xFFE64D74))
+                emotion == "happy" || emotion == "proud" -> drawArc(
+                    color = dark, startAngle = 200f, sweepAngle = 140f, useCenter = false,
+                    topLeft = eyeCenter - Offset(13f * scale, 5f * scale),
+                    size = Size(26f * scale, 15f * scale), style = Stroke(4f * scale, cap = StrokeCap.Round),
+                )
+                closed -> drawLine(
+                    color = dark,
+                    start = eyeCenter - Offset(10f * scale, 0f),
+                    end = eyeCenter + Offset(10f * scale, if (emotion == "playful") -3f * scale else 0f),
+                    strokeWidth = 4f * scale, cap = StrokeCap.Round,
+                )
+                else -> {
+                    val eyeHeight = when (emotion) {
+                        "surprised", "curious" -> 15f
+                        "serious", "warning" -> 8f
+                        "sad", "caring" -> 11f
+                        else -> 13f
+                    } * scale
+                    drawOval(
+                        color = ComposeColor.White,
+                        topLeft = eyeCenter - Offset(13f * scale, eyeHeight),
+                        size = Size(26f * scale, eyeHeight * 2f),
+                    )
+                    val pupilY = if (emotion == "sad") 3f else 0f
+                    drawCircle(color = ComposeColor(0xFF237F8A), radius = 7f * scale,
+                        center = eyeCenter + Offset(0f, pupilY * scale))
+                    drawCircle(color = ComposeColor.White, radius = 2f * scale,
+                        center = eyeCenter + Offset(-2f * scale, -2f * scale + pupilY * scale))
+                }
+            }
+            val browLift = when (emotion) {
+                "surprised", "curious" -> -10f
+                "sad", "caring" -> if (side < 0) -2f else -2f
+                "serious", "warning" -> 3f
+                "confused" -> if (side < 0) -10f else 2f
+                else -> -5f
+            }
+            val browSlope = when (emotion) {
+                "sad", "caring" -> side * 5f
+                "serious", "warning" -> -side * 5f
+                "confused" -> side * 3f
+                else -> 0f
+            }
+            drawLine(
+                color = dark,
+                start = faceCenter + Offset((side * 24f - 10f) * scale, browLift * scale),
+                end = faceCenter + Offset((side * 24f + 10f) * scale, (browLift + browSlope) * scale),
+                strokeWidth = 4f * scale, cap = StrokeCap.Round,
+            )
+            if ((emotion == "sad" || emotion == "caring") && index == 1) {
+                drawOval(ComposeColor(0xFF69BDE5).copy(alpha = 0.82f),
+                    topLeft = eyeCenter + Offset(4f * scale, 13f * scale),
+                    size = Size(5f * scale, 10f * scale))
+            }
+        }
+        if (emotion == "shy" || emotion == "love") {
+            drawCircle(ComposeColor(0x55ED6E8C), 10f * scale, faceCenter + Offset(-42f * scale, 24f * scale))
+            drawCircle(ComposeColor(0x55ED6E8C), 10f * scale, faceCenter + Offset(42f * scale, 24f * scale))
+        }
+        if (talking || emotion in setOf("surprised", "warning")) {
+            val width = when (emotion) { "surprised" -> 21f; "warning" -> 27f; else -> 32f } * scale
+            drawRoundRect(
+                color = ComposeColor(0xFFA94459),
+                topLeft = faceCenter + Offset(-width / 2f, 31f * scale),
+                size = Size(width, if (emotion == "surprised") 18f * scale else mouthOpen),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(10f * scale, 10f * scale),
+            )
+        } else {
+            val smile = emotion in setOf("happy", "love", "proud", "playful", "shy")
+            drawArc(
+                color = ComposeColor(0xFFA94459), startAngle = if (smile) 15f else 200f,
+                sweepAngle = if (smile) 150f else 140f, useCenter = false,
+                topLeft = faceCenter + Offset(-17f * scale, 26f * scale),
+                size = Size(34f * scale, 18f * scale), style = Stroke(4f * scale, cap = StrokeCap.Round),
+            )
+        }
         drawCircle(color = lightTeal, radius = (10f + voiceLevel * 5f) * scale, center = Offset(center.x, bodyTop + 56f * scale))
         drawCircle(color = ComposeColor(0x3326A79B), radius = 14f * scale, center = Offset(center.x, bodyTop + 56f * scale), style = Stroke(2f * scale))
         if (state == "listen" || talking) {
@@ -247,15 +334,44 @@ private fun AvatarFallback(
     }
 }
 
-private fun avatarEmotion(state: MascotState, text: String): String {
-    if (state == MascotState.Alarm) return "serious"
-    if (state == MascotState.Caring) return "caring"
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeart(
+    center: Offset,
+    radius: Float,
+    color: ComposeColor,
+) {
+    val path = Path().apply {
+        moveTo(center.x, center.y + radius * 0.82f)
+        cubicTo(center.x - radius * 1.35f, center.y, center.x - radius * 0.72f, center.y - radius,
+            center.x, center.y - radius * 0.34f)
+        cubicTo(center.x + radius * 0.72f, center.y - radius, center.x + radius * 1.35f, center.y,
+            center.x, center.y + radius * 0.82f)
+        close()
+    }
+    drawPath(path, color)
+}
+
+private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): String {
+    if (state == MascotState.Alarm) return "warning"
     val value = text.lowercase()
     return when {
-        listOf("危险", "诈骗", "报警", "立即", "警告", "不要转账").any(value::contains) -> "serious"
-        listOf("难过", "伤心", "担心", "害怕", "不舒服", "抱歉").any(value::contains) -> "caring"
-        listOf("太好了", "开心", "恭喜", "哈哈", "真棒").any(value::contains) -> "happy"
-        listOf("原来", "竟然", "真的吗", "没想到").any(value::contains) -> "surprised"
+        listOf("危险", "诈骗", "报警", "立即停止", "警告", "不要转账", "可疑链接").any(value::contains) -> "warning"
+        listOf("难过", "伤心", "想哭", "失去", "遗憾", "去世").any(value::contains) -> "sad"
+        listOf("担心", "害怕", "不舒服", "疼", "抱歉", "陪着您", "别着急").any(value::contains) -> "caring"
+        listOf("爱你", "想你", "喜欢你", "么么", "亲爱的", "真暖心").any(value::contains) -> "love"
+        listOf("害羞", "不好意思", "夸得", "脸红").any(value::contains) -> "shy"
+        listOf("哈哈", "逗你", "开玩笑", "调皮", "嘿嘿").any(value::contains) -> "playful"
+        listOf("太好了", "开心", "恭喜", "真棒", "成功了", "完成了").any(value::contains) -> "happy"
+        listOf("放心", "没问题", "交给我", "当然可以", "已经办好").any(value::contains) -> "proud"
+        listOf("原来", "竟然", "真的吗", "没想到", "哇", "居然").any(value::contains) -> "surprised"
+        listOf("什么意思", "不太明白", "再说一遍", "没听清", "哪个", "怎么会").any(value::contains) -> "confused"
+        value.contains("?") || value.contains("？") || listOf("您是说", "您想", "要不要").any(value::contains) -> "curious"
+        listOf("休息", "晚安", "困了", "睡觉", "做个好梦").any(value::contains) -> "sleepy"
+        state == MascotState.Thinking -> "thinking"
+        state == MascotState.Listening -> "attentive"
+        state == MascotState.Caring -> "caring"
+        state == MascotState.Talking && (value.contains("首先") || value.contains("可以这样") ||
+            value.contains("简单来说") || value.length > 70) -> "explaining"
+        state == MascotState.Talking && emphasisTick % 3 == 1 -> "warm"
         else -> "neutral"
     }
 }
