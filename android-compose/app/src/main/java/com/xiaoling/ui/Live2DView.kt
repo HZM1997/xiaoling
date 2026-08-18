@@ -290,9 +290,9 @@ private fun AvatarFallback(
                             style = Stroke(6f * scale, cap = StrokeCap.Round))
                     }
                     else -> {
-                        val eyeWidth = (if (emotion in setOf("surprised", "curious")) 38f else 34f) * scale
+                        val eyeWidth = (if (emotion in setOf("surprised", "curious", "excited")) 38f else 34f) * scale
                         val eyeHeight = when (emotion) {
-                            "surprised" -> 38f
+                            "surprised", "excited" -> 38f
                             "curious" -> 34f
                             "warning", "serious" -> 22f
                             "sad", "caring" -> 27f
@@ -340,7 +340,7 @@ private fun AvatarFallback(
                         5f * scale, StrokeCap.Round)
                 }
                 else -> {
-                    val smileWidth = if (emotion in setOf("happy", "love", "playful", "proud", "warm")) 86f else 68f
+                    val smileWidth = if (emotion in setOf("happy", "love", "playful", "proud", "warm", "excited")) 86f else 68f
                     drawArc(cyanGlow.copy(alpha = .22f), 8f, 164f, false,
                         mouthCenter - Offset(smileWidth * .5f * scale, 18f * scale),
                         Size(smileWidth * scale, 36f * scale), style = Stroke(11f * scale, cap = StrokeCap.Round))
@@ -392,6 +392,8 @@ private data class RobotFacePose(
 
 private fun robotFacePose(state: String, emotion: String): RobotFacePose = when (emotion) {
     "happy", "love" -> RobotFacePose(-2f, 1f, .9f)
+    "excited" -> RobotFacePose(-4f, 1.12f, 1.16f)
+    "relieved" -> RobotFacePose(-1f, .32f, .96f)
     "playful", "shy" -> RobotFacePose(-6f, .72f, .88f)
     "surprised", "curious" -> RobotFacePose(4f, .9f, 1.12f)
     "confused" -> RobotFacePose(8f, .52f, .94f)
@@ -436,7 +438,9 @@ private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): 
         listOf("爱你", "想你", "喜欢你", "么么", "亲爱的", "真暖心").any(value::contains) -> "love"
         listOf("害羞", "不好意思", "夸得", "脸红").any(value::contains) -> "shy"
         listOf("哈哈", "逗你", "开玩笑", "调皮", "嘿嘿").any(value::contains) -> "playful"
+        listOf("好耶", "太棒啦", "太厉害", "真的棒", "惊喜").any(value::contains) -> "excited"
         listOf("太好了", "开心", "恭喜", "真棒", "成功了", "完成了").any(value::contains) -> "happy"
+        listOf("终于", "安全了", "没事了", "放心下来", "辛苦了").any(value::contains) -> "relieved"
         listOf("放心", "没问题", "交给我", "当然可以", "已经办好").any(value::contains) -> "proud"
         listOf("谢谢", "感谢", "不客气", "很高兴帮到", "慢慢来").any(value::contains) -> "warm"
         listOf("原来", "竟然", "真的吗", "没想到", "哇", "居然").any(value::contains) -> "surprised"

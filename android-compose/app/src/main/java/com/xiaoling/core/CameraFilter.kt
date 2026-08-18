@@ -180,6 +180,8 @@ enum class CameraFilter(
                     CameraStyleIntent(Film, 0.82f, -0.05f, 0.76f, 0.10f, 0.12f, "克制古风胶片")
                 Regex("祛黄|去黄|肤色均匀|气色好|红润一点|有气色").containsMatchIn(value) ->
                     CameraStyleIntent(Cream, 0.56f, 0.04f, 1.04f, 0.14f, 0.24f, "自然匀净肤色")
+                Regex("美颜|美妆|自拍美颜|自然美颜|白里透红|柔焦人像").containsMatchIn(value) ->
+                    CameraStyleIntent(Cream, 0.66f, 0.08f, 1.03f, 0.26f, 0.30f, "自然美颜人像")
                 else -> null
             }
 
@@ -209,7 +211,7 @@ enum class CameraFilter(
                 Regex("不要假白|自然肤色|美白自然|降低美白|美白少一点").containsMatchIn(value) -> 0.12f
                 Regex("美白.*(强|多)|白很多|再白一点").containsMatchIn(value) -> 0.50f
                 Regex("祛黄|去黄|肤色均匀|红润一点|有气色").containsMatchIn(value) -> 0.14f
-                Regex("美白|白一点|提亮肤色|肤色亮").containsMatchIn(value) -> 0.30f
+                Regex("美白|白一点|提亮肤色|肤色亮|白里透红").containsMatchIn(value) -> 0.30f
                 else -> null
             }
             val explicitSmoothing = when {
@@ -217,7 +219,7 @@ enum class CameraFilter(
                 Regex("保留皮肤纹理|磨皮自然|自然磨皮|降低磨皮|磨皮少一点|别磨太狠").containsMatchIn(value) -> 0.14f
                 Regex("磨皮.*(强|多)|皮肤更光滑").containsMatchIn(value) -> 0.55f
                 Regex("肤色均匀|祛黄|去黄").containsMatchIn(value) -> 0.24f
-                Regex("磨皮|祛痘|皮肤细腻|皮肤光滑").containsMatchIn(value) -> 0.32f
+                Regex("磨皮|祛痘|皮肤细腻|皮肤光滑|柔焦|美颜").containsMatchIn(value) -> 0.32f
                 else -> null
             }
             return CameraStyleIntent(
@@ -288,7 +290,7 @@ enum class CameraFilter(
 
         private fun isStyleRequest(text: String): Boolean = Regex(
             "滤镜|调色|色调|风格|效果|换成|切成|调成|弄成|做成|来个|恢复原色|原图|不调色|" +
-                "美白|磨皮|祛痘|肤色|纹理|祛黄|去黄|红润|气色|假白|出片|网红|小红书|清澈|清透|空气感|白月光|初恋感|" +
+            "美颜|美妆|柔焦|美白|磨皮|祛痘|肤色|纹理|祛黄|去黄|红润|气色|假白|白里透红|恢复自然|出片|网红|小红书|清澈|清透|空气感|白月光|初恋感|" +
                 "战国|亡国|没落公主|落难公主|古风|古装|国风|宿命感|破碎感|赛博|霓虹|" +
                 "调(亮|暗|淡|浓|重|强|弱)|调(高|低).*饱和|拍(得|成|出|个|一张).*(暖|冷|复古|黑白|鲜艳|明亮|原色)|" +
                 "画面.*(暖|冷|复古|黑白|鲜艳|明亮|原色|感觉)|要.*(暖|冷|复古|黑白|鲜艳|明亮|原色|感觉)"

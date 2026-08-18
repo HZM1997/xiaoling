@@ -318,7 +318,9 @@ private fun PreviewView.applyXiaolingFilter(
     }
     setLayerType(android.view.View.LAYER_TYPE_NONE, null)
     val colorEffect = matrix?.let { RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(it)) }
-    val blurRadius = smoothing.coerceIn(0f, 1f) * 1.35f
+    // Keep the live preview soft without turning the entire background into a
+    // blur. Saved photos use a skin mask for stronger, face-local smoothing.
+    val blurRadius = smoothing.coerceIn(0f, 1f) * 0.92f
     val effect = when {
         blurRadius >= 0.05f && colorEffect != null ->
             RenderEffect.createBlurEffect(blurRadius, blurRadius, colorEffect, Shader.TileMode.CLAMP)
@@ -408,7 +410,8 @@ private fun imageProxyToBitmap(image: ImageProxy): Bitmap? = runCatching {
 
 @Composable
 private fun CameraFilterOverlay(filter: CameraFilter, strength: Float, exposure: Float, saturation: Float, whitening: Float) {
-    if ((filter == CameraFilter.Natural && kotlin.math.abs(exposure) < 0.001f && kotlin.math.abs(saturation - 1f) < 0.001f && whitening < 0.001f) || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
+    if (filter == CameraFilter.Natural && kotlin.math.abs(exposure) < 0.001f &&
+        kotlin.math.abs(saturation - 1f) < 0.001f && whitening < 0.001f) return
     Canvas(Modifier.fillMaxSize()) {
         // Color, exposure, saturation and whitening are already applied by
         // the hardware-layer ColorMatrix. Keep overlays only for optical

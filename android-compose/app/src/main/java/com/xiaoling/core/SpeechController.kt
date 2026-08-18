@@ -135,7 +135,15 @@ class SpeechController(private val ctx: Context) {
                 override fun onPartialResults(partialResults: Bundle?) {
                     val p = partialResults?.let(::bestCandidate).orEmpty()
                     if (p.isNotBlank()) {
-                        if (p.count { !it.isWhitespace() } >= lastPartial.count { !it.isWhitespace() }) {
+                        // MIUI may correct a long provisional phrase into a
+                        // slightly shorter, more accurate command. Reject
+                        // only unrelated regressions, not a two-character
+                        // correction at the end of a sentence.
+                        val old = normalizeCandidate(lastPartial)
+                        val next = normalizeCandidate(p)
+                        if (old.isBlank() || next == old || next.startsWith(old) ||
+                            next.length >= old.length - 2
+                        ) {
                             lastPartial = p
                         }
                         partialCb(p)
@@ -198,7 +206,7 @@ class SpeechController(private val ctx: Context) {
                 // 强制离线后只返回 ERROR_CLIENT/NO_MATCH。标准服务可自行选择在线或本地引擎。
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
                 putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 200)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 160)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     putStringArrayListExtra(
                         RecognizerIntent.EXTRA_BIASING_STRINGS,
@@ -206,7 +214,9 @@ class SpeechController(private val ctx: Context) {
                             "小灵", "打电话", "拨电话", "联系人", "闹钟", "定闹钟", "提醒我",
                             "吃药提醒", "服药", "量血压", "导航", "播放", "点播", "戏曲",
                             "京剧", "豫剧", "越剧", "黄梅戏", "评书", "相声", "天气",
-                            "反诈", "诈骗", "验证码", "转账", "地震", "台风", "暴雨", "沙尘暴"
+                            "反诈", "诈骗", "验证码", "转账", "地震", "台风", "暴雨", "沙尘暴",
+                            "打开相机", "退出相机", "前置摄像头", "后置摄像头", "滤镜", "美颜", "美白",
+                            "磨皮", "祛痘", "白里透红", "清澈冷色", "网红出片", "古风胶片"
                         )
                     )
                 }
@@ -252,10 +262,18 @@ class SpeechController(private val ctx: Context) {
         if (candidates.isEmpty()) return ""
         val confidence = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)
         return candidates.indices.maxWithOrNull(
-            compareBy<Int> { index -> confidence?.getOrNull(index)?.takeIf { it >= 0f } ?: -1f }
-                .thenBy { index -> candidates[index].count { !it.isWhitespace() } }
+            compareBy<Int> { index ->
+                val phrase = candidates[index]
+                val confidenceScore = confidence?.getOrNull(index)?.takeIf { it >= 0f } ?: 0.35f
+                val commandScore = if (COMMAND_HINTS.any { hint -> phrase.contains(hint) }) 0.42f else 0f
+                val usefulLength = phrase.count { !it.isWhitespace() }.coerceAtMost(28) / 28f
+                confidenceScore * 1.8f + commandScore + usefulLength * 0.22f
+            }.thenBy { index -> candidates[index].count { !it.isWhitespace() } }
         )?.let(candidates::get).orEmpty()
     }
+
+    private fun normalizeCandidate(value: String): String =
+        value.replace(Regex("[，。！？、,.!?\\s]"), "").lowercase()
 
     private fun createRecognizer(): SpeechRecognizer {
         // 部分 MIUI 有识别服务但没有写入默认服务设置。显式绑定已安装服务可避免
@@ -360,5 +378,11 @@ class SpeechController(private val ctx: Context) {
         recognizer = null
     }
 
-    private companion object { const val TAG = "XiaolingASR" }
+    private companion object {
+        const val TAG = "XiaolingASR"
+        val COMMAND_HINTS = listOf(
+            "小灵", "打开相机", "退出相机", "打电话", "提醒", "闹钟", "导航", "播放",
+            "反诈", "诈骗", "滤镜", "美颜", "美白", "磨皮", "拍照",
+        )
+    }
 }

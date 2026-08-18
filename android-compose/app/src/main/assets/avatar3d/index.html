@@ -80,7 +80,7 @@ mouthRoot.add(smileGlow,smile,frown);
 
 let state='idle',emotion='neutral',talking=false,audioLevel=0,mouthWide=0,mouthRound=0;
 let emphasisTick=0,emphasisAt=-10,elapsed=0,blinkAt=1.7,blinkPhase=-1,nextGaze=1.1,gazeX=0,gazeY=0,targetGazeX=0,targetGazeY=0;
-const allowed=['neutral','happy','caring','surprised','serious','warning','love','sad','shy','playful','proud','confused','curious','sleepy','thinking','attentive','explaining','warm'];
+const allowed=['neutral','happy','caring','surprised','serious','warning','love','sad','shy','playful','proud','excited','relieved','confused','curious','sleepy','thinking','attentive','explaining','warm'];
 const clamp=v=>{const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(1,n)):0};
 window.XLAvatar={
   setState(v){state=['idle','listen','think','talk','alarm','caring'].includes(v)?v:'idle'},
@@ -98,7 +98,7 @@ function animate(){
   if(blinkPhase>=0){blinkPhase+=dt;blink=Math.sin(Math.min(1,blinkPhase/.18)*Math.PI);if(blinkPhase>.18){blinkPhase=-1;blinkAt=elapsed+2.1+Math.random()*3.1}}
   if(elapsed>=nextGaze){targetGazeX=(Math.random()-.5)*(state==='listen'?.035:.075);targetGazeY=(Math.random()-.5)*.04;nextGaze=elapsed+1.2+Math.random()*2.5}
   gazeX+=(targetGazeX-gazeX)*Math.min(1,dt*3.2);gazeY+=(targetGazeY-gazeY)*Math.min(1,dt*3.2);
-  const eyeOpen={surprised:1.26,curious:1.14,warning:.68,serious:.66,sad:.80,caring:.88,sleepy:.20,confused:.92}[emotion]||1;
+  const eyeOpen={surprised:1.26,excited:1.34,curious:1.14,warning:.68,serious:.66,sad:.80,caring:.88,relieved:1.04,sleepy:.20,confused:.92}[emotion]||1;
   eyeRoots.forEach((e,i)=>{const wink=emotion==='playful'&&i===1?.10:1;e.scale.y=Math.max(.08,eyeOpen*wink-blink*.93);e.position.x=(i?1:-1)*.49+gazeX;e.position.y=.28+gazeY+(emotion==='confused'&&i===1?-.05:0)});
   const browTilt=(emotion==='warning'||emotion==='serious')?.34:(emotion==='confused'?.20:0);
   brows.forEach(b=>b.visible=['warning','serious','confused','surprised','curious','sad','caring'].includes(emotion));
@@ -113,10 +113,10 @@ function animate(){
   mouthRoot.children.slice(0,3).forEach(part=>part.visible=!curved);
   smile.visible=curved&&!['sad','caring','confused'].includes(emotion);
   smileGlow.visible=smile.visible;frown.visible=curved&&['sad','caring','confused'].includes(emotion);
-  if(curved)mouthRoot.scale.set(emotion==='happy'||emotion==='love'||emotion==='playful'?1.16:1,1,1);
+  if(curved)mouthRoot.scale.set(emotion==='happy'||emotion==='love'||emotion==='playful'||emotion==='excited'?1.16:1,1,1);
   const ea=elapsed-emphasisAt,em=ea>=0&&ea<.52?Math.sin(ea/.52*Math.PI):0;
-  face.rotation.z=(emotion==='confused'?.08:emotion==='playful'?-.05:emotion==='sad'?.035:0)+Math.sin(elapsed*.43)*.012;
-  face.rotation.x=(emotion==='sad'?.07:0)-em*.035;face.rotation.y=gazeX*.35;
+  face.rotation.z=(emotion==='confused'?.08:emotion==='playful'?-.05:emotion==='sad'?.035:emotion==='excited'?-.025:0)+Math.sin(elapsed*.43)*.012;
+  face.rotation.x=(emotion==='sad'?.07:emotion==='relieved'?-.018:0)-em*.035;face.rotation.y=gazeX*.35;
   avatar.position.y=Math.sin(elapsed*.80)*.025;avatar.rotation.y=Math.sin(elapsed*.31)*.025;
   avatar.rotation.z=(talking?Math.sin(elapsed*2.7)*.009:0)+em*.018;
   orange.emissiveIntensity=(state==='alarm'||emotion==='warning'?1.0:.48)+voice*.38;
