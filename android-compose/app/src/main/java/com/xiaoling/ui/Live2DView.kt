@@ -220,7 +220,6 @@ private fun AvatarFallback(
         label = "avatar-fallback-micro-phase",
     )
     val pose = remember(state, emotion) { robotFacePose(state, emotion) }
-    val poseTilt by animateFloatAsState(pose.headTilt, tween(340), label = "avatar-head-tilt")
     val poseEnergy by animateFloatAsState(pose.energy, tween(300), label = "avatar-pose-energy")
     Canvas(modifier) {
         val center = Offset(size.width / 2f, size.height * 0.48f)
@@ -235,27 +234,25 @@ private fun AvatarFallback(
         val white = ComposeColor(0xFFF9FFF9)
         val cyanGlow = ComposeColor(0xFF7FFFE8)
         val warmGlow = ComposeColor(0xFFFFC268)
-        val emphasisPose = when (emphasisTick % 4) { 1 -> -2.5f; 2 -> 2f; 3 -> -1f; else -> 0f }
-        val headTilt = (
-            poseTilt + emphasisPose +
-                kotlin.math.sin((microPhase * 0.61f).toDouble()).toFloat() * poseEnergy * 1.4f
-            ) * scale
         val faceSize = Size(238f * scale, 205f * scale)
         val faceTopLeft = faceCenter - Offset(faceSize.width / 2f, faceSize.height / 2f)
         val outerRadius = androidx.compose.ui.geometry.CornerRadius(57f * scale, 57f * scale)
         val innerInset = 13f * scale
         val innerRadius = androidx.compose.ui.geometry.CornerRadius(45f * scale, 45f * scale)
         val naturalGaze = kotlin.math.sin((microPhase * 0.39f).toDouble()).toFloat() * 2.2f
+        val emphasisGaze = when (emphasisTick % 3) { 1 -> 1.6f; 2 -> -1.2f; else -> 0f }
         val eyeShift = when {
-            emotion == "thinking" -> Offset(4f + naturalGaze, -4f)
+            emotion == "thinking" -> Offset(4f + naturalGaze + emphasisGaze, -4f)
             emotion == "shy" -> Offset(7f, 3f)
-            state == "listen" -> Offset(3f + naturalGaze, 0f)
-            else -> Offset(naturalGaze, kotlin.math.sin((phase * 0.31f).toDouble()).toFloat())
+            state == "listen" -> Offset(3f + naturalGaze + emphasisGaze, 0f)
+            else -> Offset(naturalGaze + emphasisGaze, kotlin.math.sin((phase * 0.31f).toDouble()).toFloat())
         }
         val blinkSignal = kotlin.math.sin((phase * 1.17f).toDouble()) +
             kotlin.math.sin((microPhase * 2.13f).toDouble()) * 0.72
         val blink = blinkSignal > 1.56
-        rotate(headTilt / scale, faceCenter) {
+        // Keep the fallback face straight-on; expression changes are drawn in
+        // the eyes, brows and mouth, with only breathing and gaze motion.
+        rotate(0f, faceCenter) {
             drawRoundRect(brush = Brush.linearGradient(listOf(frame, frameLight)), topLeft = faceTopLeft,
                 size = faceSize, cornerRadius = outerRadius)
             drawRoundRect(color = screen, topLeft = faceTopLeft + Offset(innerInset, innerInset),

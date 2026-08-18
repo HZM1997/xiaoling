@@ -126,10 +126,11 @@ function animate(){
   smileGlow.visible=smile.visible;frown.visible=curved&&['sad','caring','confused'].includes(emotion);
   if(curved)mouthRoot.scale.set(emotion==='happy'||emotion==='love'||emotion==='playful'||emotion==='excited'?1.16:1,1,1);
   const ea=elapsed-emphasisAt,em=ea>=0&&ea<.52?Math.sin(ea/.52*Math.PI):0;
-  face.rotation.z=(emotion==='confused'?.08:emotion==='playful'?-.05:emotion==='sad'?.035:emotion==='excited'?-.025:0)+Math.sin(elapsed*.43)*.012;
-  face.rotation.x=(emotion==='sad'?.07:emotion==='relieved'?-.018:0)-em*.035;face.rotation.y=gazeX*.35;
-  avatar.position.y=Math.sin(elapsed*.80)*.025;avatar.rotation.y=Math.sin(elapsed*.31)*.025;
-  avatar.rotation.z=(talking?Math.sin(elapsed*2.7)*.009:0)+em*.018;
+  // Keep the digital human front-facing and centered. Expressions use eyes,
+  // brows, mouth and breathing motion instead of tilting the whole model.
+  face.rotation.set(0,gazeX*.18,0);
+  avatar.position.y=Math.sin(elapsed*.80)*.025;
+  avatar.rotation.set(0,0,0);
   // Keep the outer frame steady; animation belongs to the face, not the edge.
   frame.emissiveIntensity=0;
   renderer.render(scene,camera);
