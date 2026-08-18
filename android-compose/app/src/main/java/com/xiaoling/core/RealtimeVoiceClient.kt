@@ -366,9 +366,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // Require a short stable run even for a loud frame. This keeps a
             // speaker echo, notification click, or key tone from cancelling TTS.
             val requiredFrames = when {
-                manualHold && strongSpeech -> 3
-                interruptWindow && strongSpeech -> 4
-                interruptWindow -> 6
+                manualHold && strongSpeech -> 2
+                interruptWindow && strongSpeech -> 3
+                interruptWindow -> 4
                 else -> REQUIRED_INTERRUPT_FRAMES
             }
             if (loudFrames >= requiredFrames && !localSpeechActive) {
@@ -874,8 +874,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         // bringing barge-in onset below 100 ms after the echo settling window.
         const val REQUIRED_INTERRUPT_FRAMES = 3
         const val ECHO_WARMUP_MS = 160L
-        const val CANDIDATE_RESUME_MS = 420L
-        const val CANDIDATE_ACTIVE_RECHECK_MS = 160L
+        const val CANDIDATE_RESUME_MS = 280L
+        const val CANDIDATE_ACTIVE_RECHECK_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L
         const val OUTPUT_ACTIVITY_INTERVAL_MS = 750L
         const val EMPHASIS_COOLDOWN_MS = 420L

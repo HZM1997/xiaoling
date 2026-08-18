@@ -1136,9 +1136,14 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (!voiceSessionActive || realtimeActive || recognitionActive || !speaking || !AppForeground.active || !speech.isAvailable) return
         viewModelScope.launch { BrainClient.qualityEvent(app, "barge_in_legacy", latencyMs, true) }
         // A level spike is only a candidate. Start ASR while TTS continues;
-        // onPartial/onText will stop the utterance once real words arrive.
+        // the detector has already required a stable speech burst, so stop
+        // immediately. ASR still confirms the instruction and can resume the
+        // saved sentence when the burst turns out to be speaker echo.
         awaitingLegacyBargeIn = true
         bargeIn.stop()
+        curUtt = ""
+        tts.stop()
+        speaking = false
         _state.update { it.copy(speaking = false, listening = true, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
         if (voiceSessionActive && !realtimeActive && !recognitionActive && AppForeground.active) {

@@ -256,12 +256,6 @@ private fun AvatarFallback(
             kotlin.math.sin((microPhase * 2.13f).toDouble()) * 0.72
         val blink = blinkSignal > 1.56
         rotate(headTilt / scale, faceCenter) {
-            drawRoundRect(frameLight.copy(alpha = 0.18f), faceTopLeft - Offset(8f * scale, 8f * scale),
-                Size(faceSize.width + 16f * scale, faceSize.height + 16f * scale), outerRadius,
-                style = Stroke(8f * scale))
-            drawRoundRect(frameLight.copy(alpha = 0.48f), faceTopLeft - Offset(3f * scale, 3f * scale),
-                Size(faceSize.width + 6f * scale, faceSize.height + 6f * scale), outerRadius,
-                style = Stroke(4f * scale))
             drawRoundRect(brush = Brush.linearGradient(listOf(frame, frameLight)), topLeft = faceTopLeft,
                 size = faceSize, cornerRadius = outerRadius)
             drawRoundRect(color = screen, topLeft = faceTopLeft + Offset(innerInset, innerInset),
