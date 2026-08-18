@@ -229,8 +229,8 @@ private fun AvatarFallback(
         val conversationalBeat = if (talking) kotlin.math.sin((microPhase * 2.7f).toDouble()).toFloat() else 0f
         val bob = (breath * (2.2f + poseEnergy * 2f) + conversationalBeat * 1.2f) * scale
         val faceCenter = center + Offset(0f, bob)
-        val orange = ComposeColor(0xFFF05224)
-        val orangeLight = ComposeColor(0xFFFF7A39)
+        val frame = ComposeColor(0xFFDDF2FF)
+        val frameLight = ComposeColor(0xFF8FD8FF)
         val screen = ComposeColor(0xFF050607)
         val white = ComposeColor(0xFFF9FFF9)
         val cyanGlow = ComposeColor(0xFF7FFFE8)
@@ -256,13 +256,13 @@ private fun AvatarFallback(
             kotlin.math.sin((microPhase * 2.13f).toDouble()) * 0.72
         val blink = blinkSignal > 1.56
         rotate(headTilt / scale, faceCenter) {
-            drawRoundRect(orange.copy(alpha = 0.10f), faceTopLeft - Offset(8f * scale, 8f * scale),
+            drawRoundRect(frameLight.copy(alpha = 0.18f), faceTopLeft - Offset(8f * scale, 8f * scale),
                 Size(faceSize.width + 16f * scale, faceSize.height + 16f * scale), outerRadius,
                 style = Stroke(8f * scale))
-            drawRoundRect(orange.copy(alpha = 0.22f), faceTopLeft - Offset(3f * scale, 3f * scale),
+            drawRoundRect(frameLight.copy(alpha = 0.48f), faceTopLeft - Offset(3f * scale, 3f * scale),
                 Size(faceSize.width + 6f * scale, faceSize.height + 6f * scale), outerRadius,
                 style = Stroke(4f * scale))
-            drawRoundRect(brush = Brush.linearGradient(listOf(orange, orangeLight)), topLeft = faceTopLeft,
+            drawRoundRect(brush = Brush.linearGradient(listOf(frame, frameLight)), topLeft = faceTopLeft,
                 size = faceSize, cornerRadius = outerRadius)
             drawRoundRect(color = screen, topLeft = faceTopLeft + Offset(innerInset, innerInset),
                 size = Size(faceSize.width - innerInset * 2, faceSize.height - innerInset * 2),
@@ -319,8 +319,8 @@ private fun AvatarFallback(
             }
 
             if (emotion == "shy" || emotion == "love") {
-                drawCircle(orangeLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(-78f * scale, 20f * scale))
-                drawCircle(orangeLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(78f * scale, 20f * scale))
+                drawCircle(frameLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(-78f * scale, 20f * scale))
+                drawCircle(frameLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(78f * scale, 20f * scale))
             }
 
             val mouthCenter = faceCenter + Offset(0f, 46f * scale)
@@ -349,10 +349,6 @@ private fun AvatarFallback(
                         Size(smileWidth * scale, 34f * scale), style = Stroke(6f * scale, cap = StrokeCap.Round))
                 }
             }
-        }
-        if (state == "listen" || talking) {
-            val pulse = (137f + breath * 8f + voiceLevel * 5f) * scale
-            drawCircle(orangeLight.copy(alpha = .22f), pulse, faceCenter, style = Stroke(2f * scale))
         }
     }
 }

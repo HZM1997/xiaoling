@@ -25,7 +25,7 @@ scene.add(new THREE.HemisphereLight(0xffffff,0x1b0902,2.1));
 const key=new THREE.DirectionalLight(0xff7b42,3.2);key.position.set(3,4,5);scene.add(key);
 const rim=new THREE.DirectionalLight(0x65ffe5,1.05);rim.position.set(-3,1,3);scene.add(rim);
 
-const orange=new THREE.MeshStandardMaterial({color:0xf05224,emissive:0xa92808,emissiveIntensity:.52,roughness:.32,metalness:.12});
+const frame=new THREE.MeshStandardMaterial({color:0xdff3ff,emissive:0x63c7ff,emissiveIntensity:.52,roughness:.32,metalness:.12});
 const black=new THREE.MeshStandardMaterial({color:0x020304,roughness:.28,metalness:.18});
 const glow=new THREE.MeshBasicMaterial({color:0xfafffb,transparent:true,opacity:1});
 const coolGlow=new THREE.MeshBasicMaterial({color:0x7fffe8,transparent:true,opacity:.18,depthWrite:false});
@@ -53,7 +53,7 @@ function glowOval(root,w,h){
 }
 
 const avatar=new THREE.Group();scene.add(avatar);
-const shell=plate(2.24,1.88,.43,.28,orange);avatar.add(shell);
+const shell=plate(2.24,1.88,.43,.28,frame);avatar.add(shell);
 const screen=plate(1.98,1.62,.34,.16,black);screen.position.z=.20;avatar.add(screen);
 const sheen=plate(1.70,.26,.12,.012,new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.025}));
 sheen.position.set(0,.55,.31);avatar.add(sheen);
@@ -90,8 +90,19 @@ window.XLAvatar={
 };
 
 const clock=new THREE.Clock();
-function resize(){const w=Math.max(1,innerWidth),h=Math.max(1,innerHeight),a=w/h,vh=a<.75?2.75:2.48,vw=vh*a;renderer.setSize(w,h,false);camera.left=-vw/2;camera.right=vw/2;camera.top=vh/2;camera.bottom=-vh/2;camera.updateProjectionMatrix()}
-addEventListener('resize',resize);resize();
+function resize(){
+  const rect=canvas.getBoundingClientRect(),w=Math.max(1,rect.width||innerWidth),h=Math.max(1,rect.height||innerHeight),a=w/h;
+  // The face is wider than it is tall. On a narrow phone the viewport must
+  // reserve enough world-space width first, otherwise the eyes and cheeks
+  // are clipped even though the canvas itself has the correct size.
+  const vw=Math.max(2.72,2.48*a),vh=vw/a;
+  renderer.setSize(w,h,false);camera.left=-vw/2;camera.right=vw/2;camera.top=vh/2;camera.bottom=-vh/2;camera.lookAt(0,0,0);camera.updateProjectionMatrix();
+  // Extruded rounded plates have a small legacy-origin offset on narrow
+  // WebView projections. Compensate it only in portrait mode so both eyes
+  // and the full blue frame remain visible.
+  avatar.position.x=a<.75?-0.02:0;
+}
+addEventListener('resize',resize);new ResizeObserver(resize).observe(canvas);resize();
 function animate(){
   requestAnimationFrame(animate);const dt=Math.min(clock.getDelta(),.05);elapsed+=dt;
   if(elapsed>=blinkAt&&blinkPhase<0)blinkPhase=0;let blink=0;
@@ -119,7 +130,7 @@ function animate(){
   face.rotation.x=(emotion==='sad'?.07:emotion==='relieved'?-.018:0)-em*.035;face.rotation.y=gazeX*.35;
   avatar.position.y=Math.sin(elapsed*.80)*.025;avatar.rotation.y=Math.sin(elapsed*.31)*.025;
   avatar.rotation.z=(talking?Math.sin(elapsed*2.7)*.009:0)+em*.018;
-  orange.emissiveIntensity=(state==='alarm'||emotion==='warning'?1.0:.48)+voice*.38;
+  frame.emissiveIntensity=(state==='alarm'||emotion==='warning'?1.0:.48)+voice*.38;
   renderer.render(scene,camera);
 }
 animate();renderer.render(scene,camera);window.XiaolingNative?.ready();
