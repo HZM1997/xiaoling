@@ -29,12 +29,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaoling.core.MascotState
 
@@ -217,62 +219,32 @@ private fun AvatarFallback(
         animationSpec = infiniteRepeatable(tween(5300)),
         label = "avatar-fallback-micro-phase",
     )
-    val pose = remember(state, emotion) { nativeAvatarPose(state, emotion) }
+    val pose = remember(state, emotion) { robotFacePose(state, emotion) }
     val poseTilt by animateFloatAsState(pose.headTilt, tween(340), label = "avatar-head-tilt")
-    val poseLean by animateFloatAsState(pose.bodyLean, tween(420), label = "avatar-body-lean")
     val poseEnergy by animateFloatAsState(pose.energy, tween(300), label = "avatar-pose-energy")
     Canvas(modifier) {
-        val center = Offset(size.width / 2f, size.height * 0.49f)
+        val center = Offset(size.width / 2f, size.height * 0.48f)
         val scale = minOf(size.width, size.height) / 360f
         val breath = kotlin.math.sin(phase.toDouble()).toFloat()
         val conversationalBeat = if (talking) kotlin.math.sin((microPhase * 2.7f).toDouble()).toFloat() else 0f
-        val bob = (breath * (2.6f + poseEnergy * 2.2f) + conversationalBeat * 1.8f) * scale
-        val bodyShift = poseLean * scale + kotlin.math.sin((microPhase * 0.43f).toDouble()).toFloat() * 1.3f * scale
-        val headCenter = center + Offset(bodyShift * 0.45f, -52f * scale + bob)
-        val bodyTop = center.y + 34f * scale + bob
-        val teal = ComposeColor(0xFF167C87)
-        val lightTeal = ComposeColor(0xFF5AD6C3)
-        val dark = ComposeColor(0xFF202C3A)
-        val skin = ComposeColor(0xFFF0C5B1)
-        val mouthOpen = if (talking) {
-            (6f + voiceLevel.coerceIn(0f, 1f) * 16f + mouthRound.coerceIn(0f, 1f) * 5f +
-                kotlin.math.abs(conversationalBeat) * 1.6f) * scale
-        } else 4f * scale
+        val bob = (breath * (2.2f + poseEnergy * 2f) + conversationalBeat * 1.2f) * scale
+        val faceCenter = center + Offset(0f, bob)
+        val orange = ComposeColor(0xFFF05224)
+        val orangeLight = ComposeColor(0xFFFF7A39)
+        val screen = ComposeColor(0xFF050607)
+        val white = ComposeColor(0xFFF9FFF9)
+        val cyanGlow = ComposeColor(0xFF7FFFE8)
+        val warmGlow = ComposeColor(0xFFFFC268)
         val emphasisPose = when (emphasisTick % 4) { 1 -> -2.5f; 2 -> 2f; 3 -> -1f; else -> 0f }
-        val headTilt = (poseTilt + emphasisPose +
-            kotlin.math.sin((microPhase * 0.61f).toDouble()).toFloat() * poseEnergy * 1.4f) * scale
-        val faceCenter = headCenter + Offset(headTilt, 0f)
-
-        drawCircle(color = ComposeColor(0x1422A6A2), radius = 130f * scale, center = center + Offset(0f, bob))
-        val shoulderY = bodyTop + 34f * scale
-        val leftShoulder = Offset(center.x - 66f * scale + bodyShift, shoulderY)
-        val rightShoulder = Offset(center.x + 66f * scale + bodyShift, shoulderY)
-        val leftHand = Offset(
-            center.x + pose.leftHandX * scale + bodyShift,
-            center.y + pose.leftHandY * scale + bob,
-        )
-        val rightHand = Offset(
-            center.x + pose.rightHandX * scale + bodyShift,
-            center.y + pose.rightHandY * scale + bob,
-        )
-        val gesture = if (talking) conversationalBeat * 5f * scale else breath * 1.5f * scale
-        drawLine(teal, leftShoulder, leftHand + Offset(0f, gesture), 24f * scale, StrokeCap.Round)
-        drawLine(teal, rightShoulder, rightHand + Offset(0f, -gesture), 24f * scale, StrokeCap.Round)
-        drawCircle(skin, 10f * scale, leftHand + Offset(0f, gesture))
-        drawCircle(skin, 10f * scale, rightHand + Offset(0f, -gesture))
-        drawRoundRect(
-            color = teal,
-            topLeft = Offset(center.x - (82f + breath * 1.2f) * scale + bodyShift, bodyTop),
-            size = Size((164f + breath * 2.4f) * scale, 154f * scale),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(52f * scale, 52f * scale),
-        )
-        drawCircle(color = dark, radius = 74f * scale, center = faceCenter)
-        drawCircle(color = skin, radius = 62f * scale, center = faceCenter + Offset(0f, 7f * scale))
-        drawArc(
-            color = dark, startAngle = 184f, sweepAngle = 172f, useCenter = true,
-            topLeft = faceCenter + Offset(-68f * scale, -72f * scale),
-            size = Size(136f * scale, 95f * scale),
-        )
+        val headTilt = (
+            poseTilt + emphasisPose +
+                kotlin.math.sin((microPhase * 0.61f).toDouble()).toFloat() * poseEnergy * 1.4f
+            ) * scale
+        val faceSize = Size(238f * scale, 205f * scale)
+        val faceTopLeft = faceCenter - Offset(faceSize.width / 2f, faceSize.height / 2f)
+        val outerRadius = androidx.compose.ui.geometry.CornerRadius(57f * scale, 57f * scale)
+        val innerInset = 13f * scale
+        val innerRadius = androidx.compose.ui.geometry.CornerRadius(45f * scale, 45f * scale)
         val naturalGaze = kotlin.math.sin((microPhase * 0.39f).toDouble()).toFloat() * 2.2f
         val eyeShift = when {
             emotion == "thinking" -> Offset(4f + naturalGaze, -4f)
@@ -283,126 +255,157 @@ private fun AvatarFallback(
         val blinkSignal = kotlin.math.sin((phase * 1.17f).toDouble()) +
             kotlin.math.sin((microPhase * 2.13f).toDouble()) * 0.72
         val blink = blinkSignal > 1.56
-        listOf(-1f, 1f).forEachIndexed { index, side ->
-            val eyeCenter = faceCenter + Offset(side * 24f * scale + eyeShift.x * scale, (5f + eyeShift.y) * scale)
-            val closed = blink || emotion == "sleepy" || (emotion == "playful" && index == 1)
-            when {
-                emotion == "love" -> drawHeart(eyeCenter, 12f * scale, ComposeColor(0xFFE64D74))
-                emotion == "happy" || emotion == "proud" -> drawArc(
-                    color = dark, startAngle = 200f, sweepAngle = 140f, useCenter = false,
-                    topLeft = eyeCenter - Offset(13f * scale, 5f * scale),
-                    size = Size(26f * scale, 15f * scale), style = Stroke(4f * scale, cap = StrokeCap.Round),
-                )
-                closed -> drawLine(
-                    color = dark,
-                    start = eyeCenter - Offset(10f * scale, 0f),
-                    end = eyeCenter + Offset(10f * scale, if (emotion == "playful") -3f * scale else 0f),
-                    strokeWidth = 4f * scale, cap = StrokeCap.Round,
-                )
-                else -> {
-                    val eyeHeight = when (emotion) {
-                        "surprised", "curious" -> 15f
-                        "serious", "warning" -> 8f
-                        "sad", "caring" -> 11f
-                        else -> 13f
+        rotate(headTilt / scale, faceCenter) {
+            drawRoundRect(orange.copy(alpha = 0.10f), faceTopLeft - Offset(8f * scale, 8f * scale),
+                Size(faceSize.width + 16f * scale, faceSize.height + 16f * scale), outerRadius,
+                style = Stroke(8f * scale))
+            drawRoundRect(orange.copy(alpha = 0.22f), faceTopLeft - Offset(3f * scale, 3f * scale),
+                Size(faceSize.width + 6f * scale, faceSize.height + 6f * scale), outerRadius,
+                style = Stroke(4f * scale))
+            drawRoundRect(brush = Brush.linearGradient(listOf(orange, orangeLight)), topLeft = faceTopLeft,
+                size = faceSize, cornerRadius = outerRadius)
+            drawRoundRect(color = screen, topLeft = faceTopLeft + Offset(innerInset, innerInset),
+                size = Size(faceSize.width - innerInset * 2, faceSize.height - innerInset * 2),
+                cornerRadius = innerRadius)
+            drawRoundRect(color = ComposeColor.White.copy(alpha = 0.035f),
+                topLeft = faceTopLeft + Offset(innerInset + 8f * scale, innerInset + 7f * scale),
+                size = Size(faceSize.width - (innerInset + 8f * scale) * 2, 28f * scale),
+                cornerRadius = innerRadius)
+
+            listOf(-1f, 1f).forEachIndexed { index, side ->
+                val eyeCenter = faceCenter + Offset(side * 50f * scale + eyeShift.x * scale,
+                    (-31f + eyeShift.y + if (emotion == "confused" && index == 1) 5f else 0f) * scale)
+                val closed = blink || emotion == "sleepy" || (emotion == "playful" && index == 1)
+                when {
+                    emotion == "love" -> {
+                        drawHeart(eyeCenter, 17f * scale, warmGlow.copy(alpha = .24f))
+                        drawHeart(eyeCenter, 13f * scale, white)
+                    }
+                    emotion in setOf("happy", "proud") || closed -> {
+                        drawArc(cyanGlow.copy(alpha = .22f), 195f, 150f, false,
+                            eyeCenter - Offset(20f * scale, 7f * scale), Size(40f * scale, 22f * scale),
+                            style = Stroke(10f * scale, cap = StrokeCap.Round))
+                        drawArc(white, 195f, 150f, false,
+                            eyeCenter - Offset(18f * scale, 6f * scale), Size(36f * scale, 19f * scale),
+                            style = Stroke(6f * scale, cap = StrokeCap.Round))
+                    }
+                    else -> {
+                        val eyeWidth = (if (emotion in setOf("surprised", "curious")) 38f else 34f) * scale
+                        val eyeHeight = when (emotion) {
+                            "surprised" -> 38f
+                            "curious" -> 34f
+                            "warning", "serious" -> 22f
+                            "sad", "caring" -> 27f
+                            else -> 31f
+                        } * scale * pose.eyeOpen
+                        drawGlowOval(eyeCenter, Size(eyeWidth, eyeHeight), white, cyanGlow, warmGlow)
+                    }
+                }
+                if (emotion in setOf("warning", "serious", "confused")) {
+                    val browY = eyeCenter.y - 27f * scale
+                    val slope = when (emotion) {
+                        "confused" -> if (index == 0) -7f else 4f
+                        else -> if (index == 0) 8f else -8f
                     } * scale
-                    drawOval(
-                        color = ComposeColor.White,
-                        topLeft = eyeCenter - Offset(13f * scale, eyeHeight),
-                        size = Size(26f * scale, eyeHeight * 2f),
-                    )
-                    val pupilY = if (emotion == "sad") 3f else 0f
-                    drawCircle(color = ComposeColor(0xFF237F8A), radius = 7f * scale,
-                        center = eyeCenter + Offset(0f, pupilY * scale))
-                    drawCircle(color = ComposeColor.White, radius = 2f * scale,
-                        center = eyeCenter + Offset(-2f * scale, -2f * scale + pupilY * scale))
+                    drawLine(white.copy(alpha = .30f), eyeCenter + Offset(-16f * scale, -26f * scale),
+                        Offset(eyeCenter.x + 16f * scale, browY + slope), 8f * scale, StrokeCap.Round)
+                    drawLine(white, eyeCenter + Offset(-15f * scale, -26f * scale),
+                        Offset(eyeCenter.x + 15f * scale, browY + slope), 4f * scale, StrokeCap.Round)
+                }
+                if ((emotion == "sad" || emotion == "caring") && index == 0) {
+                    drawOval(cyanGlow.copy(alpha = .32f), eyeCenter + Offset(-25f * scale, 20f * scale), Size(10f * scale, 22f * scale))
+                    drawOval(white.copy(alpha = .9f), eyeCenter + Offset(-23f * scale, 21f * scale), Size(6f * scale, 17f * scale))
                 }
             }
-            val browLift = when (emotion) {
-                "surprised", "curious" -> -10f
-                "sad", "caring" -> if (side < 0) -2f else -2f
-                "serious", "warning" -> 3f
-                "confused" -> if (side < 0) -10f else 2f
-                else -> -5f
+
+            if (emotion == "shy" || emotion == "love") {
+                drawCircle(orangeLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(-78f * scale, 20f * scale))
+                drawCircle(orangeLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(78f * scale, 20f * scale))
             }
-            val browSlope = when (emotion) {
-                "sad", "caring" -> side * 5f
-                "serious", "warning" -> -side * 5f
-                "confused" -> side * 3f
-                else -> 0f
-            }
-            drawLine(
-                color = dark,
-                start = faceCenter + Offset((side * 24f - 10f) * scale, browLift * scale),
-                end = faceCenter + Offset((side * 24f + 10f) * scale, (browLift + browSlope) * scale),
-                strokeWidth = 4f * scale, cap = StrokeCap.Round,
-            )
-            if ((emotion == "sad" || emotion == "caring") && index == 1) {
-                drawOval(ComposeColor(0xFF69BDE5).copy(alpha = 0.82f),
-                    topLeft = eyeCenter + Offset(4f * scale, 13f * scale),
-                    size = Size(5f * scale, 10f * scale))
+
+            val mouthCenter = faceCenter + Offset(0f, 46f * scale)
+            val audioOpen = (voiceLevel.coerceIn(0f, 1f) * 32f + kotlin.math.abs(conversationalBeat) * 4f)
+            when {
+                talking -> {
+                    val width = (56f + mouthWide.coerceIn(0f, 1f) * 35f - mouthRound.coerceIn(0f, 1f) * 18f) * scale
+                    val height = (12f + audioOpen + mouthRound.coerceIn(0f, 1f) * 15f).coerceAtMost(54f) * scale
+                    drawGlowRoundRect(mouthCenter, Size(width, height), white, cyanGlow, warmGlow)
+                }
+                emotion == "surprised" -> drawGlowRoundRect(mouthCenter, Size(30f * scale, 55f * scale), white, cyanGlow, warmGlow)
+                emotion in setOf("warning", "serious") -> drawGlowRoundRect(mouthCenter, Size(88f * scale, 18f * scale), white, cyanGlow, warmGlow)
+                emotion in setOf("sad", "caring", "confused") -> {
+                    drawLine(cyanGlow.copy(alpha = .25f), mouthCenter - Offset(25f * scale, 0f),
+                        mouthCenter + Offset(25f * scale, 0f), 10f * scale, StrokeCap.Round)
+                    drawLine(white, mouthCenter - Offset(22f * scale, 0f), mouthCenter + Offset(22f * scale, 0f),
+                        5f * scale, StrokeCap.Round)
+                }
+                else -> {
+                    val smileWidth = if (emotion in setOf("happy", "love", "playful", "proud", "warm")) 86f else 68f
+                    drawArc(cyanGlow.copy(alpha = .22f), 8f, 164f, false,
+                        mouthCenter - Offset(smileWidth * .5f * scale, 18f * scale),
+                        Size(smileWidth * scale, 36f * scale), style = Stroke(11f * scale, cap = StrokeCap.Round))
+                    drawArc(white, 8f, 164f, false,
+                        mouthCenter - Offset(smileWidth * .5f * scale, 17f * scale),
+                        Size(smileWidth * scale, 34f * scale), style = Stroke(6f * scale, cap = StrokeCap.Round))
+                }
             }
         }
-        if (emotion == "shy" || emotion == "love") {
-            drawCircle(ComposeColor(0x55ED6E8C), 10f * scale, faceCenter + Offset(-42f * scale, 24f * scale))
-            drawCircle(ComposeColor(0x55ED6E8C), 10f * scale, faceCenter + Offset(42f * scale, 24f * scale))
-        }
-        if (talking || emotion in setOf("surprised", "warning")) {
-            val width = when (emotion) {
-                "surprised" -> 21f
-                "warning" -> 27f
-                else -> 28f + mouthWide.coerceIn(0f, 1f) * 10f - mouthRound.coerceIn(0f, 1f) * 5f
-            } * scale
-            drawRoundRect(
-                color = ComposeColor(0xFFA94459),
-                topLeft = faceCenter + Offset(-width / 2f, 31f * scale),
-                size = Size(width, if (emotion == "surprised") 18f * scale else mouthOpen),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(10f * scale, 10f * scale),
-            )
-        } else {
-            val smile = emotion in setOf("happy", "love", "proud", "playful", "shy")
-            drawArc(
-                color = ComposeColor(0xFFA94459), startAngle = if (smile) 15f else 200f,
-                sweepAngle = if (smile) 150f else 140f, useCenter = false,
-                topLeft = faceCenter + Offset(-17f * scale, 26f * scale),
-                size = Size(34f * scale, 18f * scale), style = Stroke(4f * scale, cap = StrokeCap.Round),
-            )
-        }
-        drawCircle(color = lightTeal, radius = (10f + voiceLevel * 5f) * scale, center = Offset(center.x, bodyTop + 56f * scale))
-        drawCircle(color = ComposeColor(0x3326A79B), radius = 14f * scale, center = Offset(center.x, bodyTop + 56f * scale), style = Stroke(2f * scale))
         if (state == "listen" || talking) {
-            val radius = (100f + kotlin.math.sin(phase.toDouble()).toFloat() * 8f) * scale
-            drawCircle(color = lightTeal.copy(alpha = 0.38f), radius = radius, center = center + Offset(0f, bob), style = Stroke(2f * scale, cap = StrokeCap.Round))
+            val pulse = (137f + breath * 8f + voiceLevel * 5f) * scale
+            drawCircle(orangeLight.copy(alpha = .22f), pulse, faceCenter, style = Stroke(2f * scale))
         }
     }
 }
 
-private data class NativeAvatarPose(
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGlowOval(
+    center: Offset, size: Size, core: ComposeColor, cool: ComposeColor, warm: ComposeColor,
+) {
+    drawOval(
+        warm.copy(alpha = .12f),
+        center - Offset(size.width * .66f, size.height * .66f),
+        Size(size.width * 1.32f, size.height * 1.32f),
+    )
+    drawOval(
+        cool.copy(alpha = .22f),
+        center - Offset(size.width * .58f, size.height * .58f),
+        Size(size.width * 1.16f, size.height * 1.16f),
+    )
+    drawOval(core, center - Offset(size.width / 2f, size.height / 2f), size)
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGlowRoundRect(
+    center: Offset, size: Size, core: ComposeColor, cool: ComposeColor, warm: ComposeColor,
+) {
+    val radius = androidx.compose.ui.geometry.CornerRadius(size.height * .46f)
+    drawRoundRect(warm.copy(alpha = .12f), center - Offset(size.width * .57f, size.height * .67f),
+        Size(size.width * 1.14f, size.height * 1.34f), radius)
+    drawRoundRect(cool.copy(alpha = .24f), center - Offset(size.width * .54f, size.height * .60f),
+        Size(size.width * 1.08f, size.height * 1.20f), radius)
+    drawRoundRect(core, center - Offset(size.width / 2f, size.height / 2f), size, radius)
+}
+
+private data class RobotFacePose(
     val headTilt: Float = 0f,
-    val bodyLean: Float = 0f,
     val energy: Float = 0.35f,
-    val leftHandX: Float = -88f,
-    val leftHandY: Float = 105f,
-    val rightHandX: Float = 88f,
-    val rightHandY: Float = 105f,
+    val eyeOpen: Float = 1f,
 )
 
-private fun nativeAvatarPose(state: String, emotion: String): NativeAvatarPose = when (emotion) {
-    "happy", "love" -> NativeAvatarPose(-2f, 0f, 1f, -108f, 48f, 108f, 45f)
-    "playful", "shy" -> NativeAvatarPose(-6f, -3f, 0.72f, -92f, 94f, 82f, 58f)
-    "surprised", "curious" -> NativeAvatarPose(4f, 2f, 0.9f, -103f, 67f, 103f, 67f)
-    "confused" -> NativeAvatarPose(8f, 4f, 0.52f, -86f, 102f, 76f, 31f)
-    "thinking" -> NativeAvatarPose(5f, 3f, 0.28f, -86f, 103f, 48f, -5f)
-    "explaining" -> NativeAvatarPose(-2f, -2f, 0.82f, -94f, 88f, 112f, 48f)
-    "warning", "serious" -> NativeAvatarPose(0f, 0f, 0.76f, -82f, 100f, 105f, 28f)
-    "sad", "caring" -> NativeAvatarPose(4f, 3f, 0.20f, -72f, 91f, 72f, 91f)
-    "sleepy" -> NativeAvatarPose(5f, 4f, 0.08f, -70f, 108f, 70f, 108f)
-    "proud", "warm" -> NativeAvatarPose(-2f, -1f, 0.62f, -98f, 74f, 96f, 75f)
-    "attentive" -> NativeAvatarPose(-3f, -2f, 0.46f, -84f, 99f, 68f, 23f)
+private fun robotFacePose(state: String, emotion: String): RobotFacePose = when (emotion) {
+    "happy", "love" -> RobotFacePose(-2f, 1f, .9f)
+    "playful", "shy" -> RobotFacePose(-6f, .72f, .88f)
+    "surprised", "curious" -> RobotFacePose(4f, .9f, 1.12f)
+    "confused" -> RobotFacePose(8f, .52f, .94f)
+    "thinking" -> RobotFacePose(5f, .28f, .82f)
+    "explaining" -> RobotFacePose(-2f, .82f, 1f)
+    "warning", "serious" -> RobotFacePose(0f, .76f, .72f)
+    "sad", "caring" -> RobotFacePose(4f, .20f, .82f)
+    "sleepy" -> RobotFacePose(5f, .08f, .35f)
+    "proud", "warm" -> RobotFacePose(-2f, .62f, .92f)
+    "attentive" -> RobotFacePose(-3f, .46f, 1.05f)
     else -> when (state) {
-        "talk" -> NativeAvatarPose(-1f, -1f, 0.58f, -94f, 86f, 96f, 74f)
-        "listen" -> NativeAvatarPose(-3f, -2f, 0.45f, -86f, 100f, 68f, 24f)
-        else -> NativeAvatarPose()
+        "talk" -> RobotFacePose(-1f, .58f, 1f)
+        "listen" -> RobotFacePose(-3f, .45f, 1.06f)
+        else -> RobotFacePose()
     }
 }
 
@@ -427,6 +430,7 @@ private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): 
     val value = text.lowercase()
     return when {
         listOf("危险", "诈骗", "报警", "立即停止", "警告", "不要转账", "可疑链接").any(value::contains) -> "warning"
+        listOf("生气", "愤怒", "太过分", "不可以", "必须注意", "严肃").any(value::contains) -> "serious"
         listOf("难过", "伤心", "想哭", "失去", "遗憾", "去世").any(value::contains) -> "sad"
         listOf("担心", "害怕", "不舒服", "疼", "抱歉", "陪着您", "别着急").any(value::contains) -> "caring"
         listOf("爱你", "想你", "喜欢你", "么么", "亲爱的", "真暖心").any(value::contains) -> "love"
@@ -434,6 +438,7 @@ private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): 
         listOf("哈哈", "逗你", "开玩笑", "调皮", "嘿嘿").any(value::contains) -> "playful"
         listOf("太好了", "开心", "恭喜", "真棒", "成功了", "完成了").any(value::contains) -> "happy"
         listOf("放心", "没问题", "交给我", "当然可以", "已经办好").any(value::contains) -> "proud"
+        listOf("谢谢", "感谢", "不客气", "很高兴帮到", "慢慢来").any(value::contains) -> "warm"
         listOf("原来", "竟然", "真的吗", "没想到", "哇", "居然").any(value::contains) -> "surprised"
         listOf("什么意思", "不太明白", "再说一遍", "没听清", "哪个", "怎么会").any(value::contains) -> "confused"
         value.contains("?") || value.contains("？") || listOf("您是说", "您想", "要不要").any(value::contains) -> "curious"
