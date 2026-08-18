@@ -61,6 +61,9 @@ class CloudAsrRecorder(private val ctx: Context) {
         onText: (String) -> Unit,
         onError: (Int) -> Unit
     ) {
+        // Permission can be revoked after start() but before this worker runs.
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) !=
+            PackageManager.PERMISSION_GRANTED) return fail(onError, SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS)
         val sampleRate = 16000
         val minBytes = AudioRecord.getMinBufferSize(
             sampleRate,

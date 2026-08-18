@@ -65,7 +65,7 @@ class WakeService : Service() {
         try {
             // Android 10+ requires the foreground-service type to match the
             // microphone declaration. Promote before any recognizer work.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 startForeground(
                     NOTIF_ID,
                     buildNotification(),
@@ -242,18 +242,25 @@ class WakeService : Service() {
         } catch (_: Throwable) { false }
         val preferOnDevice = onDevice && !com.xiaoling.core.NetworkStatus.isOnline(this)
         val creators = buildList<() -> SpeechRecognizer> {
-            if (preferOnDevice) add { SpeechRecognizer.createOnDeviceSpeechRecognizer(this@WakeService) }
+            if (preferOnDevice) add { createOnDeviceRecognizer() }
             services.forEach { service ->
                 add { SpeechRecognizer.createSpeechRecognizer(this@WakeService, service) }
             }
             if (standard) add { SpeechRecognizer.createSpeechRecognizer(this@WakeService) }
             if (onDevice && !preferOnDevice) {
-                add { SpeechRecognizer.createOnDeviceSpeechRecognizer(this@WakeService) }
+                add { createOnDeviceRecognizer() }
             }
         }
         if (creators.isEmpty()) throw IllegalStateException("No speech recognition service")
         recognizerAttempt = recognizerAttempt.mod(creators.size)
         return creators[recognizerAttempt].invoke()
+    }
+
+    private fun createOnDeviceRecognizer(): SpeechRecognizer {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            throw IllegalStateException("On-device recognition requires Android 12")
+        }
+        return SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
     }
 
     private fun recognitionServices(): List<ComponentName> {

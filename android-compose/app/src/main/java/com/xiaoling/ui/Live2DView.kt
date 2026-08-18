@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -207,36 +208,62 @@ private fun AvatarFallback(
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = (Math.PI * 2).toFloat(),
-        animationSpec = infiniteRepeatable(tween(2300)),
+        animationSpec = infiniteRepeatable(tween(3100)),
         label = "avatar-fallback-phase",
     )
+    val microPhase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2).toFloat(),
+        animationSpec = infiniteRepeatable(tween(5300)),
+        label = "avatar-fallback-micro-phase",
+    )
+    val pose = remember(state, emotion) { nativeAvatarPose(state, emotion) }
+    val poseTilt by animateFloatAsState(pose.headTilt, tween(340), label = "avatar-head-tilt")
+    val poseLean by animateFloatAsState(pose.bodyLean, tween(420), label = "avatar-body-lean")
+    val poseEnergy by animateFloatAsState(pose.energy, tween(300), label = "avatar-pose-energy")
     Canvas(modifier) {
         val center = Offset(size.width / 2f, size.height * 0.49f)
         val scale = minOf(size.width, size.height) / 360f
-        val bob = kotlin.math.sin(phase.toDouble()).toFloat() * 5f * scale
-        val headCenter = center + Offset(0f, -52f * scale + bob)
+        val breath = kotlin.math.sin(phase.toDouble()).toFloat()
+        val conversationalBeat = if (talking) kotlin.math.sin((microPhase * 2.7f).toDouble()).toFloat() else 0f
+        val bob = (breath * (2.6f + poseEnergy * 2.2f) + conversationalBeat * 1.8f) * scale
+        val bodyShift = poseLean * scale + kotlin.math.sin((microPhase * 0.43f).toDouble()).toFloat() * 1.3f * scale
+        val headCenter = center + Offset(bodyShift * 0.45f, -52f * scale + bob)
         val bodyTop = center.y + 34f * scale + bob
         val teal = ComposeColor(0xFF167C87)
         val lightTeal = ComposeColor(0xFF5AD6C3)
         val dark = ComposeColor(0xFF202C3A)
         val skin = ComposeColor(0xFFF0C5B1)
         val mouthOpen = if (talking) {
-            (8f + voiceLevel.coerceIn(0f, 1f) * 15f + mouthRound.coerceIn(0f, 1f) * 4f) * scale
+            (6f + voiceLevel.coerceIn(0f, 1f) * 16f + mouthRound.coerceIn(0f, 1f) * 5f +
+                kotlin.math.abs(conversationalBeat) * 1.6f) * scale
         } else 4f * scale
         val emphasisPose = when (emphasisTick % 4) { 1 -> -2.5f; 2 -> 2f; 3 -> -1f; else -> 0f }
-        val headTilt = when (emotion) {
-            "confused" -> 7f
-            "shy", "playful" -> -5f
-            "sad", "sleepy" -> 3f
-            else -> emphasisPose
-        } * scale
+        val headTilt = (poseTilt + emphasisPose +
+            kotlin.math.sin((microPhase * 0.61f).toDouble()).toFloat() * poseEnergy * 1.4f) * scale
         val faceCenter = headCenter + Offset(headTilt, 0f)
 
         drawCircle(color = ComposeColor(0x1422A6A2), radius = 130f * scale, center = center + Offset(0f, bob))
+        val shoulderY = bodyTop + 34f * scale
+        val leftShoulder = Offset(center.x - 66f * scale + bodyShift, shoulderY)
+        val rightShoulder = Offset(center.x + 66f * scale + bodyShift, shoulderY)
+        val leftHand = Offset(
+            center.x + pose.leftHandX * scale + bodyShift,
+            center.y + pose.leftHandY * scale + bob,
+        )
+        val rightHand = Offset(
+            center.x + pose.rightHandX * scale + bodyShift,
+            center.y + pose.rightHandY * scale + bob,
+        )
+        val gesture = if (talking) conversationalBeat * 5f * scale else breath * 1.5f * scale
+        drawLine(teal, leftShoulder, leftHand + Offset(0f, gesture), 24f * scale, StrokeCap.Round)
+        drawLine(teal, rightShoulder, rightHand + Offset(0f, -gesture), 24f * scale, StrokeCap.Round)
+        drawCircle(skin, 10f * scale, leftHand + Offset(0f, gesture))
+        drawCircle(skin, 10f * scale, rightHand + Offset(0f, -gesture))
         drawRoundRect(
             color = teal,
-            topLeft = Offset(center.x - 82f * scale, bodyTop),
-            size = Size(164f * scale, 154f * scale),
+            topLeft = Offset(center.x - (82f + breath * 1.2f) * scale + bodyShift, bodyTop),
+            size = Size((164f + breath * 2.4f) * scale, 154f * scale),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(52f * scale, 52f * scale),
         )
         drawCircle(color = dark, radius = 74f * scale, center = faceCenter)
@@ -246,13 +273,16 @@ private fun AvatarFallback(
             topLeft = faceCenter + Offset(-68f * scale, -72f * scale),
             size = Size(136f * scale, 95f * scale),
         )
+        val naturalGaze = kotlin.math.sin((microPhase * 0.39f).toDouble()).toFloat() * 2.2f
         val eyeShift = when {
-            emotion == "thinking" -> Offset(4f, -4f)
+            emotion == "thinking" -> Offset(4f + naturalGaze, -4f)
             emotion == "shy" -> Offset(7f, 3f)
-            state == "listen" -> Offset(3f, 0f)
-            else -> Offset.Zero
+            state == "listen" -> Offset(3f + naturalGaze, 0f)
+            else -> Offset(naturalGaze, kotlin.math.sin((phase * 0.31f).toDouble()).toFloat())
         }
-        val blink = ((kotlin.math.sin(phase.toDouble() * 0.73) + 1.0) / 2.0 > 0.985)
+        val blinkSignal = kotlin.math.sin((phase * 1.17f).toDouble()) +
+            kotlin.math.sin((microPhase * 2.13f).toDouble()) * 0.72
+        val blink = blinkSignal > 1.56
         listOf(-1f, 1f).forEachIndexed { index, side ->
             val eyeCenter = faceCenter + Offset(side * 24f * scale + eyeShift.x * scale, (5f + eyeShift.y) * scale)
             val closed = blink || emotion == "sleepy" || (emotion == "playful" && index == 1)
@@ -344,6 +374,35 @@ private fun AvatarFallback(
             val radius = (100f + kotlin.math.sin(phase.toDouble()).toFloat() * 8f) * scale
             drawCircle(color = lightTeal.copy(alpha = 0.38f), radius = radius, center = center + Offset(0f, bob), style = Stroke(2f * scale, cap = StrokeCap.Round))
         }
+    }
+}
+
+private data class NativeAvatarPose(
+    val headTilt: Float = 0f,
+    val bodyLean: Float = 0f,
+    val energy: Float = 0.35f,
+    val leftHandX: Float = -88f,
+    val leftHandY: Float = 105f,
+    val rightHandX: Float = 88f,
+    val rightHandY: Float = 105f,
+)
+
+private fun nativeAvatarPose(state: String, emotion: String): NativeAvatarPose = when (emotion) {
+    "happy", "love" -> NativeAvatarPose(-2f, 0f, 1f, -108f, 48f, 108f, 45f)
+    "playful", "shy" -> NativeAvatarPose(-6f, -3f, 0.72f, -92f, 94f, 82f, 58f)
+    "surprised", "curious" -> NativeAvatarPose(4f, 2f, 0.9f, -103f, 67f, 103f, 67f)
+    "confused" -> NativeAvatarPose(8f, 4f, 0.52f, -86f, 102f, 76f, 31f)
+    "thinking" -> NativeAvatarPose(5f, 3f, 0.28f, -86f, 103f, 48f, -5f)
+    "explaining" -> NativeAvatarPose(-2f, -2f, 0.82f, -94f, 88f, 112f, 48f)
+    "warning", "serious" -> NativeAvatarPose(0f, 0f, 0.76f, -82f, 100f, 105f, 28f)
+    "sad", "caring" -> NativeAvatarPose(4f, 3f, 0.20f, -72f, 91f, 72f, 91f)
+    "sleepy" -> NativeAvatarPose(5f, 4f, 0.08f, -70f, 108f, 70f, 108f)
+    "proud", "warm" -> NativeAvatarPose(-2f, -1f, 0.62f, -98f, 74f, 96f, 75f)
+    "attentive" -> NativeAvatarPose(-3f, -2f, 0.46f, -84f, 99f, 68f, 23f)
+    else -> when (state) {
+        "talk" -> NativeAvatarPose(-1f, -1f, 0.58f, -94f, 86f, 96f, 74f)
+        "listen" -> NativeAvatarPose(-3f, -2f, 0.45f, -86f, 100f, 68f, 24f)
+        else -> NativeAvatarPose()
     }
 }
 

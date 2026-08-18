@@ -7,10 +7,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.ImageFormat
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.Rect
+import android.graphics.RadialGradient
 import android.graphics.RenderEffect
 import android.graphics.Shader
+import android.graphics.YuvImage
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
@@ -20,6 +24,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -27,12 +32,17 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.xiaoling.R
@@ -59,9 +70,11 @@ import com.xiaoling.core.CameraFilter
 import com.xiaoling.core.Screen
 import com.xiaoling.core.TactileFeedback
 import java.io.File
+import java.io.ByteArrayOutputStream
 import java.io.FileOutputStream
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -105,7 +118,19 @@ fun CameraScreen(vm: AppState) {
     var previewView by remember { mutableStateOf<PreviewView?>(null) }
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    val latestAnalysisFrame = remember { AtomicReference<Bitmap?>(null) }
+    val analysisExecutor = remember {
+        Executors.newSingleThreadExecutor { task ->
+            Thread(task, "xiaoling-camera-analysis").apply { priority = Thread.NORM_PRIORITY - 1 }
+        }
+    }
     DisposableEffect(ui.cameraLens) { onDispose { cameraProvider?.unbindAll() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            synchronized(latestAnalysisFrame) { latestAnalysisFrame.getAndSet(null)?.recycle() }
+            analysisExecutor.shutdownNow()
+        }
+    }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         if (granted) {
@@ -133,6 +158,17 @@ fun CameraScreen(vm: AppState) {
                                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                                         .setTargetResolution(android.util.Size(1440, 1920))
                                         .build()
+                                    val analysis = ImageAnalysis.Builder()
+                                        .setTargetResolution(android.util.Size(640, 480))
+                                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                                        .build()
+                                    analysis.setAnalyzer(analysisExecutor, CameraFrameAnalyzer { bitmap ->
+                                        synchronized(latestAnalysisFrame) {
+                                            latestAnalysisFrame.getAndSet(bitmap)?.recycle()
+                                        }
+                                        val observation = bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                                        vm.observeCameraFrame(observation)
+                                    })
                                     imageCapture = capture
                                     val selector = if (ui.cameraLens == "front") {
                                         CameraSelector.DEFAULT_FRONT_CAMERA
@@ -144,6 +180,7 @@ fun CameraScreen(vm: AppState) {
                                         selector,
                                         preview,
                                         capture,
+                                        analysis,
                                     )
                                 }
                             }, ContextCompat.getMainExecutor(ctx))
@@ -160,6 +197,13 @@ fun CameraScreen(vm: AppState) {
             previewView?.applyXiaolingFilter(filter, filterStrength, exposure, saturation, whitening, smoothing)
         }
         CameraFilterOverlay(filter, filterStrength, exposure, saturation, whitening)
+        if (filter != CameraFilter.Natural || whitening > 0.01f || smoothing > 0.01f) {
+            CameraLookReference(
+                filter = filter,
+                description = ui.cameraStyleDescription,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 18.dp),
+            )
+        }
 
         FlatCameraIconButton(
             icon = R.drawable.ic_close_camera,
@@ -187,8 +231,10 @@ fun CameraScreen(vm: AppState) {
         if (previewView != null) {
             var frame: android.graphics.Bitmap? = null
             for (attempt in 0 until 8) {
-                kotlinx.coroutines.delay(if (attempt == 0) 700 else 250)
-                frame = previewView?.bitmap
+                kotlinx.coroutines.delay(if (attempt == 0) 450 else 180)
+                frame = synchronized(latestAnalysisFrame) {
+                    latestAnalysisFrame.get()?.copy(Bitmap.Config.ARGB_8888, false)
+                } ?: previewView?.bitmap
                 if (frame != null) break
             }
             frame?.let { vm.analyzeCameraFrame(it, ui.cameraRequestId) }
@@ -198,7 +244,11 @@ fun CameraScreen(vm: AppState) {
     LaunchedEffect(previewView, ui.cameraCaptureRequestId) {
         if (ui.cameraCaptureRequestId > 0L) {
             kotlinx.coroutines.delay(420L)
-            val frame = imageCapture?.let { captureCameraFrame(it, context) } ?: previewView?.bitmap
+            val frame = imageCapture?.let { captureCameraFrame(it, context) }
+                ?: synchronized(latestAnalysisFrame) {
+                    latestAnalysisFrame.get()?.copy(Bitmap.Config.ARGB_8888, false)
+                }
+                ?: previewView?.bitmap
             val saved = if (frame == null) false else withContext(Dispatchers.IO) {
                 val rendered = renderCameraPhoto(frame, filter, filterStrength, exposure, saturation, whitening, smoothing)
                 try { saveCameraPhoto(context, rendered) } finally {
@@ -210,13 +260,38 @@ fun CameraScreen(vm: AppState) {
         }
     }
 
-    LaunchedEffect(previewView, ui.cameraLens) {
-        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            // This is only context enrichment; user-requested recognition is
-            // handled above immediately. Sampling less often protects voice
-            // capture and rendering on entry-level phones.
-            kotlinx.coroutines.delay(4_000L)
-            previewView?.bitmap?.let(vm::observeCameraFrame)
+}
+
+@Composable
+private fun CameraLookReference(filter: CameraFilter, description: String, modifier: Modifier = Modifier) {
+    val colors = when (filter) {
+        CameraFilter.Natural -> listOf(Color(0xFF4C5662), Color(0xFFAEB6BF), Color(0xFFF0F2F4))
+        CameraFilter.Warm -> listOf(Color(0xFF5A3529), Color(0xFFE09A62), Color(0xFFFFE0B0))
+        CameraFilter.Cream -> listOf(Color(0xFF76585A), Color(0xFFE6BBAF), Color(0xFFFFE9D7))
+        CameraFilter.Mist -> listOf(Color(0xFF738399), Color(0xFFC7D5E4), Color(0xFFF4F7FA))
+        CameraFilter.Cool -> listOf(Color(0xFF244B67), Color(0xFF7AB7C9), Color(0xFFDDF4F6))
+        CameraFilter.Vivid -> listOf(Color(0xFF294C47), Color(0xFFE55E70), Color(0xFFFFD668))
+        CameraFilter.Sunset -> listOf(Color(0xFF5C2939), Color(0xFFE76F51), Color(0xFFFFC06A))
+        CameraFilter.Forest -> listOf(Color(0xFF173F35), Color(0xFF5E9272), Color(0xFFD6D7A3))
+        CameraFilter.TealOrange -> listOf(Color(0xFF164F5B), Color(0xFFC97352), Color(0xFFF2C38F))
+        CameraFilter.Vintage -> listOf(Color(0xFF3C3730), Color(0xFF997A58), Color(0xFFD7C09B))
+        CameraFilter.Film -> listOf(Color(0xFF353E43), Color(0xFF9A8974), Color(0xFFD8CAB3))
+        CameraFilter.HongKong -> listOf(Color(0xFF352B43), Color(0xFFB34F55), Color(0xFFF1B26B))
+        CameraFilter.Mono -> listOf(Color(0xFF202124), Color(0xFF898989), Color(0xFFE0E0E0))
+        CameraFilter.Noir -> listOf(Color(0xFF050608), Color(0xFF55585D), Color(0xFFF2F2F2))
+    }
+    Column(
+        modifier = modifier
+            .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(description.ifBlank { filter.label }, color = Color.White, fontSize = 13.sp)
+        Canvas(Modifier.padding(top = 5.dp).width(112.dp).height(7.dp)) {
+            drawRoundRect(
+                brush = Brush.horizontalGradient(colors),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+            )
         }
     }
 }
@@ -229,8 +304,19 @@ private fun PreviewView.applyXiaolingFilter(
     whitening: Float,
     smoothing: Float,
 ) {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
     val matrix = filter.colorMatrix(strength, exposure, saturation, whitening)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        // COMPATIBLE PreviewView is texture-backed. A hardware layer paint
+        // gives Android 7-11 the same real color matrix instead of a flat tint.
+        val paint = matrix?.let { value ->
+            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+                colorFilter = ColorMatrixColorFilter(value)
+            }
+        }
+        setLayerType(if (paint == null) android.view.View.LAYER_TYPE_NONE else android.view.View.LAYER_TYPE_HARDWARE, paint)
+        return
+    }
+    setLayerType(android.view.View.LAYER_TYPE_NONE, null)
     val colorEffect = matrix?.let { RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(it)) }
     val blurRadius = smoothing.coerceIn(0f, 1f) * 1.35f
     val effect = when {
@@ -242,50 +328,97 @@ private fun PreviewView.applyXiaolingFilter(
     setRenderEffect(effect)
 }
 
+private class CameraFrameAnalyzer(
+    private val onChangedFrame: (Bitmap) -> Unit,
+) : ImageAnalysis.Analyzer {
+    private var lastSample: IntArray? = null
+    private var lastCheckAt = 0L
+    private var lastEmitAt = 0L
+
+    override fun analyze(image: ImageProxy) {
+        try {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastCheckAt < 280L) return
+            lastCheckAt = now
+            val sample = lumaSample(image)
+            val previous = lastSample
+            val change = if (previous == null) Float.MAX_VALUE else
+                sample.indices.sumOf { kotlin.math.abs(sample[it] - previous[it]).toDouble() }.toFloat() / sample.size
+            val periodicRefresh = now - lastEmitAt >= 3_500L
+            val changedFrame = change >= 8.5f && now - lastEmitAt >= 900L
+            if (previous == null || changedFrame || periodicRefresh) {
+                lastSample = sample
+                imageProxyToBitmap(image)?.let { bitmap ->
+                    lastEmitAt = now
+                    onChangedFrame(bitmap)
+                }
+            }
+        } finally {
+            image.close()
+        }
+    }
+
+    private fun lumaSample(image: ImageProxy): IntArray {
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        val columns = 12
+        val rows = 9
+        return IntArray(columns * rows) { index ->
+            val x = ((index % columns) + 0.5f) * image.width / columns
+            val y = ((index / columns) + 0.5f) * image.height / rows
+            val position = y.toInt().coerceAtMost(image.height - 1) * plane.rowStride +
+                x.toInt().coerceAtMost(image.width - 1) * plane.pixelStride
+            if (position < buffer.limit()) buffer.get(position).toInt() and 0xff else 0
+        }
+    }
+}
+
+private fun imageProxyToBitmap(image: ImageProxy): Bitmap? = runCatching {
+    val width = image.width
+    val height = image.height
+    val nv21 = ByteArray(width * height * 3 / 2)
+    val yPlane = image.planes[0]
+    val uPlane = image.planes[1]
+    val vPlane = image.planes[2]
+    var output = 0
+    for (y in 0 until height) {
+        val row = y * yPlane.rowStride
+        for (x in 0 until width) nv21[output++] = yPlane.buffer.get(row + x * yPlane.pixelStride)
+    }
+    for (y in 0 until height / 2) {
+        val uRow = y * uPlane.rowStride
+        val vRow = y * vPlane.rowStride
+        for (x in 0 until width / 2) {
+            nv21[output++] = vPlane.buffer.get(vRow + x * vPlane.pixelStride)
+            nv21[output++] = uPlane.buffer.get(uRow + x * uPlane.pixelStride)
+        }
+    }
+    val jpeg = ByteArrayOutputStream().use { stream ->
+        YuvImage(nv21, ImageFormat.NV21, width, height, null)
+            .compressToJpeg(Rect(0, 0, width, height), 82, stream)
+        stream.toByteArray()
+    }
+    val source = BitmapFactory.decodeByteArray(jpeg, 0, jpeg.size)
+    val rotation = image.imageInfo.rotationDegrees
+    if (rotation == 0) source else Bitmap.createBitmap(
+        source, 0, 0, source.width, source.height,
+        Matrix().apply { postRotate(rotation.toFloat()) }, true,
+    ).also { if (it !== source) source.recycle() }
+}.getOrNull()
+
 @Composable
 private fun CameraFilterOverlay(filter: CameraFilter, strength: Float, exposure: Float, saturation: Float, whitening: Float) {
     if ((filter == CameraFilter.Natural && kotlin.math.abs(exposure) < 0.001f && kotlin.math.abs(saturation - 1f) < 0.001f && whitening < 0.001f) || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return
     Canvas(Modifier.fillMaxSize()) {
-        val (tint, alpha) = when (filter) {
-            CameraFilter.Natural -> Color.Transparent to 0f
-            CameraFilter.Warm -> Color(0xFFFFB15C) to 0.17f
-            CameraFilter.Cream -> Color(0xFFFFE2B5) to 0.13f
-            CameraFilter.Mist -> Color(0xFFE8F0FF) to 0.16f
-            CameraFilter.Cool -> Color(0xFF76BEFF) to 0.16f
-            CameraFilter.Sunset -> Color(0xFFFF7043) to 0.18f
-            CameraFilter.Forest -> Color(0xFF63A86B) to 0.14f
-            CameraFilter.TealOrange -> Color(0xFF3D9A9A) to 0.14f
-            CameraFilter.Vintage -> Color(0xFFD59756) to 0.20f
-            CameraFilter.Film -> Color(0xFFB99168) to 0.14f
-            CameraFilter.HongKong -> Color(0xFFB45A45) to 0.14f
-            CameraFilter.Mono -> Color(0xFF20242A) to 0.18f
-            CameraFilter.Noir -> Color(0xFF101217) to 0.25f
-            CameraFilter.Vivid -> Color(0xFFFF5577) to 0.08f
-        }
-        if (filter != CameraFilter.Natural) {
-            drawRect(tint.copy(alpha = alpha * strength.coerceIn(0.25f, 1f)), blendMode = BlendMode.Softlight)
-        }
-        if (kotlin.math.abs(exposure) >= 0.01f) {
-            val light = exposure.coerceIn(-0.35f, 0.35f)
-            drawRect(
-                if (light > 0f) Color.White.copy(alpha = light * 0.24f) else Color.Black.copy(alpha = -light * 0.28f),
-                blendMode = if (light > 0f) BlendMode.Screen else BlendMode.Multiply,
-            )
-        }
-        if (saturation < 0.95f) {
-            drawRect(Color(0xFF5F6770).copy(alpha = (0.95f - saturation) * 0.20f), blendMode = BlendMode.Saturation)
-        } else if (saturation > 1.05f) {
-            drawRect(Color(0xFFFF5B7B).copy(alpha = (saturation - 1f) * 0.08f), blendMode = BlendMode.Color)
-        }
-        if (whitening > 0.01f) {
-            drawRect(Color.White.copy(alpha = whitening.coerceIn(0f, 1f) * 0.13f), blendMode = BlendMode.Screen)
-        }
+        // Color, exposure, saturation and whitening are already applied by
+        // the hardware-layer ColorMatrix. Keep overlays only for optical
+        // character such as bloom and vignette, avoiding the old flat tint.
         if (filter == CameraFilter.Vintage) {
             drawRect(
                 brush = Brush.radialGradient(
                     0f to Color.Transparent,
                     0.72f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = 0.30f),
+                    1f to Color.Black.copy(alpha = 0.30f * strength.coerceIn(0.25f, 1f)),
                 ),
                 blendMode = BlendMode.Multiply,
             )
@@ -299,7 +432,8 @@ private fun CameraFilterOverlay(filter: CameraFilter, strength: Float, exposure:
                 brush = Brush.radialGradient(
                     0f to Color.Transparent,
                     0.68f to Color.Transparent,
-                    1f to Color.Black.copy(alpha = if (filter == CameraFilter.Noir) 0.40f else 0.18f),
+                    1f to Color.Black.copy(alpha =
+                        (if (filter == CameraFilter.Noir) 0.40f else 0.18f) * strength.coerceIn(0.25f, 1f)),
                 ),
                 blendMode = BlendMode.Multiply,
             )
@@ -327,7 +461,14 @@ private fun renderCameraPhoto(
         }
     }
     AndroidCanvas(output).drawBitmap(source, 0f, 0f, paint)
-    if (smooth <= 0.02f && white <= 0.01f) return output
+    val opticalFilter = filter in setOf(
+        CameraFilter.Mist, CameraFilter.Cream, CameraFilter.Vintage,
+        CameraFilter.Film, CameraFilter.HongKong, CameraFilter.Noir,
+    )
+    if (smooth <= 0.02f && white <= 0.01f) {
+        if (opticalFilter) applyOpticalFinish(output, filter, filterStrength = strength)
+        return output
+    }
 
     // Work in short row strips. A 1440x1920 capture then needs well under 1 MB
     // of temporary pixel arrays instead of allocating three full-frame arrays.
@@ -384,7 +525,37 @@ private fun renderCameraPhoto(
         top += height
     }
     if (softened !== output) softened.recycle()
+    if (opticalFilter) applyOpticalFinish(output, filter, filterStrength = strength)
     return output
+}
+
+private fun applyOpticalFinish(bitmap: Bitmap, filter: CameraFilter, filterStrength: Float) {
+    val amount = filterStrength.coerceIn(0.25f, 1f)
+    val canvas = AndroidCanvas(bitmap)
+    if (filter == CameraFilter.Mist || filter == CameraFilter.Cream) {
+        val alpha = ((if (filter == CameraFilter.Mist) 18 else 9) * amount).toInt()
+        canvas.drawColor(android.graphics.Color.argb(alpha, 255, 255, 255))
+    }
+    val vignetteAlpha = when (filter) {
+        CameraFilter.Noir -> 105
+        CameraFilter.Vintage -> 66
+        CameraFilter.Film -> 48
+        CameraFilter.HongKong -> 54
+        else -> 0
+    }
+    if (vignetteAlpha > 0) {
+        val radius = kotlin.math.hypot(bitmap.width.toDouble(), bitmap.height.toDouble()).toFloat() * 0.62f
+        val shader = RadialGradient(
+            bitmap.width / 2f,
+            bitmap.height * 0.48f,
+            radius,
+            intArrayOf(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.argb((vignetteAlpha * amount).toInt(), 0, 0, 0)),
+            floatArrayOf(0f, 0.62f, 1f),
+            Shader.TileMode.CLAMP,
+        )
+        canvas.drawRect(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat(), Paint().apply { this.shader = shader })
+    }
 }
 
 private fun skinMask(r: Int, g: Int, b: Int): Float {

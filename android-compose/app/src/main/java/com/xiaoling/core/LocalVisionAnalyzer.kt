@@ -10,15 +10,17 @@ import kotlin.coroutines.suspendCoroutine
 object LocalVisionAnalyzer {
     suspend fun describe(bitmap: Bitmap, prompt: String = ""): String? = suspendCoroutine { continuation ->
         val labeler = ImageLabeling.getClient(
-            ImageLabelerOptions.Builder().setConfidenceThreshold(0.45f).build()
+            ImageLabelerOptions.Builder().setConfidenceThreshold(0.32f).build()
         )
         labeler.process(InputImage.fromBitmap(bitmap, 0))
             .addOnSuccessListener { labels ->
-                val names = labels
+                val translated = labels
                     .sortedByDescending { it.confidence }
                     .mapNotNull { translate(it.text) }
                     .distinct()
-                    .take(3)
+                val generic = setOf("物品", "室内场景", "电子产品", "家具", "食物")
+                val specific = translated.filterNot(generic::contains)
+                val names = (if (specific.isNotEmpty()) specific else translated).take(4)
                 labeler.close()
                 val subject = names.joinToString("、")
                 val safety = when {
@@ -49,18 +51,22 @@ object LocalVisionAnalyzer {
         return when {
             "mobile phone" in text || "smartphone" in text || text == "phone" -> "手机"
             "tablet" in text -> "平板电脑"
-            "laptop" in text -> "笔记本电脑"
+            "laptop" in text || "notebook" in text -> "笔记本电脑"
             "computer" in text || "monitor" in text -> "电脑或显示器"
             "television" in text || text == "tv" -> "电视"
             "camera" in text -> "相机"
             "book" in text -> "书本"
             "bottle" in text -> "瓶子"
+            "drink" in text || "beverage" in text -> "饮料"
             "cup" in text || "mug" in text -> "杯子"
             "plate" in text || "dish" in text -> "盘子"
             "spoon" in text -> "勺子"
             "fork" in text -> "叉子"
             "knife" in text -> "刀具"
             "food" in text || "dish" in text || "cuisine" in text -> "食物"
+            "bread" in text || "pastry" in text -> "面包或糕点"
+            "meat" in text -> "肉类"
+            "rice" in text -> "米饭"
             "apple" in text -> "苹果"
             "banana" in text -> "香蕉"
             "orange" in text -> "橙子"
@@ -72,26 +78,38 @@ object LocalVisionAnalyzer {
             "cat" in text -> "猫"
             "bird" in text -> "鸟"
             "person" in text || "human" in text || "face" in text -> "人"
+            "baby" in text || "child" in text -> "儿童"
             "hand" in text -> "手"
             "shoe" in text || "footwear" in text -> "鞋"
             "clothing" in text || "shirt" in text || "dress" in text || "jacket" in text -> "衣物"
             "chair" in text -> "椅子"
+            "sofa" in text || "couch" in text -> "沙发"
+            "bed" in text -> "床"
             "table" in text || "desk" in text -> "桌子"
             "furniture" in text -> "家具"
             "car" in text || "vehicle" in text -> "车辆"
             "bicycle" in text || "bike" in text -> "自行车"
             "motorcycle" in text -> "摩托车"
             "medicine" in text || "medication" in text || "pill" in text -> "药品"
+            "medical" in text || "health care" in text -> "医疗用品"
             "watch" in text || "clock" in text -> "钟表"
             "glasses" in text || "eyewear" in text -> "眼镜"
             "bag" in text || "handbag" in text -> "包"
             "toy" in text -> "玩具"
             "tool" in text -> "工具"
             "package" in text || "box" in text || "carton" in text -> "包装盒"
+            "label" in text || "text" in text -> "文字标签"
             "document" in text || "paper" in text -> "纸张或文件"
             "barcode" in text || "qr code" in text -> "条码或二维码"
             "currency" in text || "money" in text || "banknote" in text -> "现金"
             "appliance" in text -> "家用电器"
+            "kitchen" in text -> "厨房用品"
+            "electronic" in text || "gadget" in text || "technology" in text -> "电子产品"
+            "room" in text || "interior" in text -> "室内场景"
+            "building" in text || "house" in text -> "建筑"
+            "road" in text || "street" in text -> "道路"
+            "sky" in text || "cloud" in text -> "天空"
+            "object" in text || "product" in text -> "物品"
             else -> null
         }
     }

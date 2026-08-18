@@ -63,7 +63,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private val generation = AtomicLong(0)
     // Preserve complete sentences during network bursts and short candidate
     // barge-ins. Confirmed speech still flushes this queue immediately.
-    private val playbackQueue = ArrayBlockingQueue<ByteArray>(180)
+    private val playbackQueue = ArrayBlockingQueue<ByteArray>(300)
     private val client = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -180,12 +180,12 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     fun beginManualInterruption() {
         manualHold = true
         // Pause first. If no new speech is detected, release resumes the queued answer.
-        try { track?.pause() } catch (_: Throwable) {}
+        pausePlaybackTrack()
     }
 
     fun endManualInterruption() {
         manualHold = false
-        if (!interruptionCandidate) try { track?.play() } catch (_: Throwable) {}
+        if (!interruptionCandidate) resumePlaybackTrack()
         if (playbackQueue.isNotEmpty()) {
             outputPlaying = true
             post { listener.onOutputStarted() }
@@ -263,28 +263,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         if (recordMin <= 0 || playMin <= 0) return false
         return try {
             val audioRecord = createAudioRecord(maxOf(recordMin * 2, FRAME_BYTES * 4))
-            val trackBuilder = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        // Match VOICE_COMMUNICATION capture so Android's AEC
-                        // gets the playback reference on MIUI devices.
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(SAMPLE_RATE)
-                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                        .build()
-                )
-                .setBufferSizeInBytes(maxOf(playMin * 2, FRAME_BYTES * 4))
-                .setTransferMode(AudioTrack.MODE_STREAM)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                trackBuilder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
-            }
-            val audioTrack = trackBuilder.build()
+            val audioTrack = createAudioTrack(playMin)
             if (audioRecord.state != AudioRecord.STATE_INITIALIZED || audioTrack.state != AudioTrack.STATE_INITIALIZED) {
                 audioRecord.release()
                 audioTrack.release()
@@ -456,11 +435,39 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 post { listener.onOutputVisual(open, wide, round, emphasis) }
             }
             var offset = 0
+            var recoveries = 0
             try {
                 while (offset < bytes.size && running && turn == generation.get()) {
-                    val written = track?.write(bytes, offset, bytes.size - offset, AudioTrack.WRITE_BLOCKING) ?: -1
-                    if (written <= 0) throw IllegalStateException("AudioTrack write=$written")
-                    offset += written
+                    // A candidate barge-in pauses AudioTrack before ASR confirms
+                    // real speech. A blocking write can then return zero or an
+                    // invalid-operation code on MIUI. That is a normal pause,
+                    // not a fatal realtime-session error.
+                    if (manualHold || interruptionCandidate) {
+                        try { Thread.sleep(12) } catch (_: InterruptedException) {}
+                        continue
+                    }
+                    val currentTrack = track
+                    if (currentTrack == null) {
+                        if (!recoverPlaybackTrack()) throw IllegalStateException("AudioTrack unavailable")
+                        continue
+                    }
+                    val written = try {
+                        currentTrack.write(bytes, offset, bytes.size - offset, AudioTrack.WRITE_BLOCKING)
+                    } catch (error: Throwable) {
+                        if (manualHold || interruptionCandidate) continue
+                        if (recoveries++ < MAX_AUDIO_TRACK_RECOVERIES && recoverPlaybackTrack()) {
+                            Log.w(TAG, "AudioTrack recovered after write exception", error)
+                            continue
+                        }
+                        throw error
+                    }
+                    when {
+                        written > 0 -> offset += written
+                        manualHold || interruptionCandidate -> Unit
+                        recoveries++ < MAX_AUDIO_TRACK_RECOVERIES && recoverPlaybackTrack() ->
+                            Log.w(TAG, "AudioTrack recovered after write=$written")
+                        else -> throw IllegalStateException("AudioTrack write=$written")
+                    }
                 }
             } catch (error: Throwable) {
                 Log.e(TAG, "playback write failed at $offset/${bytes.size}", error)
@@ -628,6 +635,56 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         } catch (_: Throwable) {}
     }
 
+    private fun createAudioTrack(minBufferBytes: Int): AudioTrack {
+        val builder = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(SAMPLE_RATE)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build()
+            )
+            .setBufferSizeInBytes(maxOf(minBufferBytes * 2, FRAME_BYTES * 4))
+            .setTransferMode(AudioTrack.MODE_STREAM)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
+        }
+        return builder.build()
+    }
+
+    @Synchronized
+    private fun recoverPlaybackTrack(): Boolean {
+        if (!running) return false
+        val minBuffer = AudioTrack.getMinBufferSize(
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+        )
+        if (minBuffer <= 0) return false
+        val replacement = try { createAudioTrack(minBuffer) } catch (_: Throwable) { return false }
+        if (replacement.state != AudioTrack.STATE_INITIALIZED) {
+            replacement.release()
+            return false
+        }
+        val previous = track
+        track = replacement
+        try {
+            if (!manualHold && !interruptionCandidate) replacement.play()
+        } catch (_: Throwable) {
+            track = previous
+            replacement.release()
+            return false
+        }
+        try { previous?.pause(); previous?.flush(); previous?.release() } catch (_: Throwable) {}
+        return true
+    }
+
     private fun maybeDeliverOutputDone() {
         if (!outputDonePending || outputPlaying || playbackQueue.isNotEmpty()) return
         outputDonePending = false
@@ -648,9 +705,10 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         interruptionCandidateAtMs = SystemClock.elapsedRealtime()
         inputSpeechCandidate = true
         val token = candidateGeneration.incrementAndGet()
-        try { track?.pause() } catch (_: Throwable) {}
+        pausePlaybackTrack()
         post { listener.onOutputVisual(0f, 0f, 0f, false) }
         socket?.send(JSONObject().put("type", "input.speech_candidate").toString())
+        scheduleCandidateResume()
         Log.i(TAG, "barge-in candidate token=$token ratio=${"%.2f".format(rms / threshold)}")
     }
 
@@ -671,14 +729,15 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         post { listener.onInputSpeechStarted(latencyMs) }
     }
 
-    private fun scheduleCandidateResume() {
+    private fun scheduleCandidateResume(delayMs: Long = CANDIDATE_RESUME_MS) {
         if (!interruptionCandidate || inputInterruptConfirmed) return
         val token = candidateGeneration.get()
         main.postDelayed({
             if (token == candidateGeneration.get() && interruptionCandidate && !inputInterruptConfirmed) {
-                resumeCandidateOutput()
+                if (localSpeechActive) scheduleCandidateResume(CANDIDATE_ACTIVE_RECHECK_MS)
+                else resumeCandidateOutput()
             }
-        }, CANDIDATE_RESUME_MS)
+        }, delayMs)
     }
 
     private fun resumeCandidateOutput() {
@@ -687,7 +746,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         interruptionCandidate = false
         interruptionCandidateAtMs = 0L
         inputSpeechCandidate = false
-        try { track?.play() } catch (_: Throwable) {}
+        resumePlaybackTrack()
         Log.i(TAG, "barge-in candidate rejected; playback resumed")
     }
 
@@ -702,6 +761,17 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
 
     private fun normalizeForEcho(text: String): String =
         text.lowercase().filter { it.isLetterOrDigit() }
+
+    @Synchronized
+    private fun pausePlaybackTrack() {
+        try { track?.pause() } catch (_: Throwable) {}
+    }
+
+    @Synchronized
+    private fun resumePlaybackTrack() {
+        if (manualHold || interruptionCandidate) return
+        try { track?.play() } catch (_: Throwable) {}
+    }
 
     private fun fail(turn: Long, message: String, retryable: Boolean) {
         if (turn != generation.get()) return
@@ -804,11 +874,13 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         // bringing barge-in onset below 100 ms after the echo settling window.
         const val REQUIRED_INTERRUPT_FRAMES = 3
         const val ECHO_WARMUP_MS = 160L
-        const val CANDIDATE_RESUME_MS = 650L
+        const val CANDIDATE_RESUME_MS = 420L
+        const val CANDIDATE_ACTIVE_RECHECK_MS = 160L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L
         const val OUTPUT_ACTIVITY_INTERVAL_MS = 750L
         const val EMPHASIS_COOLDOWN_MS = 420L
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
+        const val MAX_AUDIO_TRACK_RECOVERIES = 2
         const val TAG = "XiaolingRealtime"
     }
 }

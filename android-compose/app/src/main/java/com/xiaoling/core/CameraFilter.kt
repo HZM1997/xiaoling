@@ -71,45 +71,45 @@ enum class CameraFilter(
     private fun targetMatrix(): FloatArray = when (this) {
         Natural -> IDENTITY
         Warm -> floatArrayOf(
-            1.08f, 0f, 0f, 0f, 10f,
-            0f, 1.01f, 0f, 0f, 2f,
-            0f, 0f, 0.90f, 0f, -6f,
+            1.10f, 0.025f, -0.01f, 0f, 8f,
+            0.01f, 1.02f, 0.01f, 0f, 2f,
+            -0.02f, 0.015f, 0.86f, 0f, -7f,
             0f, 0f, 0f, 1f, 0f,
         )
         Cream -> floatArrayOf(
-            1.04f, 0f, 0f, 0f, 12f,
-            0f, 1.02f, 0f, 0f, 7f,
-            0f, 0f, 0.95f, 0f, 2f,
+            1.02f, 0.035f, 0.012f, 0f, 13f,
+            0.018f, 0.99f, 0.018f, 0f, 8f,
+            0.012f, 0.028f, 0.91f, 0f, 4f,
             0f, 0f, 0f, 1f, 0f,
         )
         Mist -> floatArrayOf(
-            0.92f, 0f, 0f, 0f, 18f,
-            0f, 0.92f, 0f, 0f, 18f,
-            0f, 0f, 0.96f, 0f, 20f,
+            0.84f, 0.055f, 0.025f, 0f, 24f,
+            0.025f, 0.85f, 0.045f, 0f, 23f,
+            0.018f, 0.042f, 0.90f, 0f, 26f,
             0f, 0f, 0f, 1f, 0f,
         )
         Cool -> floatArrayOf(
-            0.92f, 0f, 0f, 0f, -4f,
-            0f, 1.02f, 0f, 0f, 3f,
-            0f, 0f, 1.10f, 0f, 10f,
+            0.88f, 0.018f, 0.018f, 0f, -6f,
+            -0.008f, 1.01f, 0.025f, 0f, 3f,
+            0.008f, 0.035f, 1.13f, 0f, 12f,
             0f, 0f, 0f, 1f, 0f,
         )
         Sunset -> floatArrayOf(
-            1.10f, 0.02f, 0f, 0f, 14f,
-            0f, 1.00f, 0f, 0f, 4f,
-            0f, 0f, 0.84f, 0f, -10f,
+            1.15f, 0.045f, -0.015f, 0f, 13f,
+            0.025f, 0.99f, 0.005f, 0f, 3f,
+            -0.025f, 0.02f, 0.76f, 0f, -12f,
             0f, 0f, 0f, 1f, 0f,
         )
         Forest -> floatArrayOf(
-            0.92f, 0f, 0f, 0f, -2f,
-            0f, 1.08f, 0f, 0f, 8f,
-            0f, 0f, 0.94f, 0f, 0f,
+            0.86f, 0.035f, 0.012f, 0f, -4f,
+            0.01f, 1.10f, 0.02f, 0f, 7f,
+            0.01f, 0.045f, 0.88f, 0f, 1f,
             0f, 0f, 0f, 1f, 0f,
         )
         TealOrange -> floatArrayOf(
-            1.07f, 0.02f, 0f, 0f, 8f,
-            0f, 1.00f, 0.02f, 0f, 2f,
-            0f, 0.03f, 1.07f, 0f, 8f,
+            1.12f, 0.025f, -0.025f, 0f, 8f,
+            -0.015f, 1.01f, 0.04f, 0f, 1f,
+            -0.03f, 0.055f, 1.12f, 0f, 8f,
             0f, 0f, 0f, 1f, 0f,
         )
         Vintage -> ColorMatrix().apply {
@@ -131,9 +131,9 @@ enum class CameraFilter(
             )))
         }.array.copyOf()
         HongKong -> floatArrayOf(
-            1.08f, 0f, 0f, 0f, 8f,
-            0f, 0.96f, 0.02f, 0f, 0f,
-            0f, 0.03f, 1.00f, 0f, 2f,
+            1.13f, 0.02f, -0.01f, 0f, 7f,
+            0.015f, 0.92f, 0.035f, 0f, -1f,
+            -0.015f, 0.045f, 1.04f, 0f, 3f,
             0f, 0f, 0f, 1f, 0f,
         )
         Mono -> ColorMatrix().apply { setSaturation(0f) }.array.copyOf()

@@ -161,6 +161,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var cameraCaptureAfterReference = false
     @Volatile private var cameraProcessingRequestId = -1L
     @Volatile private var cameraObservationActive = false
+    private var cameraSceneCandidate = ""
+    private var cameraSceneCandidateHits = 0
+    private var cameraLastSceneCommitAt = 0L
     private var pendingReminder = ""
     private var pendingCallTarget = ""
     private var pendingRemoteAudioUrl = ""
@@ -1500,6 +1503,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
             if (newFilterRequested) 0f else _state.value.cameraSmoothing
         val styleDescription = actionStyle.description ?: voiceStyle?.description ?: requestedFilter.label
         cameraVisionPending = true
+        cameraSceneCandidate = ""
+        cameraSceneCandidateHits = 0
+        cameraLastSceneCommitAt = 0L
         _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraFilter = requestedFilter.id,
             cameraFilterStrength = requestedStrength.coerceIn(0.25f, 1f),
             cameraExposure = requestedExposure.coerceIn(-0.35f, 0.35f),
@@ -1532,6 +1538,8 @@ class AppState(application: Application) : AndroidViewModel(application) {
         cameraVisionPending = false
         cameraCaptureAfterReference = false
         cameraProcessingRequestId = -1L
+        cameraSceneCandidate = ""
+        cameraSceneCandidateHits = 0
         tts.stop()
         RemoteAudioPlayer.stop()
         speaking = false
@@ -1620,6 +1628,9 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     fun setCameraLens(lens: String) {
         cameraVisionPending = true
+        cameraSceneCandidate = ""
+        cameraSceneCandidateHits = 0
+        cameraLastSceneCommitAt = 0L
         _state.update { it.copy(cameraLens = if (lens == "front") "front" else "back",
             cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
             cameraRequestId = it.cameraRequestId + 1) }
@@ -1874,9 +1885,23 @@ class AppState(application: Application) : AndroidViewModel(application) {
             try {
                 val hint = LocalVisionAnalyzer.describe(bitmap, "持续观察当前画面").orEmpty()
                 if (hint.isNotBlank() && _state.value.screen == Screen.Camera) {
-                    val changed = hint != _state.value.cameraSceneHint
-                    _state.update { it.copy(cameraSceneHint = hint) }
-                    if (changed) {
+                    val current = _state.value.cameraSceneHint
+                    if (hint == current) {
+                        cameraSceneCandidate = ""
+                        cameraSceneCandidateHits = 0
+                        return@launch
+                    }
+                    if (hint == cameraSceneCandidate) cameraSceneCandidateHits++ else {
+                        cameraSceneCandidate = hint
+                        cameraSceneCandidateHits = 1
+                    }
+                    val now = SystemClock.elapsedRealtime()
+                    val stable = current.isBlank() || cameraSceneCandidateHits >= 2
+                    if (stable && now - cameraLastSceneCommitAt >= 1_200L) {
+                        cameraLastSceneCommitAt = now
+                        cameraSceneCandidate = ""
+                        cameraSceneCandidateHits = 0
+                        _state.update { it.copy(cameraSceneHint = hint) }
                         realtime.updateContext(cameraRealtimeContext(_state.value.cameraObservation, hint))
                     }
                 }

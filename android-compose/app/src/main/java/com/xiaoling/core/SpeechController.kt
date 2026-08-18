@@ -270,12 +270,19 @@ class SpeechController(private val ctx: Context) {
             if (option == 0) return SpeechRecognizer.createSpeechRecognizer(ctx)
             option--
         }
-        if (onDeviceAvailable && option == 0) return SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
+        if (onDeviceAvailable && option == 0) return createOnDeviceRecognizer()
         recognizerAttempt = 0
         if (services.isNotEmpty()) return SpeechRecognizer.createSpeechRecognizer(ctx, services.first())
         if (standardAvailable) return SpeechRecognizer.createSpeechRecognizer(ctx)
-        if (onDeviceAvailable) return SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
+        if (onDeviceAvailable) return createOnDeviceRecognizer()
         throw IllegalStateException("No speech recognition service")
+    }
+
+    private fun createOnDeviceRecognizer(): SpeechRecognizer {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            throw IllegalStateException("On-device recognition requires Android 12")
+        }
+        return SpeechRecognizer.createOnDeviceSpeechRecognizer(ctx)
     }
 
     private fun recognitionServices(): List<ComponentName> {
