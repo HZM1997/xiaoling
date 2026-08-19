@@ -53,8 +53,8 @@ function glowOval(root,w,h){
 }
 
 const avatar=new THREE.Group();scene.add(avatar);
-const shell=plate(2.24,1.88,.43,.28,frame);avatar.add(shell);
-const screen=plate(1.98,1.62,.34,.16,black);screen.position.z=.20;avatar.add(screen);
+const shell=plate(2.24,1.88,.55,.28,frame);avatar.add(shell);
+const screen=plate(1.98,1.62,.46,.16,black);screen.position.z=.20;avatar.add(screen);
 const sheen=plate(1.70,.26,.12,.012,new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.025}));
 sheen.position.set(0,.55,.31);avatar.add(sheen);
 
@@ -80,7 +80,7 @@ mouthRoot.add(smileGlow,smile,frown);
 
 let state='idle',emotion='neutral',talking=false,audioLevel=0,mouthWide=0,mouthRound=0;
 let emphasisTick=0,emphasisAt=-10,elapsed=0,blinkAt=1.7,blinkPhase=-1,nextGaze=1.1,gazeX=0,gazeY=0,targetGazeX=0,targetGazeY=0;
-const allowed=['neutral','happy','caring','surprised','serious','warning','love','sad','shy','playful','proud','excited','relieved','confused','curious','sleepy','thinking','attentive','explaining','warm'];
+const allowed=['neutral','happy','caring','surprised','serious','warning','love','sad','shy','playful','proud','excited','relieved','confused','curious','sleepy','thinking','attentive','explaining','warm','focused','skeptical','apologetic','delighted','calm'];
 const clamp=v=>{const n=Number(v);return Number.isFinite(n)?Math.max(0,Math.min(1,n)):0};
 window.XLAvatar={
   setState(v){state=['idle','listen','think','talk','alarm','caring'].includes(v)?v:'idle'},
@@ -109,22 +109,22 @@ function animate(){
   if(blinkPhase>=0){blinkPhase+=dt;blink=Math.sin(Math.min(1,blinkPhase/.18)*Math.PI);if(blinkPhase>.18){blinkPhase=-1;blinkAt=elapsed+2.1+Math.random()*3.1}}
   if(elapsed>=nextGaze){targetGazeX=(Math.random()-.5)*(state==='listen'?.035:.075);targetGazeY=(Math.random()-.5)*.04;nextGaze=elapsed+1.2+Math.random()*2.5}
   gazeX+=(targetGazeX-gazeX)*Math.min(1,dt*3.2);gazeY+=(targetGazeY-gazeY)*Math.min(1,dt*3.2);
-  const eyeOpen={surprised:1.26,excited:1.34,curious:1.14,warning:.68,serious:.66,sad:.80,caring:.88,relieved:1.04,sleepy:.20,confused:.92}[emotion]||1;
-  eyeRoots.forEach((e,i)=>{const wink=emotion==='playful'&&i===1?.10:1;e.scale.y=Math.max(.08,eyeOpen*wink-blink*.93);e.position.x=(i?1:-1)*.49+gazeX;e.position.y=.28+gazeY+(emotion==='confused'&&i===1?-.05:0)});
-  const browTilt=(emotion==='warning'||emotion==='serious')?.34:(emotion==='confused'?.20:0);
-  brows.forEach(b=>b.visible=['warning','serious','confused','surprised','curious','sad','caring'].includes(emotion));
+  const eyeOpen={surprised:1.26,excited:1.34,delighted:1.22,curious:1.14,focused:.76,skeptical:.82,warning:.68,serious:.66,sad:.80,caring:.88,apologetic:.76,relieved:1.04,calm:.86,sleepy:.20,confused:.92}[emotion]||1;
+  eyeRoots.forEach((e,i)=>{const wink=emotion==='playful'&&i===1?.10:emotion==='skeptical'&&i===1?.68:1;e.scale.y=Math.max(.08,eyeOpen*wink-blink*.93);e.position.x=(i?1:-1)*.49+gazeX;e.position.y=.28+gazeY+((emotion==='confused'||emotion==='skeptical')&&i===1?-.05:0)});
+  const browTilt=(emotion==='warning'||emotion==='serious'||emotion==='focused')?.34:((emotion==='confused'||emotion==='skeptical')?.20:0);
+  brows.forEach(b=>b.visible=['warning','serious','focused','skeptical','confused','surprised','curious','sad','caring','apologetic'].includes(emotion));
   brows[0].rotation.z=browTilt;brows[1].rotation.z=-browTilt;
   brows[0].position.y=.57+(emotion==='confused'?.08:0);brows[1].position.y=.57-(emotion==='confused'?.03:0);
-  cheeks.forEach(c=>c.visible=emotion==='love'||emotion==='shy');tears.forEach((t,i)=>t.visible=emotion==='sad'&&i===0);
+  cheeks.forEach(c=>c.visible=['love','shy','delighted'].includes(emotion));tears.forEach((t,i)=>t.visible=(emotion==='sad'||emotion==='apologetic')&&i===0);
   const voice=talking?Math.max(audioLevel,.10+Math.abs(Math.sin(elapsed*12.1))*.13):0;
   const open=emotion==='surprised'&&!talking?.34:.065+voice*.42+mouthRound*.17;
   const wide=((emotion==='warning'||emotion==='serious')?.58:emotion==='surprised'?.21:.40)+mouthWide*.20-mouthRound*.11;
   mouthRoot.scale.set(wide/.40,open/.065,1);
-  const curved=!talking&&!['surprised','warning','serious'].includes(emotion);
+  const curved=!talking&&!['surprised','warning','serious','focused'].includes(emotion);
   mouthRoot.children.slice(0,3).forEach(part=>part.visible=!curved);
-  smile.visible=curved&&!['sad','caring','confused'].includes(emotion);
-  smileGlow.visible=smile.visible;frown.visible=curved&&['sad','caring','confused'].includes(emotion);
-  if(curved)mouthRoot.scale.set(emotion==='happy'||emotion==='love'||emotion==='playful'||emotion==='excited'?1.16:1,1,1);
+  smile.visible=curved&&!['sad','caring','confused','skeptical','apologetic'].includes(emotion);
+  smileGlow.visible=smile.visible;frown.visible=curved&&['sad','caring','confused','skeptical','apologetic'].includes(emotion);
+  if(curved)mouthRoot.scale.set(['happy','love','playful','excited','delighted'].includes(emotion)?1.16:emotion==='calm'?.88:1,1,1);
   const ea=elapsed-emphasisAt,em=ea>=0&&ea<.52?Math.sin(ea/.52*Math.PI):0;
   // Keep the digital human front-facing and centered. Expressions use eyes,
   // brows, mouth and breathing motion instead of tilting the whole model.

@@ -208,8 +208,11 @@ enum class CameraFilter(
             }
             val explicitWhitening = when {
                 Regex("关闭美白|不要美白|恢复肤色").containsMatchIn(value) -> 0f
-                Regex("不要假白|自然肤色|美白自然|降低美白|美白少一点").containsMatchIn(value) -> 0.12f
-                Regex("美白.*(强|多)|白很多|再白一点").containsMatchIn(value) -> 0.50f
+                Regex("不要假白|自然肤色|美白自然|降低美白|美白少一点").containsMatchIn(value) -> 0.10f
+                Regex("美白.*(最大|最强)|白到最高|开满美白").containsMatchIn(value) -> 0.65f
+                Regex("美白.*(强|多)|白很多").containsMatchIn(value) -> 0.50f
+                Regex("再白一点|美白明显一点|白一些").containsMatchIn(value) -> 0.38f
+                Regex("轻微美白|美白一点点|稍微白一点").containsMatchIn(value) -> 0.18f
                 Regex("祛黄|去黄|肤色均匀|红润一点|有气色").containsMatchIn(value) -> 0.14f
                 Regex("美白|白一点|提亮肤色|肤色亮|白里透红").containsMatchIn(value) -> 0.30f
                 else -> null
@@ -217,7 +220,9 @@ enum class CameraFilter(
             val explicitSmoothing = when {
                 Regex("关闭磨皮|不要磨皮").containsMatchIn(value) -> 0f
                 Regex("保留皮肤纹理|磨皮自然|自然磨皮|降低磨皮|磨皮少一点|别磨太狠").containsMatchIn(value) -> 0.14f
-                Regex("磨皮.*(强|多)|皮肤更光滑").containsMatchIn(value) -> 0.55f
+                Regex("磨皮.*(最大|最强)|开满磨皮").containsMatchIn(value) -> 0.62f
+                Regex("磨皮.*(强|多)|皮肤更光滑").containsMatchIn(value) -> 0.48f
+                Regex("轻微磨皮|磨皮一点点|稍微磨一下").containsMatchIn(value) -> 0.18f
                 Regex("肤色均匀|祛黄|去黄").containsMatchIn(value) -> 0.24f
                 Regex("磨皮|祛痘|皮肤细腻|皮肤光滑|柔焦|美颜").containsMatchIn(value) -> 0.32f
                 else -> null

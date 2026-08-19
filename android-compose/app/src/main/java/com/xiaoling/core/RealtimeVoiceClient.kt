@@ -343,7 +343,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // rejection threshold.
             val interruptWindow = outputPlaying || manualHold
             val speechThreshold = if (interruptWindow) {
-                maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.8, noiseFloor + INTERRUPT_MIN_RISE_RMS)
+                maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.7, noiseFloor + INTERRUPT_MIN_RISE_RMS)
             } else {
                 maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
             }
@@ -367,7 +367,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // speaker echo, notification click, or key tone from cancelling TTS.
             val requiredFrames = when {
                 manualHold && strongSpeech -> 2
-                interruptWindow && strongSpeech -> 3
+                interruptWindow && strongSpeech -> 2
                 interruptWindow -> 4
                 else -> REQUIRED_INTERRUPT_FRAMES
             }
@@ -869,11 +869,11 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val FRAME_BYTES = 960 // 20 ms, PCM16 mono;每秒 50 次本地打断判断
         const val LOCAL_MIN_SPEECH_RMS = 90.0
         const val INTERRUPT_MIN_SPEECH_RMS = 120.0
-        const val INTERRUPT_MIN_RISE_RMS = 70.0
+        const val INTERRUPT_MIN_RISE_RMS = 60.0
         // 20 ms PCM frames: three consecutive frames keeps clicks out while
         // bringing barge-in onset below 100 ms after the echo settling window.
         const val REQUIRED_INTERRUPT_FRAMES = 3
-        const val ECHO_WARMUP_MS = 160L
+        const val ECHO_WARMUP_MS = 120L
         const val CANDIDATE_RESUME_MS = 280L
         const val CANDIDATE_ACTIVE_RECHECK_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L

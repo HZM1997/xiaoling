@@ -193,6 +193,12 @@ def test_realtime_tools_map_to_android_actions():
     assert action["style_description"] == "网红通透人像"
 
     action, result = realtime_gateway._action_for(
+        "set_camera_filter", {"whitening": 0.3, "smoothing": 0.18}
+    )
+    assert action == {"type": "SET_CAMERA_FILTER", "whitening": 0.3, "smoothing": 0.18}
+    assert result["filter"] == ""
+
+    action, result = realtime_gateway._action_for(
         "switch_camera", {"lens": "front", "prompt": "切换前置摄像头"}
     )
     assert action == {"type": "SWITCH_CAMERA", "lens": "front", "prompt": "切换前置摄像头"}

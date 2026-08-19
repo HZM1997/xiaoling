@@ -236,9 +236,9 @@ private fun AvatarFallback(
         val warmGlow = ComposeColor(0xFFFFC268)
         val faceSize = Size(238f * scale, 205f * scale)
         val faceTopLeft = faceCenter - Offset(faceSize.width / 2f, faceSize.height / 2f)
-        val outerRadius = androidx.compose.ui.geometry.CornerRadius(57f * scale, 57f * scale)
+        val outerRadius = androidx.compose.ui.geometry.CornerRadius(72f * scale, 72f * scale)
         val innerInset = 13f * scale
-        val innerRadius = androidx.compose.ui.geometry.CornerRadius(45f * scale, 45f * scale)
+        val innerRadius = androidx.compose.ui.geometry.CornerRadius(60f * scale, 60f * scale)
         val naturalGaze = kotlin.math.sin((microPhase * 0.39f).toDouble()).toFloat() * 2.2f
         val emphasisGaze = when (emphasisTick % 3) { 1 -> 1.6f; 2 -> -1.2f; else -> 0f }
         val eyeShift = when {
@@ -272,7 +272,7 @@ private fun AvatarFallback(
                         drawHeart(eyeCenter, 17f * scale, warmGlow.copy(alpha = .24f))
                         drawHeart(eyeCenter, 13f * scale, white)
                     }
-                    emotion in setOf("happy", "proud") || closed -> {
+                    emotion in setOf("happy", "proud", "delighted", "calm") || closed -> {
                         drawArc(cyanGlow.copy(alpha = .22f), 195f, 150f, false,
                             eyeCenter - Offset(20f * scale, 7f * scale), Size(40f * scale, 22f * scale),
                             style = Stroke(10f * scale, cap = StrokeCap.Round))
@@ -281,21 +281,22 @@ private fun AvatarFallback(
                             style = Stroke(6f * scale, cap = StrokeCap.Round))
                     }
                     else -> {
-                        val eyeWidth = (if (emotion in setOf("surprised", "curious", "excited")) 38f else 34f) * scale
+                        val eyeWidth = (if (emotion in setOf("surprised", "curious", "excited", "delighted")) 38f else 34f) * scale
                         val eyeHeight = when (emotion) {
-                            "surprised", "excited" -> 38f
+                            "surprised", "excited", "delighted" -> 38f
                             "curious" -> 34f
-                            "warning", "serious" -> 22f
-                            "sad", "caring" -> 27f
+                            "warning", "serious", "focused" -> 22f
+                            "sad", "caring", "apologetic" -> 27f
+                            "skeptical" -> if (index == 0) 27f else 19f
                             else -> 31f
                         } * scale * pose.eyeOpen
                         drawGlowOval(eyeCenter, Size(eyeWidth, eyeHeight), white, cyanGlow, warmGlow)
                     }
                 }
-                if (emotion in setOf("warning", "serious", "confused")) {
+                if (emotion in setOf("warning", "serious", "focused", "skeptical", "confused")) {
                     val browY = eyeCenter.y - 27f * scale
                     val slope = when (emotion) {
-                        "confused" -> if (index == 0) -7f else 4f
+                        "confused", "skeptical" -> if (index == 0) -7f else 4f
                         else -> if (index == 0) 8f else -8f
                     } * scale
                     drawLine(white.copy(alpha = .30f), eyeCenter + Offset(-16f * scale, -26f * scale),
@@ -303,13 +304,13 @@ private fun AvatarFallback(
                     drawLine(white, eyeCenter + Offset(-15f * scale, -26f * scale),
                         Offset(eyeCenter.x + 15f * scale, browY + slope), 4f * scale, StrokeCap.Round)
                 }
-                if ((emotion == "sad" || emotion == "caring") && index == 0) {
+                if ((emotion == "sad" || emotion == "caring" || emotion == "apologetic") && index == 0) {
                     drawOval(cyanGlow.copy(alpha = .32f), eyeCenter + Offset(-25f * scale, 20f * scale), Size(10f * scale, 22f * scale))
                     drawOval(white.copy(alpha = .9f), eyeCenter + Offset(-23f * scale, 21f * scale), Size(6f * scale, 17f * scale))
                 }
             }
 
-            if (emotion == "shy" || emotion == "love") {
+            if (emotion == "shy" || emotion == "love" || emotion == "delighted") {
                 drawCircle(frameLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(-78f * scale, 20f * scale))
                 drawCircle(frameLight.copy(alpha = .18f), 17f * scale, faceCenter + Offset(78f * scale, 20f * scale))
             }
@@ -323,15 +324,15 @@ private fun AvatarFallback(
                     drawGlowRoundRect(mouthCenter, Size(width, height), white, cyanGlow, warmGlow)
                 }
                 emotion == "surprised" -> drawGlowRoundRect(mouthCenter, Size(30f * scale, 55f * scale), white, cyanGlow, warmGlow)
-                emotion in setOf("warning", "serious") -> drawGlowRoundRect(mouthCenter, Size(88f * scale, 18f * scale), white, cyanGlow, warmGlow)
-                emotion in setOf("sad", "caring", "confused") -> {
+                emotion in setOf("warning", "serious", "focused") -> drawGlowRoundRect(mouthCenter, Size(88f * scale, 18f * scale), white, cyanGlow, warmGlow)
+                emotion in setOf("sad", "caring", "confused", "skeptical", "apologetic") -> {
                     drawLine(cyanGlow.copy(alpha = .25f), mouthCenter - Offset(25f * scale, 0f),
                         mouthCenter + Offset(25f * scale, 0f), 10f * scale, StrokeCap.Round)
                     drawLine(white, mouthCenter - Offset(22f * scale, 0f), mouthCenter + Offset(22f * scale, 0f),
                         5f * scale, StrokeCap.Round)
                 }
                 else -> {
-                    val smileWidth = if (emotion in setOf("happy", "love", "playful", "proud", "warm", "excited")) 86f else 68f
+                    val smileWidth = if (emotion in setOf("happy", "love", "playful", "proud", "warm", "excited", "delighted")) 86f else if (emotion == "calm") 58f else 68f
                     drawArc(cyanGlow.copy(alpha = .22f), 8f, 164f, false,
                         mouthCenter - Offset(smileWidth * .5f * scale, 18f * scale),
                         Size(smileWidth * scale, 36f * scale), style = Stroke(11f * scale, cap = StrokeCap.Round))
@@ -391,6 +392,11 @@ private fun robotFacePose(state: String, emotion: String): RobotFacePose = when 
     "sleepy" -> RobotFacePose(5f, .08f, .35f)
     "proud", "warm" -> RobotFacePose(-2f, .62f, .92f)
     "attentive" -> RobotFacePose(-3f, .46f, 1.05f)
+    "focused" -> RobotFacePose(0f, .64f, .74f)
+    "skeptical" -> RobotFacePose(0f, .44f, .84f)
+    "apologetic" -> RobotFacePose(0f, .18f, .76f)
+    "delighted" -> RobotFacePose(0f, 1.08f, 1.12f)
+    "calm" -> RobotFacePose(0f, .22f, .86f)
     else -> when (state) {
         "talk" -> RobotFacePose(-1f, .58f, 1f)
         "listen" -> RobotFacePose(-3f, .45f, 1.06f)
@@ -421,20 +427,25 @@ private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): 
         listOf("危险", "诈骗", "报警", "立即停止", "警告", "不要转账", "可疑链接").any(value::contains) -> "warning"
         listOf("生气", "愤怒", "太过分", "不可以", "必须注意", "严肃").any(value::contains) -> "serious"
         listOf("难过", "伤心", "想哭", "失去", "遗憾", "去世").any(value::contains) -> "sad"
+        listOf("对不起", "很抱歉", "是我没做好", "让您久等", "给您添麻烦").any(value::contains) -> "apologetic"
         listOf("担心", "害怕", "不舒服", "疼", "抱歉", "陪着您", "别着急").any(value::contains) -> "caring"
         listOf("爱你", "想你", "喜欢你", "么么", "亲爱的", "真暖心").any(value::contains) -> "love"
         listOf("害羞", "不好意思", "夸得", "脸红").any(value::contains) -> "shy"
         listOf("哈哈", "逗你", "开玩笑", "调皮", "嘿嘿").any(value::contains) -> "playful"
         listOf("好耶", "太棒啦", "太厉害", "真的棒", "惊喜").any(value::contains) -> "excited"
+        listOf("太开心了", "特别高兴", "真让人高兴", "太赞了").any(value::contains) -> "delighted"
         listOf("太好了", "开心", "恭喜", "真棒", "成功了", "完成了").any(value::contains) -> "happy"
         listOf("终于", "安全了", "没事了", "放心下来", "辛苦了").any(value::contains) -> "relieved"
         listOf("放心", "没问题", "交给我", "当然可以", "已经办好").any(value::contains) -> "proud"
         listOf("谢谢", "感谢", "不客气", "很高兴帮到", "慢慢来").any(value::contains) -> "warm"
         listOf("原来", "竟然", "真的吗", "没想到", "哇", "居然").any(value::contains) -> "surprised"
         listOf("什么意思", "不太明白", "再说一遍", "没听清", "哪个", "怎么会").any(value::contains) -> "confused"
+        listOf("确定吗", "靠谱吗", "好像不对", "再核实", "值得怀疑").any(value::contains) -> "skeptical"
         value.contains("?") || value.contains("？") || listOf("您是说", "您想", "要不要").any(value::contains) -> "curious"
         listOf("休息", "晚安", "困了", "睡觉", "做个好梦").any(value::contains) -> "sleepy"
         state == MascotState.Thinking -> "thinking"
+        state == MascotState.Talking && listOf("重点是", "请注意", "关键是", "先确认").any(value::contains) -> "focused"
+        state == MascotState.Caring && listOf("放心", "慢慢来", "我在").any(value::contains) -> "calm"
         state == MascotState.Listening -> "attentive"
         state == MascotState.Caring -> "caring"
         state == MascotState.Talking && (value.contains("首先") || value.contains("可以这样") ||

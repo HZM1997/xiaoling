@@ -265,7 +265,13 @@ class SpeechController(private val ctx: Context) {
             compareBy<Int> { index ->
                 val phrase = candidates[index]
                 val confidenceScore = confidence?.getOrNull(index)?.takeIf { it >= 0f } ?: 0.35f
-                val commandScore = if (COMMAND_HINTS.any { hint -> phrase.contains(hint) }) 0.42f else 0f
+                val hintHits = COMMAND_HINTS.count { hint -> phrase.contains(hint) }
+                val commandScore = when {
+                    CAMERA_COMMANDS.any { it.containsMatchIn(phrase) } -> 0.72f
+                    hintHits >= 2 -> 0.58f
+                    hintHits == 1 -> 0.42f
+                    else -> 0f
+                }
                 val usefulLength = phrase.count { !it.isWhitespace() }.coerceAtMost(28) / 28f
                 confidenceScore * 1.8f + commandScore + usefulLength * 0.22f
             }.thenBy { index -> candidates[index].count { !it.isWhitespace() } }
@@ -382,7 +388,13 @@ class SpeechController(private val ctx: Context) {
         const val TAG = "XiaolingASR"
         val COMMAND_HINTS = listOf(
             "小灵", "打开相机", "退出相机", "打电话", "提醒", "闹钟", "导航", "播放",
-            "反诈", "诈骗", "滤镜", "美颜", "美白", "磨皮", "拍照",
+            "反诈", "诈骗", "滤镜", "美颜", "美白", "磨皮", "拍照", "前置", "后置",
+            "摄像头", "切换", "自拍", "调亮", "祛黄", "自然肤色",
+        )
+        val CAMERA_COMMANDS = listOf(
+            Regex("(切换|换成|改用|打开).*(前置|后置|摄像头|镜头)"),
+            Regex("(美白|磨皮|祛黄|美颜).*(一点|自然|强|弱|关闭|不要)?"),
+            Regex("(拍照|自拍|按快门|保存照片)"),
         )
     }
 }

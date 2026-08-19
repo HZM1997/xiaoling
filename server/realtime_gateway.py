@@ -82,7 +82,7 @@ _REALTIME_TOOLS = [
                 "smoothing": {"type": "number", "minimum": 0.0, "maximum": 1.0},
                 "style_description": {"type": "string"},
             },
-            "required": ["filter"],
+            "required": [],
         },
     },
     {
@@ -371,10 +371,12 @@ def _action_for(name: str, args: dict) -> tuple[dict | None, dict]:
         prompt = str(args.get("prompt") or f"切换到{'前置' if lens == 'front' else '后置'}摄像头").strip()[:300]
         return {"type": "SWITCH_CAMERA", "lens": lens, "prompt": prompt}, {"ok": True, "lens": lens}
     if name == "set_camera_filter":
-        value = str(args.get("filter") or "natural").strip().lower()
+        value = str(args.get("filter") or "").strip().lower()
         allowed_filters = {"natural", "warm", "cream", "mist", "cool", "vivid", "sunset", "forest", "teal_orange", "vintage", "film", "hong_kong", "mono", "noir"}
-        filter_name = value if value in allowed_filters else "natural"
-        action = {"type": "SET_CAMERA_FILTER", "filter": filter_name}
+        filter_name = value if value in allowed_filters else ""
+        action = {"type": "SET_CAMERA_FILTER"}
+        if filter_name:
+            action["filter"] = filter_name
         strength = _bounded_float(args.get("filter_strength"), 0.25, 1.0)
         exposure = _bounded_float(args.get("exposure"), -0.35, 0.35)
         saturation = _bounded_float(args.get("saturation"), 0.35, 1.65)
