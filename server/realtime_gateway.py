@@ -56,6 +56,19 @@ _REALTIME_TOOLS = [
     },
     {
         "type": "function",
+        "name": "switch_camera",
+        "description": "Switch the already open Android camera to the front or back lens while keeping the realtime voice conversation active.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "lens": {"type": "string", "enum": ["front", "back"]},
+                "prompt": {"type": "string"},
+            },
+            "required": ["lens"],
+        },
+    },
+    {
+        "type": "function",
         "name": "set_camera_filter",
         "description": "Interpret the user's natural photographic mood request and immediately change the open camera. Infer a preset and grading values for descriptions such as influencer portrait, clear cool tone, fallen ancient princess, cinematic, whitening, or skin smoothing. The user does not need to name a filter.",
         "parameters": {
@@ -219,6 +232,7 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
         base
         + "\n你正在进行自然的全双工中文语音对话。不要重复固定欢迎语。"
         + "老人插话时立即停止当前回答并听新指令，不要抱怨被打断。"
+        + "相机已经打开时，用户要求前置、后置或切换摄像头，必须调用 switch_camera，并保持当前语音会话。"
         + "回答先说结论，通常一到三句；用户持续讲述较长内容时，可偶尔用很短的‘嗯’或‘我在听’回应，但不要频繁打断。"
         + "自动识别用户说的语言。用户要求翻译或口译时直接使用目标语言回答，保留姓名和数字，不添加解释，也不要为了翻译调用后台复杂任务。"
         + "用户说得不完整时先结合最近上下文补全意图；仍有两个以上可能含义时，只追问一个最关键的问题。"
@@ -352,6 +366,10 @@ def _action_for(name: str, args: dict) -> tuple[dict | None, dict]:
         }
     if name == "close_camera":
         return {"type": "CLOSE_CAMERA"}, {"ok": True}
+    if name == "switch_camera":
+        lens = "front" if str(args.get("lens") or "back").strip().lower() == "front" else "back"
+        prompt = str(args.get("prompt") or f"切换到{'前置' if lens == 'front' else '后置'}摄像头").strip()[:300]
+        return {"type": "SWITCH_CAMERA", "lens": lens, "prompt": prompt}, {"ok": True, "lens": lens}
     if name == "set_camera_filter":
         value = str(args.get("filter") or "natural").strip().lower()
         allowed_filters = {"natural", "warm", "cream", "mist", "cool", "vivid", "sunset", "forest", "teal_orange", "vintage", "film", "hong_kong", "mono", "noir"}

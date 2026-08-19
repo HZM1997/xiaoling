@@ -843,6 +843,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         if (_state.value.screen == Screen.Camera) {
+            resolveCameraLensCommand(spoken)?.let { lens ->
+                switchCameraLensByVoice(lens, spoken)
+                return
+            }
             val style = CameraFilter.parseVoice(spoken)
             if (style != null) setCameraStyle(style, announce = !isCameraCaptureCommand(spoken))
             if (isReferenceStyleCommand(spoken)) {
@@ -1233,6 +1237,13 @@ class AppState(application: Application) : AndroidViewModel(application) {
             exitCamera(keepListening = voiceSessionActive)
             return
         }
+        if (final && _state.value.screen == Screen.Camera) {
+            resolveCameraLensCommand(normalized)?.let { lens ->
+                realtime.cancelResponse()
+                switchCameraLensByVoice(lens, normalized)
+                return
+            }
+        }
         if (final && _state.value.screen != Screen.Camera) {
             // Keep camera/filter navigation local even in a realtime session.
             // This avoids asking the model to describe an action that the phone
@@ -1343,6 +1354,22 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun isCameraCaptureCommand(text: String): Boolean =
         Regex("拍(照|一张|张|下来)|照一张|给我拍|帮我拍|按快门|保存(这张|照片|画面)").containsMatchIn(text)
 
+    private fun resolveCameraLensCommand(text: String): String? {
+        val value = text.replace(Regex("[，。！？,.!?\\s]"), "")
+        if (Regex("不要(切换|换)|别(切换|换)").containsMatchIn(value)) return null
+        val cameraWord = Regex("摄像头|相机|镜头|前摄|后摄|主摄")
+        val commandWord = Regex("切换|换成|换到|换一下|换个|改用|使用|打开|转到|调到")
+        if (!cameraWord.containsMatchIn(value) && !Regex("自拍|前后切换").containsMatchIn(value)) return null
+        return when {
+            Regex("前置|前摄|自拍(模式|镜头|摄像头)?").containsMatchIn(value) &&
+                (commandWord.containsMatchIn(value) || value.startsWith("自拍")) -> "front"
+            Regex("后置|后摄|主摄|背面摄像头").containsMatchIn(value) && commandWord.containsMatchIn(value) -> "back"
+            Regex("(切换|换一下|换个|转换|翻转).*(摄像头|相机|镜头)|(摄像头|相机|镜头).*(切换|换一下|换个|转换|翻转)|前后切换").containsMatchIn(value) ->
+                if (_state.value.cameraLens == "front") "back" else "front"
+            else -> null
+        }
+    }
+
     private fun isReferenceStyleCommand(text: String): Boolean =
         Regex(
             "(选择|上传|打开|从相册).*(参考图|图片|照片)|" +
@@ -1450,6 +1477,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
             setCameraStyle(cameraStyleFromAction(action), announce = false)
             return
         }
+        if (type == "SWITCH_CAMERA") {
+            switchCameraLensByVoice(action.optString("lens"), action.optString("prompt", "切换摄像头"))
+            return
+        }
         if (type == "CLOSE_CAMERA") {
             exitCamera()
             return
@@ -1472,6 +1503,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
         }
         if (action.optString("type") == "SET_CAMERA_FILTER") {
             setCameraStyle(cameraStyleFromAction(action), announce = false)
+            return null
+        }
+        if (action.optString("type") == "SWITCH_CAMERA") {
+            switchCameraLensByVoice(action.optString("lens"), action.optString("prompt", "切换摄像头"))
             return null
         }
         if (action.optString("type") == "CLOSE_CAMERA") {
@@ -1631,14 +1666,31 @@ class AppState(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(screen = s, fraudBlocked = FraudStore.count(app)) }
     }
 
-    fun setCameraLens(lens: String) {
+    fun setCameraLens(lens: String, prompt: String = "观察切换后的相机画面") {
         cameraVisionPending = true
         cameraSceneCandidate = ""
         cameraSceneCandidateHits = 0
         cameraLastSceneCommitAt = 0L
         _state.update { it.copy(cameraLens = if (lens == "front") "front" else "back",
+            cameraPrompt = prompt,
             cameraObservation = "", cameraSceneHint = "", cameraAnalyzing = false,
             cameraRequestId = it.cameraRequestId + 1) }
+    }
+
+    private fun switchCameraLensByVoice(lens: String, prompt: String) {
+        if (_state.value.screen != Screen.Camera) return
+        val target = if (lens == "front") "front" else "back"
+        val label = if (target == "front") "前置摄像头" else "后置摄像头"
+        TactileFeedback.emit(app, TactileFeedback.Signal.CameraFocused)
+        setCameraLens(target, prompt.ifBlank { "切换到$label 后继续观察画面" })
+        _state.update { it.copy(
+            listening = false,
+            speaking = false,
+            busy = true,
+            caption = "正在切换到$label",
+            mascot = MascotState.Thinking,
+        ) }
+        realtime.updateContext(cameraRealtimeContext("", "已切换到$label"))
     }
 
     private fun requestReferenceImage(captureAfter: Boolean = false) {
