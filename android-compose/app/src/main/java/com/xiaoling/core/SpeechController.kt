@@ -204,9 +204,12 @@ class SpeechController(private val ctx: Context) {
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 // 不强制 EXTRA_PREFER_OFFLINE。部分红米会声称支持设备端识别,实际没有中文模型,
                 // 强制离线后只返回 ERROR_CLIENT/NO_MATCH。标准服务可自行选择在线或本地引擎。
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 500)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 160)
+                // Older users often pause between subjects and verbs. Treat a
+                // short hesitation as part of the same sentence instead of
+                // asking MIUI to finalize a half-spoken command.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1400)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     putStringArrayListExtra(
                         RecognizerIntent.EXTRA_BIASING_STRINGS,

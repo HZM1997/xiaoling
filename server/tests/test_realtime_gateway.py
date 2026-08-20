@@ -75,7 +75,7 @@ def test_qwen_session_uses_semantic_vad_and_nested_tools(tmp_path, monkeypatch):
     assert session["output_audio_format"] == "pcm"
     assert session["turn_detection"]["type"] == "semantic_vad"
     assert session["turn_detection"]["threshold"] <= 0.35
-    assert session["turn_detection"]["silence_duration_ms"] <= 600
+    assert 700 <= session["turn_detection"]["silence_duration_ms"] <= 1000
     assert session["turn_detection"]["create_response"] is True
     assert session["turn_detection"]["interrupt_response"] is False
     assert "tool_choice" not in session

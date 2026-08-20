@@ -172,7 +172,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val QUICK_TAP_MS = 320L
         const val RESULT_TIMEOUT_MS = 3500L
-        const val AUTO_LISTEN_TIMEOUT_MS = 9000L
+        const val AUTO_LISTEN_TIMEOUT_MS = 30000L
         const val REALTIME_RETRY_MS = 1800L
     }
 
@@ -563,7 +563,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                     // Bound only the result tail, instead of waiting the full listen timeout.
                     speechTimeoutJob?.cancel()
                     speechTimeoutJob = viewModelScope.launch {
-                        delay(1800)
+                        delay(3000)
                         timeoutRecognition(session, automatic = true)
                     }
                 }

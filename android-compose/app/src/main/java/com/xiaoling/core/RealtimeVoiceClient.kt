@@ -105,6 +105,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private var lastEmphasisAtMs = 0L
     private var lastOutputLevelAtMs = 0L
     private var lastOutputActivityAtMs = 0L
+    @Volatile private var latestOutputRms = 0.0
+    @Volatile private var latestOutputRmsAtMs = 0L
+    @Volatile private var estimatedEchoGain = INITIAL_ECHO_GAIN
     private var weakNetworkReported = false
     private val candidateGeneration = AtomicLong(0)
 
@@ -328,8 +331,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // Keep a slow noise/echo baseline. The previous implementation
             // measured only silence, so a steady TTS echo looked like speech
             // and cancelled the answer after two frames.
+            val now = SystemClock.elapsedRealtime()
             val echoWarmup = outputPlaying && !manualHold &&
-                SystemClock.elapsedRealtime() - outputPlaybackStartedAtMs < ECHO_WARMUP_MS
+                now - outputPlaybackStartedAtMs < ECHO_WARMUP_MS
             val baselineLimit = if (outputPlaying) 1.45 else 2.2
             if (rms < noiseFloor * baselineLimit || outputPlaying || responseInProgress) {
                 // A slow baseline follows speaker echo without following a
@@ -342,10 +346,31 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // Only actual playback or a manual hold uses the stricter echo
             // rejection threshold.
             val interruptWindow = outputPlaying || manualHold
-            val speechThreshold = if (interruptWindow) {
+            var speechThreshold = if (interruptWindow) {
                 maxOf(INTERRUPT_MIN_SPEECH_RMS, noiseFloor * 1.7, noiseFloor + INTERRUPT_MIN_RISE_RMS)
             } else {
                 maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
+            }
+            // Predict the microphone echo from the PCM frame currently being
+            // played. This reacts to a loud TTS syllable immediately, instead
+            // of waiting for the slow noise floor to catch up and pausing the
+            // answer as though the assistant had interrupted itself.
+            val outputRms = latestOutputRms.takeIf {
+                outputPlaying && !manualHold && now - latestOutputRmsAtMs <= OUTPUT_ECHO_MAX_AGE_MS
+            } ?: 0.0
+            if (outputRms >= MIN_OUTPUT_ECHO_RMS) {
+                val observedGain = (rms / outputRms).coerceIn(MIN_ECHO_GAIN, MAX_ECHO_GAIN)
+                val safeCalibration = echoWarmup || (!localSpeechActive &&
+                    observedGain <= maxOf(estimatedEchoGain * 1.8, estimatedEchoGain + 0.05))
+                if (safeCalibration) {
+                    val alpha = if (echoWarmup) 0.22 else 0.035
+                    estimatedEchoGain = estimatedEchoGain * (1.0 - alpha) + observedGain * alpha
+                }
+                val predictedEcho = outputRms * estimatedEchoGain
+                speechThreshold = maxOf(
+                    speechThreshold,
+                    predictedEcho * ECHO_REJECTION_MULTIPLIER + ECHO_REJECTION_MARGIN_RMS,
+                )
             }
             if (echoWarmup) {
                 // Calibrate against the first loudspeaker frames before
@@ -367,8 +392,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // speaker echo, notification click, or key tone from cancelling TTS.
             val requiredFrames = when {
                 manualHold && strongSpeech -> 2
-                interruptWindow && strongSpeech -> 2
-                interruptWindow -> 4
+                interruptWindow && strongSpeech -> 3
+                interruptWindow -> 5
                 else -> REQUIRED_INTERRUPT_FRAMES
             }
             if (loudFrames >= requiredFrames && !localSpeechActive) {
@@ -382,7 +407,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     post { listener.onInputSpeechStarted(-1L) }
                 }
             }
-            if (localSpeechActive && quietFrames >= 12) {
+            if (localSpeechActive && quietFrames >= LOCAL_SPEECH_END_FRAMES) {
                 localSpeechActive = false
                 socket?.send(JSONObject().put("type", "input.speech_stopped").put("source", "client_vad").toString())
                 scheduleCandidateResume()
@@ -417,6 +442,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             outputPlaying = true
             playbackWriting = true
             val shape = pcmMouthShape(bytes, bytes.size)
+            latestOutputRms = pcmRms(bytes, bytes.size)
+            latestOutputRmsAtMs = SystemClock.elapsedRealtime()
             val targetLevel = shape.open
             outputLevelSmoothed = outputLevelSmoothed * 0.34f + targetLevel * 0.66f
             outputWideSmoothed = outputWideSmoothed * 0.42f + shape.wide * 0.58f
@@ -546,6 +573,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 candidateGeneration.incrementAndGet()
                 interruptionCandidate = false
                 interruptionCandidateAtMs = 0L
+                inputSpeechCandidate = false
+                inputInterruptConfirmed = false
+                localSpeechActive = false
                 responseInProgress = true
                 outputDonePending = false
                 pendingOutputText = ""
@@ -626,6 +656,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         outputRoundSmoothed = 0f
         previousVisualLevel = 0f
         lastOutputActivityAtMs = 0L
+        latestOutputRms = 0.0
+        latestOutputRmsAtMs = 0L
         post { listener.onOutputVisual(0f, 0f, 0f, false) }
         responseInProgress = false
         try {
@@ -695,6 +727,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         outputRoundSmoothed = 0f
         previousVisualLevel = 0f
         lastOutputActivityAtMs = 0L
+        latestOutputRms = 0.0
+        latestOutputRmsAtMs = 0L
+        estimatedEchoGain = INITIAL_ECHO_GAIN
         post { listener.onOutputVisual(0f, 0f, 0f, false) }
         post { listener.onOutputDone(text) }
     }
@@ -873,7 +908,15 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         // 20 ms PCM frames: three consecutive frames keeps clicks out while
         // bringing barge-in onset below 100 ms after the echo settling window.
         const val REQUIRED_INTERRUPT_FRAMES = 3
-        const val ECHO_WARMUP_MS = 120L
+        const val LOCAL_SPEECH_END_FRAMES = 40 // 800 ms: keep natural pauses inside one utterance
+        const val ECHO_WARMUP_MS = 160L
+        const val OUTPUT_ECHO_MAX_AGE_MS = 180L
+        const val MIN_OUTPUT_ECHO_RMS = 80.0
+        const val INITIAL_ECHO_GAIN = 0.06
+        const val MIN_ECHO_GAIN = 0.01
+        const val MAX_ECHO_GAIN = 0.8
+        const val ECHO_REJECTION_MULTIPLIER = 1.75
+        const val ECHO_REJECTION_MARGIN_RMS = 45.0
         const val CANDIDATE_RESUME_MS = 280L
         const val CANDIDATE_ACTIVE_RECHECK_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L

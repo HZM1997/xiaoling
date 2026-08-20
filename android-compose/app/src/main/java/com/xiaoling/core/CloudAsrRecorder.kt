@@ -97,7 +97,7 @@ class CloudAsrRecorder(private val ctx: Context) {
             record.startRecording()
             main.post { onReady() }
             val samples = ShortArray(1600)
-            val audio = ByteArrayOutputStream(sampleRate * 2 * 12)
+            val audio = ByteArrayOutputStream(sampleRate * 2 * 20)
             val preRoll = ArrayDeque<ByteArray>()
             var preRollBytes = 0
             var noiseRms = 160.0
@@ -106,7 +106,7 @@ class CloudAsrRecorder(private val ctx: Context) {
             var silenceMs = 0
             var elapsedMs = 0
 
-            while (!cancelRequested && elapsedMs < 12000) {
+            while (!cancelRequested && elapsedMs < 30000) {
                 val count = record.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
                 if (count <= 0) {
                     if (stopRequested) break
@@ -143,7 +143,7 @@ class CloudAsrRecorder(private val ctx: Context) {
                 } else {
                     audio.write(bytes)
                     silenceMs = if (rms < threshold * 0.72) silenceMs + count * 1000 / sampleRate else 0
-                    if (silenceMs >= 650 && audio.size() >= sampleRate / 2) break
+                    if (silenceMs >= 1100 && audio.size() >= sampleRate / 2) break
                 }
                 if (stopRequested) break
             }
