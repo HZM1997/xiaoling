@@ -157,6 +157,7 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk xiaoling-v1.0.60-release.apk
           sha256sum xiaoling-v1.0.60-release.apk | tee xiaoling-v1.0.60-release.apk.sha256
           zip -j xiaoling-v1.0.60-release.zip xiaoling-v1.0.60-release.apk xiaoling-v1.0.60-release.apk.sha256
+          split -b 2m xiaoling-v1.0.60-release.zip xiaoling-v1.0.60-release.zip.part-
 
       - name: Publish delivery branch
         env:
@@ -164,6 +165,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/xiaoling-delivery"
           cp xiaoling-v1.0.60-release.apk xiaoling-v1.0.60-release.zip xiaoling-v1.0.60-release.apk.sha256 "$RUNNER_TEMP/xiaoling-delivery/"
+          cp xiaoling-v1.0.60-release.zip.part-* "$RUNNER_TEMP/xiaoling-delivery/"
           cd "$RUNNER_TEMP/xiaoling-delivery"
           git init
           git config user.name "github-actions[bot]"
