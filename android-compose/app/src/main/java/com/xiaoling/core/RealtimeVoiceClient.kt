@@ -367,9 +367,13 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     estimatedEchoGain = estimatedEchoGain * (1.0 - alpha) + observedGain * alpha
                 }
                 val predictedEcho = outputRms * estimatedEchoGain
+                // Cap the extra rejection headroom. AEC and the local
+                // microphone still need to hear a quiet speaker across the
+                // room; an uncapped estimate makes weak elderly speech vanish.
                 speechThreshold = maxOf(
                     speechThreshold,
-                    predictedEcho * ECHO_REJECTION_MULTIPLIER + ECHO_REJECTION_MARGIN_RMS,
+                    (predictedEcho * ECHO_REJECTION_MULTIPLIER + ECHO_REJECTION_MARGIN_RMS)
+                        .coerceAtMost(speechThreshold + MAX_ECHO_EXTRA_RMS),
                 )
             }
             if (echoWarmup) {
@@ -917,6 +921,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val MAX_ECHO_GAIN = 0.8
         const val ECHO_REJECTION_MULTIPLIER = 1.75
         const val ECHO_REJECTION_MARGIN_RMS = 45.0
+        const val MAX_ECHO_EXTRA_RMS = 180.0
         const val CANDIDATE_RESUME_MS = 280L
         const val CANDIDATE_ACTIVE_RECHECK_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L

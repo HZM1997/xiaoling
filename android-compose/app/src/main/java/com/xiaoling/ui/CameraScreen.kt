@@ -413,9 +413,44 @@ private fun CameraFilterOverlay(filter: CameraFilter, strength: Float, exposure:
     if (filter == CameraFilter.Natural && kotlin.math.abs(exposure) < 0.001f &&
         kotlin.math.abs(saturation - 1f) < 0.001f && whitening < 0.001f) return
     Canvas(Modifier.fillMaxSize()) {
-        // Color, exposure, saturation and whitening are already applied by
-        // the hardware-layer ColorMatrix. Keep overlays only for optical
-        // character such as bloom and vignette, avoiding the old flat tint.
+        // API 30 MIUI devices can ignore a Paint color filter on the
+        // TextureView-backed PreviewView. These restrained blend-mode layers
+        // keep the live preview visibly consistent with the saved photo even
+        // when that hardware path is unavailable. Saved photos still receive
+        // the full matrix and skin-local beauty pass.
+        val level = strength.coerceIn(0.25f, 1f)
+        when (filter) {
+            CameraFilter.Warm, CameraFilter.Sunset -> drawRect(
+                Color(0xFFFF9E5C).copy(alpha = 0.10f * level), blendMode = BlendMode.Softlight)
+            CameraFilter.Cream -> drawRect(
+                Color(0xFFFFD9C2).copy(alpha = 0.10f * level), blendMode = BlendMode.Screen)
+            CameraFilter.Mist -> drawRect(
+                Color.White.copy(alpha = 0.13f * level), blendMode = BlendMode.Screen)
+            CameraFilter.Cool -> drawRect(
+                Color(0xFF9EDBFF).copy(alpha = 0.11f * level), blendMode = BlendMode.Color)
+            CameraFilter.Forest -> drawRect(
+                Color(0xFF79B58C).copy(alpha = 0.09f * level), blendMode = BlendMode.Color)
+            CameraFilter.TealOrange -> {
+                drawRect(Color(0xFF3DB8B3).copy(alpha = 0.07f * level), blendMode = BlendMode.Color)
+                drawRect(Color(0xFFFFA064).copy(alpha = 0.05f * level), blendMode = BlendMode.Softlight)
+            }
+            CameraFilter.Vivid -> drawRect(
+                Color(0xFFFF6E70).copy(alpha = 0.06f * level), blendMode = BlendMode.Saturation)
+            CameraFilter.Vintage, CameraFilter.Film, CameraFilter.HongKong -> drawRect(
+                Color(0xFFB88B62).copy(alpha = 0.10f * level), blendMode = BlendMode.Color)
+            CameraFilter.Mono, CameraFilter.Noir -> drawRect(
+                Color.Black.copy(alpha = if (filter == CameraFilter.Noir) 0.08f else 0.03f),
+                blendMode = BlendMode.Saturation)
+            CameraFilter.Natural -> Unit
+        }
+        if (exposure > 0.02f || whitening > 0.04f) {
+            drawRect(
+                Color.White.copy(alpha = (exposure.coerceAtLeast(0f) * 0.10f + whitening * 0.045f).coerceAtMost(0.075f)),
+                blendMode = BlendMode.Screen,
+            )
+        } else if (exposure < -0.02f) {
+            drawRect(Color.Black.copy(alpha = (-exposure * 0.08f).coerceAtMost(0.035f)), blendMode = BlendMode.Multiply)
+        }
         if (filter == CameraFilter.Vintage) {
             drawRect(
                 brush = Brush.radialGradient(
@@ -426,10 +461,8 @@ private fun CameraFilterOverlay(filter: CameraFilter, strength: Float, exposure:
                 blendMode = BlendMode.Multiply,
             )
         }
-        if (filter == CameraFilter.Mist || filter == CameraFilter.Cream) {
-            drawRect(Color.White.copy(alpha = if (filter == CameraFilter.Mist) 0.11f else 0.06f),
-                blendMode = BlendMode.Screen)
-        }
+        // Cream/Mist bloom is intentionally subtle; a full-screen white wash
+        // makes the camera look like it only changed brightness.
         if (filter == CameraFilter.Noir || filter == CameraFilter.Film || filter == CameraFilter.HongKong) {
             drawRect(
                 brush = Brush.radialGradient(
@@ -574,9 +607,12 @@ private fun skinMask(r: Int, g: Int, b: Int): Float {
         ((cr - 126f) / 16f).coerceIn(0f, 1f),
         ((178f - cr) / 18f).coerceIn(0f, 1f),
     )
-    val light = ((y - 45f) / 45f).coerceIn(0f, 1f) * ((245f - y) / 32f).coerceIn(0f, 1f)
-    val rgbConfidence = ((r - g - 4f) / 22f).coerceIn(0f, 1f)
-    return (chroma * light * (0.55f + rgbConfidence * 0.45f)).coerceIn(0f, 1f)
+    val light = ((y - 35f) / 55f).coerceIn(0f, 1f) * ((250f - y) / 42f).coerceIn(0f, 1f)
+    // The old r > g and r > b gate rejected pale, olive and indoor-lit skin.
+    // YCbCr bounds are more stable across Redmi white-balance changes.
+    val tone = (((cr - 128f) / 32f).coerceIn(0f, 1f) * 0.55f +
+        ((cb - 108f) / 32f).coerceIn(0f, 1f) * 0.45f)
+    return (chroma * light * (0.62f + tone * 0.38f)).coerceIn(0f, 1f)
 }
 
 private fun mixChannel(from: Int, to: Int, amount: Float): Int =

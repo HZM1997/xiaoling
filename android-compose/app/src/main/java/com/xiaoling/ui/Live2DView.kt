@@ -423,6 +423,18 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeart(
 private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): String {
     if (state == MascotState.Alarm) return "warning"
     val value = text.lowercase()
+    // Realtime audio can arrive before a complete transcript. Let cadence
+    // still produce visibly different reactions instead of leaving the avatar
+    // in the same neutral loop for every answer.
+    if (state == MascotState.Talking && value.isBlank()) {
+        return when (emphasisTick % 5) {
+            1 -> "explaining"
+            2 -> "focused"
+            3 -> "warm"
+            4 -> "curious"
+            else -> "neutral"
+        }
+    }
     return when {
         listOf("危险", "诈骗", "报警", "立即停止", "警告", "不要转账", "可疑链接").any(value::contains) -> "warning"
         listOf("生气", "愤怒", "太过分", "不可以", "必须注意", "严肃").any(value::contains) -> "serious"
@@ -450,7 +462,11 @@ private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): 
         state == MascotState.Caring -> "caring"
         state == MascotState.Talking && (value.contains("首先") || value.contains("可以这样") ||
             value.contains("简单来说") || value.length > 70) -> "explaining"
-        state == MascotState.Talking && emphasisTick % 3 == 1 -> "warm"
+        state == MascotState.Talking && value.endsWith("？") -> "curious"
+        state == MascotState.Talking && value.endsWith("！") -> "excited"
+        state == MascotState.Talking && emphasisTick % 5 == 1 -> "explaining"
+        state == MascotState.Talking && emphasisTick % 5 == 2 -> "focused"
+        state == MascotState.Talking && emphasisTick % 5 == 3 -> "warm"
         else -> "neutral"
     }
 }
