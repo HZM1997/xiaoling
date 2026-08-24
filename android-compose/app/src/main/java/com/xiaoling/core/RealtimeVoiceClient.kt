@@ -339,10 +339,12 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             val echoWarmup = outputPlaying && !manualHold &&
                 now - outputPlaybackStartedAtMs < ECHO_WARMUP_MS
             val baselineLimit = if (outputPlaying) 1.45 else 2.2
-            if (rms < noiseFloor * baselineLimit || outputPlaying || responseInProgress) {
-                // A slow baseline follows speaker echo without following a
-                // real voice burst, which keeps the interrupt threshold stable.
-                val alpha = if (echoWarmup) 0.24 else if (outputPlaying) 0.03 else if (responseInProgress) 0.015 else 0.01
+            val looksLikeQuietBackground = rms < noiseFloor * baselineLimit
+            if (looksLikeQuietBackground || (!outputPlaying && responseInProgress && rms < noiseFloor * 1.35)) {
+                // Follow only quiet/echo-like frames. Updating the baseline on
+                // every playback frame made a user's sentence raise its own
+                // threshold until the latter half disappeared from ASR.
+                val alpha = if (echoWarmup) 0.24 else if (outputPlaying) 0.018 else if (responseInProgress) 0.01 else 0.01
                 noiseFloor = noiseFloor * (1.0 - alpha) + rms.coerceAtLeast(20.0) * alpha
             }
             // A response that has not emitted audio yet must still be
