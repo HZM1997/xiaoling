@@ -58,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -196,7 +197,15 @@ fun CameraScreen(vm: AppState) {
         LaunchedEffect(previewView, filter, filterStrength, exposure, saturation, whitening, smoothing) {
             previewView?.applyXiaolingFilter(filter, filterStrength, exposure, saturation, whitening, smoothing)
         }
-        CameraFilterOverlay(filter, filterStrength, exposure, saturation, whitening)
+        CameraFilterOverlay(
+            filter,
+            filterStrength,
+            exposure,
+            saturation,
+            whitening,
+            smoothing,
+            isFrontCamera = ui.cameraLens == "front",
+        )
         if (filter != CameraFilter.Natural || whitening > 0.01f || smoothing > 0.01f) {
             CameraLookReference(
                 filter = filter,
@@ -409,7 +418,15 @@ private fun imageProxyToBitmap(image: ImageProxy): Bitmap? = runCatching {
 }.getOrNull()
 
 @Composable
-private fun CameraFilterOverlay(filter: CameraFilter, strength: Float, exposure: Float, saturation: Float, whitening: Float) {
+private fun CameraFilterOverlay(
+    filter: CameraFilter,
+    strength: Float,
+    exposure: Float,
+    saturation: Float,
+    whitening: Float,
+    smoothing: Float,
+    isFrontCamera: Boolean,
+) {
     if (filter == CameraFilter.Natural && kotlin.math.abs(exposure) < 0.001f &&
         kotlin.math.abs(saturation - 1f) < 0.001f && whitening < 0.001f) return
     Canvas(Modifier.fillMaxSize()) {
@@ -420,36 +437,69 @@ private fun CameraFilterOverlay(filter: CameraFilter, strength: Float, exposure:
         // the full matrix and skin-local beauty pass.
         val level = strength.coerceIn(0.25f, 1f)
         when (filter) {
-            CameraFilter.Warm, CameraFilter.Sunset -> drawRect(
-                Color(0xFFFF9E5C).copy(alpha = 0.10f * level), blendMode = BlendMode.Softlight)
+            CameraFilter.Warm, CameraFilter.Sunset -> {
+                drawRect(Color(0xFFFF9E5C).copy(alpha = 0.13f * level), blendMode = BlendMode.Softlight)
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        listOf(Color(0xFFFFD4A3).copy(alpha = 0.05f * level), Color.Transparent),
+                    ),
+                    blendMode = BlendMode.Screen,
+                )
+            }
             CameraFilter.Cream -> drawRect(
-                Color(0xFFFFD9C2).copy(alpha = 0.10f * level), blendMode = BlendMode.Screen)
+                Color(0xFFFFD2C0).copy(alpha = 0.13f * level), blendMode = BlendMode.Softlight)
             CameraFilter.Mist -> drawRect(
-                Color.White.copy(alpha = 0.13f * level), blendMode = BlendMode.Screen)
+                Color(0xFFE8F3FF).copy(alpha = 0.16f * level), blendMode = BlendMode.Screen)
             CameraFilter.Cool -> drawRect(
-                Color(0xFF9EDBFF).copy(alpha = 0.11f * level), blendMode = BlendMode.Color)
+                Color(0xFF83CFFF).copy(alpha = 0.14f * level), blendMode = BlendMode.Color)
             CameraFilter.Forest -> drawRect(
-                Color(0xFF79B58C).copy(alpha = 0.09f * level), blendMode = BlendMode.Color)
+                Color(0xFF70B98A).copy(alpha = 0.12f * level), blendMode = BlendMode.Color)
             CameraFilter.TealOrange -> {
-                drawRect(Color(0xFF3DB8B3).copy(alpha = 0.07f * level), blendMode = BlendMode.Color)
-                drawRect(Color(0xFFFFA064).copy(alpha = 0.05f * level), blendMode = BlendMode.Softlight)
+                drawRect(Color(0xFF2AB8B7).copy(alpha = 0.10f * level), blendMode = BlendMode.Color)
+                drawRect(Color(0xFFFF955D).copy(alpha = 0.08f * level), blendMode = BlendMode.Softlight)
             }
             CameraFilter.Vivid -> drawRect(
-                Color(0xFFFF6E70).copy(alpha = 0.06f * level), blendMode = BlendMode.Saturation)
-            CameraFilter.Vintage, CameraFilter.Film, CameraFilter.HongKong -> drawRect(
-                Color(0xFFB88B62).copy(alpha = 0.10f * level), blendMode = BlendMode.Color)
+                Color(0xFFFF6570).copy(alpha = 0.10f * level), blendMode = BlendMode.Saturation)
+            CameraFilter.Vintage, CameraFilter.Film -> drawRect(
+                Color(0xFFB48A64).copy(alpha = 0.13f * level), blendMode = BlendMode.Color)
+            CameraFilter.HongKong -> {
+                drawRect(Color(0xFFB94F55).copy(alpha = 0.10f * level), blendMode = BlendMode.Color)
+                drawRect(Color(0xFFFFB15F).copy(alpha = 0.07f * level), blendMode = BlendMode.Softlight)
+            }
             CameraFilter.Mono, CameraFilter.Noir -> drawRect(
                 Color.Black.copy(alpha = if (filter == CameraFilter.Noir) 0.08f else 0.03f),
                 blendMode = BlendMode.Saturation)
             CameraFilter.Natural -> Unit
         }
-        if (exposure > 0.02f || whitening > 0.04f) {
+        if (exposure > 0.02f || (!isFrontCamera && whitening > 0.04f)) {
             drawRect(
-                Color.White.copy(alpha = (exposure.coerceAtLeast(0f) * 0.10f + whitening * 0.045f).coerceAtMost(0.075f)),
+                Color.White.copy(alpha = (
+                    exposure.coerceAtLeast(0f) * 0.10f +
+                        (if (isFrontCamera) 0f else whitening * 0.035f)
+                    ).coerceAtMost(0.065f)),
                 blendMode = BlendMode.Screen,
             )
         } else if (exposure < -0.02f) {
             drawRect(Color.Black.copy(alpha = (-exposure * 0.08f).coerceAtMost(0.035f)), blendMode = BlendMode.Multiply)
+        }
+        // Entry-level MIUI devices may ignore the PreviewView layer paint.
+        // Keep beauty preview centered on the likely front-camera face instead
+        // of washing the whole frame white. Captured photos still use the
+        // pixel-level YCbCr skin mask below.
+        if (isFrontCamera && (whitening > 0.02f || smoothing > 0.02f)) {
+            val beauty = (whitening * 0.12f + smoothing * 0.055f).coerceAtMost(0.12f)
+            drawRect(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color(0xFFFFF8F5).copy(alpha = beauty),
+                        Color(0xFFFFEDE9).copy(alpha = beauty * 0.46f),
+                        Color.Transparent,
+                    ),
+                    center = Offset(size.width * 0.5f, size.height * 0.39f),
+                    radius = minOf(size.width * 0.47f, size.height * 0.35f),
+                ),
+                blendMode = BlendMode.Screen,
+            )
         }
         if (filter == CameraFilter.Vintage) {
             drawRect(
@@ -597,22 +647,19 @@ private fun applyOpticalFinish(bitmap: Bitmap, filter: CameraFilter, filterStren
 private fun skinMask(r: Int, g: Int, b: Int): Float {
     val max = maxOf(r, g, b)
     val min = minOf(r, g, b)
-    if (r <= 70 || g <= 30 || b <= 15 || r <= g || r <= b || max - min <= 10) return 0f
+    if (max < 42 || max - min <= 7) return 0f
     val y = 0.299f * r + 0.587f * g + 0.114f * b
     val cb = 128f - 0.168736f * r - 0.331264f * g + 0.5f * b
     val cr = 128f + 0.5f * r - 0.418688f * g - 0.081312f * b
-    val chroma = minOf(
-        ((cb - 72f) / 18f).coerceIn(0f, 1f),
-        ((132f - cb) / 18f).coerceIn(0f, 1f),
-        ((cr - 126f) / 16f).coerceIn(0f, 1f),
-        ((178f - cr) / 18f).coerceIn(0f, 1f),
-    )
-    val light = ((y - 35f) / 55f).coerceIn(0f, 1f) * ((250f - y) / 42f).coerceIn(0f, 1f)
-    // The old r > g and r > b gate rejected pale, olive and indoor-lit skin.
-    // YCbCr bounds are more stable across Redmi white-balance changes.
-    val tone = (((cr - 128f) / 32f).coerceIn(0f, 1f) * 0.55f +
-        ((cb - 108f) / 32f).coerceIn(0f, 1f) * 0.45f)
-    return (chroma * light * (0.62f + tone * 0.38f)).coerceIn(0f, 1f)
+    // Elliptical YCbCr likelihood has soft edges and does not reject olive or
+    // cool indoor skin just because red is not the largest RGB channel.
+    val cbDistance = (cb - 104f) / 34f
+    val crDistance = (cr - 151f) / 33f
+    val chroma = (1.16f - cbDistance * cbDistance - crDistance * crDistance).coerceIn(0f, 1f)
+    val light = ((y - 28f) / 52f).coerceIn(0f, 1f) * ((253f - y) / 38f).coerceIn(0f, 1f)
+    val rgbPlausibility = ((r - b + 28f) / 45f).coerceIn(0f, 1f) *
+        ((r - g + 24f) / 38f).coerceIn(0f, 1f)
+    return (chroma * light * (0.70f + rgbPlausibility * 0.30f)).coerceIn(0f, 1f)
 }
 
 private fun mixChannel(from: Int, to: Int, amount: Float): Int =

@@ -24,9 +24,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Brush
@@ -39,6 +42,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaoling.core.MascotState
+import kotlinx.coroutines.delay
 
 /**
  * 3D 数字人内嵌视图:WebView + three.js/three-vrm 加载 assets/avatar3d/index.html。
@@ -69,7 +73,19 @@ fun Avatar3DView(
     val currentMouthWide by rememberUpdatedState(mouthWide)
     val currentMouthRound by rememberUpdatedState(mouthRound)
     val currentEmphasisTick by rememberUpdatedState(emphasisTick)
-    val currentEmotion by rememberUpdatedState(avatarEmotion(state, caption, emphasisTick))
+    var expressionCadence by remember { mutableIntStateOf(0) }
+    LaunchedEffect(talking, state) {
+        if (!talking) {
+            expressionCadence = 0
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(1_450L)
+            expressionCadence = (expressionCadence + 1) % 15
+        }
+    }
+    val emotionTick = emphasisTick + expressionCadence
+    val currentEmotion by rememberUpdatedState(avatarEmotion(state, caption, emotionTick))
     val useWebGlAvatar = remember { supportsWebGlAvatar() }
     fun applyState(
         web: WebView,
@@ -173,7 +189,7 @@ fun Avatar3DView(
                 update = { web ->
                     applyState(
                         web, stateName, talking, voiceLevel, mouthWide, mouthRound,
-                        emphasisTick, avatarEmotion(state, caption, emphasisTick),
+                        emphasisTick, avatarEmotion(state, caption, emotionTick),
                     )
                 },
                 onRelease = { web ->
@@ -461,12 +477,15 @@ private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): 
         state == MascotState.Listening -> "attentive"
         state == MascotState.Caring -> "caring"
         state == MascotState.Talking && (value.contains("首先") || value.contains("可以这样") ||
-            value.contains("简单来说") || value.length > 70) -> "explaining"
+            value.contains("简单来说")) -> "explaining"
         state == MascotState.Talking && value.endsWith("？") -> "curious"
         state == MascotState.Talking && value.endsWith("！") -> "excited"
-        state == MascotState.Talking && emphasisTick % 5 == 1 -> "explaining"
-        state == MascotState.Talking && emphasisTick % 5 == 2 -> "focused"
-        state == MascotState.Talking && emphasisTick % 5 == 3 -> "warm"
+        state == MascotState.Talking && emphasisTick % 7 == 1 -> "explaining"
+        state == MascotState.Talking && emphasisTick % 7 == 2 -> "focused"
+        state == MascotState.Talking && emphasisTick % 7 == 3 -> "warm"
+        state == MascotState.Talking && emphasisTick % 7 == 4 -> "curious"
+        state == MascotState.Talking && emphasisTick % 7 == 5 -> "calm"
+        state == MascotState.Talking && emphasisTick % 7 == 6 -> "happy"
         else -> "neutral"
     }
 }

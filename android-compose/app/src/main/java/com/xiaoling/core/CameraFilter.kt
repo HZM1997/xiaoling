@@ -22,17 +22,17 @@ enum class CameraFilter(
     val label: String,
     val aliases: Set<String>,
 ) {
-    Natural("natural", "原色", setOf("原色", "原图", "真实", "自然", "不调色")),
+    Natural("natural", "原色", setOf("原色", "原图", "真实原色", "恢复原色", "不调色", "关闭滤镜")),
     Warm("warm", "暖阳", setOf("暖阳", "暖色", "暖调", "暖一点")),
-    Cream("cream", "奶油", setOf("奶油", "奶油感", "人像", "温柔", "柔和")),
+    Cream("cream", "奶油", setOf("奶油", "奶油感", "人像", "温柔", "柔和", "韩系", "日杂")),
     Mist("mist", "柔雾", setOf("柔雾", "雾感", "朦胧", "梦幻")),
-    Cool("cool", "清冷", setOf("清冷", "冷色", "冷调", "蓝调", "小清新")),
+    Cool("cool", "清冷", setOf("清冷", "清冷感", "冷色", "冷调", "蓝调", "冷白", "小清新")),
     Vivid("vivid", "通透", setOf("通透", "鲜艳", "浓郁", "鲜明", "清晰")),
     Sunset("sunset", "落日", setOf("落日", "日落", "夕阳", "橘调")),
     Forest("forest", "森系", setOf("森系", "森林", "清绿", "自然绿")),
     TealOrange("teal_orange", "青橙", setOf("青橙", "橙青", "电影感")),
-    Vintage("vintage", "复古", setOf("复古", "怀旧", "老照片")),
-    Film("film", "胶片", setOf("胶片", "胶卷", "颗粒感")),
+    Vintage("vintage", "复古", setOf("复古", "怀旧", "老照片", "CCD", "ccd")),
+    Film("film", "胶片", setOf("胶片", "胶卷", "颗粒感", "富士", "电影胶片")),
     HongKong("hong_kong", "港风", setOf("港风", "港片", "港式")),
     Mono("mono", "黑白", setOf("黑白", "灰度", "单色")),
     Noir("noir", "暗调", setOf("暗黑白", "硬黑白", "纪实黑白", "暗调黑白"));
@@ -162,7 +162,7 @@ enum class CameraFilter(
 
         /** Convert everyday photographic descriptions into immediate preview parameters. */
         fun parseVoice(text: String): CameraStyleIntent? {
-            val value = text.trim()
+            val value = text.trim().replace(Regex("[，。！？、,.!?\\s]+"), "")
             if (value.isBlank() || !isStyleRequest(value)) return null
 
             val preset = when {
@@ -171,13 +171,19 @@ enum class CameraFilter(
                 Regex("网红|小红书|博主|出片|高级人像|氛围感人像|精致自拍").containsMatchIn(value) ->
                     CameraStyleIntent(Cream, 0.82f, 0.13f, 1.10f, 0.32f, 0.34f, "通透网红人像")
                 Regex("清澈|清透|干净感|水光|水感|空气感|透明感").containsMatchIn(value) ->
-                    CameraStyleIntent(Cool, 0.68f, 0.09f, 0.90f, 0.16f, 0.12f, "清澈冷调")
+                    CameraStyleIntent(Cool, 0.78f, 0.08f, 0.92f, 0.20f, 0.16f, "清澈冷调")
                 Regex("白月光|初恋感|纯欲|仙气|柔光|朦胧人像").containsMatchIn(value) ->
                     CameraStyleIntent(Mist, 0.74f, 0.12f, 0.88f, 0.28f, 0.30f, "柔光白月光")
                 Regex("赛博|霓虹|未来感|科技感|蓝橙电影").containsMatchIn(value) ->
                     CameraStyleIntent(TealOrange, 0.92f, -0.04f, 1.28f, 0.04f, 0.04f, "青橙赛博电影")
                 Regex("古风|古装|国风|东方感|故事感|电影叙事").containsMatchIn(value) ->
                     CameraStyleIntent(Film, 0.82f, -0.05f, 0.76f, 0.10f, 0.12f, "克制古风胶片")
+                Regex("证件照|职业照|商务照|干净人像").containsMatchIn(value) ->
+                    CameraStyleIntent(Cream, 0.48f, 0.07f, 0.94f, 0.18f, 0.20f, "干净自然人像")
+                Regex("冷白皮|冷白肤色|清冷人像").containsMatchIn(value) ->
+                    CameraStyleIntent(Cool, 0.72f, 0.08f, 0.90f, 0.34f, 0.24f, "清透冷白人像")
+                Regex("港风美人|港片女主|复古港风").containsMatchIn(value) ->
+                    CameraStyleIntent(HongKong, 0.90f, -0.05f, 1.12f, 0.16f, 0.18f, "浓郁复古港风")
                 Regex("祛黄|去黄|肤色均匀|气色好|红润一点|有气色").containsMatchIn(value) ->
                     CameraStyleIntent(Cream, 0.56f, 0.04f, 1.04f, 0.14f, 0.24f, "自然匀净肤色")
                 Regex("美颜|美妆|自拍美颜|自然美颜|白里透红|柔焦人像").containsMatchIn(value) ->
@@ -207,18 +213,18 @@ enum class CameraFilter(
                 else -> null
             }
             val explicitWhitening = when {
-                Regex("关闭美白|不要美白|恢复肤色").containsMatchIn(value) -> 0f
+                Regex("关闭美白|不要美白|恢复肤色|关掉美白").containsMatchIn(value) -> 0f
                 Regex("不要假白|自然肤色|美白自然|降低美白|美白少一点").containsMatchIn(value) -> 0.10f
                 Regex("美白.*(最大|最强)|白到最高|开满美白").containsMatchIn(value) -> 0.65f
                 Regex("美白.*(强|多)|白很多").containsMatchIn(value) -> 0.50f
                 Regex("再白一点|美白明显一点|白一些").containsMatchIn(value) -> 0.38f
                 Regex("轻微美白|美白一点点|稍微白一点").containsMatchIn(value) -> 0.18f
                 Regex("祛黄|去黄|肤色均匀|红润一点|有气色").containsMatchIn(value) -> 0.14f
-                Regex("美白|白一点|提亮肤色|肤色亮|白里透红").containsMatchIn(value) -> 0.30f
+                Regex("美白|白一点|提亮肤色|肤色亮|白里透红|冷白皮|皮肤白").containsMatchIn(value) -> 0.30f
                 else -> null
             }
             val explicitSmoothing = when {
-                Regex("关闭磨皮|不要磨皮").containsMatchIn(value) -> 0f
+                Regex("关闭磨皮|不要磨皮|关掉磨皮").containsMatchIn(value) -> 0f
                 Regex("保留皮肤纹理|磨皮自然|自然磨皮|降低磨皮|磨皮少一点|别磨太狠").containsMatchIn(value) -> 0.14f
                 Regex("磨皮.*(最大|最强)|开满磨皮").containsMatchIn(value) -> 0.62f
                 Regex("磨皮.*(强|多)|皮肤更光滑").containsMatchIn(value) -> 0.48f
@@ -295,7 +301,7 @@ enum class CameraFilter(
 
         private fun isStyleRequest(text: String): Boolean = Regex(
             "滤镜|调色|色调|风格|效果|换成|切成|调成|弄成|做成|来个|恢复原色|原图|不调色|" +
-            "美颜|美妆|柔焦|美白|磨皮|祛痘|肤色|纹理|祛黄|去黄|红润|气色|假白|白里透红|恢复自然|出片|网红|小红书|清澈|清透|空气感|白月光|初恋感|" +
+            "美颜|美妆|柔焦|美白|磨皮|祛痘|肤色|皮肤|纹理|祛黄|去黄|红润|气色|假白|冷白皮|白里透红|恢复自然|出片|网红|小红书|清澈|清透|空气感|白月光|初恋感|" +
                 "战国|亡国|没落公主|落难公主|古风|古装|国风|宿命感|破碎感|赛博|霓虹|" +
                 "调(亮|暗|淡|浓|重|强|弱)|调(高|低).*饱和|拍(得|成|出|个|一张).*(暖|冷|复古|黑白|鲜艳|明亮|原色)|" +
                 "画面.*(暖|冷|复古|黑白|鲜艳|明亮|原色|感觉)|要.*(暖|冷|复古|黑白|鲜艳|明亮|原色|感觉)"

@@ -281,7 +281,7 @@ def _session_update(
                 # Keep normal breathing and hesitant speech in one turn. The
                 # Android client still confirms barge-in locally within about
                 # 60-100 ms, so this does not slow interruption onset.
-                "silence_duration_ms": 800,
+                "silence_duration_ms": 1000,
                 "create_response": True,
                 # Qwen's server VAD also hears the phone speaker.  Xiaoling
                 # confirms barge-in with the Android local VAD before it

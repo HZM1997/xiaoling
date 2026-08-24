@@ -31,6 +31,7 @@ import org.json.JSONObject
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
@@ -93,6 +94,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     @Volatile private var inputInterruptConfirmed = false
     @Volatile private var localSpeechActive = false
     @Volatile private var interruptionCandidate = false
+    @Volatile private var candidatePlaybackPaused = false
     @Volatile private var interruptionCandidateAtMs = 0L
     @Volatile private var discardResponseAudio = false
     @Volatile private var outputDonePending = false
@@ -106,6 +108,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private var lastOutputLevelAtMs = 0L
     private var lastOutputActivityAtMs = 0L
     @Volatile private var latestOutputRms = 0.0
+    @Volatile private var latestOutputZeroCrossing = 0.0
     @Volatile private var latestOutputRmsAtMs = 0L
     @Volatile private var estimatedEchoGain = INITIAL_ECHO_GAIN
     private var weakNetworkReported = false
@@ -327,7 +330,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         while (running && turn == generation.get()) {
             val count = try { recorder?.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING) ?: -1 } catch (_: Throwable) { -1 }
             if (count <= 0) break
-            val rms = pcmRms(frame, count)
+            val inputFeatures = pcmFeatures(frame, count)
+            val rms = inputFeatures.rms
             // Keep a slow noise/echo baseline. The previous implementation
             // measured only silence, so a steady TTS echo looked like speech
             // and cancelled the answer after two frames.
@@ -392,6 +396,16 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 }
             }
             val strongSpeech = rms >= speechThreshold * 1.55
+            val predictedEcho = if (outputRms >= MIN_OUTPUT_ECHO_RMS) {
+                outputRms * estimatedEchoGain
+            } else 0.0
+            val residualRms = (rms - predictedEcho).coerceAtLeast(0.0)
+            val spectralDistance = abs(inputFeatures.zeroCrossing - latestOutputZeroCrossing)
+            val nearEndSpeech = manualHold || !interruptWindow || (
+                rms >= speechThreshold &&
+                    residualRms >= maxOf(MIN_NEAR_END_RESIDUAL_RMS, noiseFloor * 0.72) &&
+                    (spectralDistance >= MIN_NEAR_END_ZCR_DISTANCE || rms >= speechThreshold * 1.75)
+                )
             // Require a short stable run even for a loud frame. This keeps a
             // speaker echo, notification click, or key tone from cancelling TTS.
             val requiredFrames = when {
@@ -404,7 +418,13 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 localSpeechActive = true
                 val confirmsBargeIn = outputPlaying || responseInProgress || manualHold
                 if (confirmsBargeIn) {
-                    beginInterruptionCandidate(rms, speechThreshold)
+                    beginInterruptionCandidate(rms, speechThreshold, pauseImmediately = manualHold || nearEndSpeech)
+                    // Confident near-end speech should not wait for a remote
+                    // transcript before stopping TTS. Echo-like candidates are
+                    // still sent to ASR, but playback continues until confirmed.
+                    if (nearEndSpeech && (manualHold || loudFrames >= FAST_CONFIRM_FRAMES)) {
+                        confirmInterruption()
+                    }
                 }
                 if (!confirmsBargeIn) {
                     socket?.send(JSONObject().put("type", "input.speech_candidate").toString())
@@ -425,7 +445,14 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 continue
             }
             if (weakNetworkReported && ws.queueSize() < MAX_WEBSOCKET_QUEUE_BYTES / 4) weakNetworkReported = false
-            val audio = Base64.encodeToString(if (count == frame.size) frame else frame.copyOf(count), Base64.NO_WRAP)
+            val upstreamFrame = prepareUpstreamAudio(
+                frame,
+                count,
+                rms,
+                noiseFloor,
+                boostSpeech = !outputPlaying || candidatePlaybackPaused || nearEndSpeech,
+            )
+            val audio = Base64.encodeToString(upstreamFrame, Base64.NO_WRAP)
             ws.send(JSONObject().put("type", "audio.append").put("audio", audio).toString())
         }
     }
@@ -446,7 +473,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             outputPlaying = true
             playbackWriting = true
             val shape = pcmMouthShape(bytes, bytes.size)
-            latestOutputRms = pcmRms(bytes, bytes.size)
+            val outputFeatures = pcmFeatures(bytes, bytes.size)
+            latestOutputRms = outputFeatures.rms
+            latestOutputZeroCrossing = outputFeatures.zeroCrossing
             latestOutputRmsAtMs = SystemClock.elapsedRealtime()
             val targetLevel = shape.open
             outputLevelSmoothed = outputLevelSmoothed * 0.34f + targetLevel * 0.66f
@@ -473,7 +502,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     // real speech. A blocking write can then return zero or an
                     // invalid-operation code on MIUI. That is a normal pause,
                     // not a fatal realtime-session error.
-                    if (manualHold || interruptionCandidate) {
+                    if (manualHold || candidatePlaybackPaused) {
                         try { Thread.sleep(12) } catch (_: InterruptedException) {}
                         continue
                     }
@@ -485,7 +514,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     val written = try {
                         currentTrack.write(bytes, offset, bytes.size - offset, AudioTrack.WRITE_BLOCKING)
                     } catch (error: Throwable) {
-                        if (manualHold || interruptionCandidate) continue
+                        if (manualHold || candidatePlaybackPaused) continue
                         if (recoveries++ < MAX_AUDIO_TRACK_RECOVERIES && recoverPlaybackTrack()) {
                             Log.w(TAG, "AudioTrack recovered after write exception", error)
                             continue
@@ -494,7 +523,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     }
                     when {
                         written > 0 -> offset += written
-                        manualHold || interruptionCandidate -> Unit
+                        manualHold || candidatePlaybackPaused -> Unit
                         recoveries++ < MAX_AUDIO_TRACK_RECOVERIES && recoverPlaybackTrack() ->
                             Log.w(TAG, "AudioTrack recovered after write=$written")
                         else -> throw IllegalStateException("AudioTrack write=$written")
@@ -576,6 +605,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                 discardResponseAudio = false
                 candidateGeneration.incrementAndGet()
                 interruptionCandidate = false
+                candidatePlaybackPaused = false
                 interruptionCandidateAtMs = 0L
                 inputSpeechCandidate = false
                 inputInterruptConfirmed = false
@@ -650,6 +680,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     private fun clearPlayback() {
         candidateGeneration.incrementAndGet()
         interruptionCandidate = false
+        candidatePlaybackPaused = false
         interruptionCandidateAtMs = 0L
         playbackQueue.clear()
         outputPlaying = false
@@ -661,6 +692,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         previousVisualLevel = 0f
         lastOutputActivityAtMs = 0L
         latestOutputRms = 0.0
+        latestOutputZeroCrossing = 0.0
         latestOutputRmsAtMs = 0L
         post { listener.onOutputVisual(0f, 0f, 0f, false) }
         responseInProgress = false
@@ -711,7 +743,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         val previous = track
         track = replacement
         try {
-            if (!manualHold && !interruptionCandidate) replacement.play()
+            if (!manualHold && !candidatePlaybackPaused) replacement.play()
         } catch (_: Throwable) {
             track = previous
             replacement.release()
@@ -732,20 +764,24 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         previousVisualLevel = 0f
         lastOutputActivityAtMs = 0L
         latestOutputRms = 0.0
+        latestOutputZeroCrossing = 0.0
         latestOutputRmsAtMs = 0L
         estimatedEchoGain = INITIAL_ECHO_GAIN
         post { listener.onOutputVisual(0f, 0f, 0f, false) }
         post { listener.onOutputDone(text) }
     }
 
-    private fun beginInterruptionCandidate(rms: Double, threshold: Double) {
+    private fun beginInterruptionCandidate(rms: Double, threshold: Double, pauseImmediately: Boolean) {
         if (interruptionCandidate || inputInterruptConfirmed) return
         interruptionCandidate = true
+        candidatePlaybackPaused = pauseImmediately
         interruptionCandidateAtMs = SystemClock.elapsedRealtime()
         inputSpeechCandidate = true
         val token = candidateGeneration.incrementAndGet()
-        pausePlaybackTrack()
-        post { listener.onOutputVisual(0f, 0f, 0f, false) }
+        if (pauseImmediately) {
+            pausePlaybackTrack()
+            post { listener.onOutputVisual(0f, 0f, 0f, false) }
+        }
         socket?.send(JSONObject().put("type", "input.speech_candidate").toString())
         scheduleCandidateResume()
         Log.i(TAG, "barge-in candidate token=$token ratio=${"%.2f".format(rms / threshold)}")
@@ -755,6 +791,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         if (inputInterruptConfirmed) return
         candidateGeneration.incrementAndGet()
         interruptionCandidate = false
+        candidatePlaybackPaused = false
         inputInterruptConfirmed = true
         discardResponseAudio = true
         val latencyMs = (SystemClock.elapsedRealtime() - interruptionCandidateAtMs).coerceAtLeast(0L)
@@ -783,6 +820,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         if (!interruptionCandidate || inputInterruptConfirmed) return
         candidateGeneration.incrementAndGet()
         interruptionCandidate = false
+        candidatePlaybackPaused = false
         interruptionCandidateAtMs = 0L
         inputSpeechCandidate = false
         resumePlaybackTrack()
@@ -808,7 +846,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
 
     @Synchronized
     private fun resumePlaybackTrack() {
-        if (manualHold || interruptionCandidate) return
+        if (manualHold || candidatePlaybackPaused) return
         try { track?.play() } catch (_: Throwable) {}
     }
 
@@ -824,6 +862,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         inputSpeechCandidate = false
         inputInterruptConfirmed = false
         interruptionCandidate = false
+        candidatePlaybackPaused = false
         interruptionCandidateAtMs = 0L
         discardResponseAudio = false
         if (shouldNotify) post { listener.onDisconnected(message, retryable) }
@@ -844,6 +883,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         pendingOutputText = ""
         localSpeechActive = false
         interruptionCandidate = false
+        candidatePlaybackPaused = false
         interruptionCandidateAtMs = 0L
         manualHold = false
         try { recorder?.stop() } catch (_: Throwable) {}
@@ -862,16 +902,55 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     }
 
     private fun pcmRms(bytes: ByteArray, count: Int): Double {
+        return pcmFeatures(bytes, count).rms
+    }
+
+    private data class PcmFeatures(val rms: Double, val zeroCrossing: Double)
+
+    private fun pcmFeatures(bytes: ByteArray, count: Int): PcmFeatures {
         var sum = 0.0
         var samples = 0
+        var crossings = 0
+        var previous = 0
         var index = 0
         while (index + 1 < count) {
             val sample = ((bytes[index].toInt() and 0xff) or (bytes[index + 1].toInt() shl 8)).toShort().toInt()
             sum += sample.toDouble() * sample.toDouble()
+            if (samples > 0 && (sample >= 0) != (previous >= 0)) crossings++
+            previous = sample
             samples++
             index += 2
         }
-        return if (samples == 0) 0.0 else sqrt(sum / samples)
+        if (samples == 0) return PcmFeatures(0.0, 0.0)
+        return PcmFeatures(
+            rms = sqrt(sum / samples),
+            zeroCrossing = if (samples <= 1) 0.0 else crossings.toDouble() / (samples - 1),
+        )
+    }
+
+    /** Raise quiet near-end speech before cloud ASR without amplifying room
+     * silence or loudspeaker echo. The limiter keeps PCM clipping controlled. */
+    private fun prepareUpstreamAudio(
+        source: ByteArray,
+        count: Int,
+        rms: Double,
+        noiseFloor: Double,
+        boostSpeech: Boolean,
+    ): ByteArray {
+        val safeCount = count.coerceIn(0, source.size)
+        val original = if (safeCount == source.size) source.copyOf() else source.copyOf(safeCount)
+        if (!boostSpeech || rms < maxOf(45.0, noiseFloor * 1.18) || rms >= ASR_GAIN_TARGET_RMS) return original
+        val gain = (ASR_GAIN_TARGET_RMS / rms.coerceAtLeast(1.0)).coerceIn(1.0, MAX_ASR_SOFTWARE_GAIN)
+        var index = 0
+        while (index + 1 < original.size) {
+            val sample = ((original[index].toInt() and 0xff) or
+                (original[index + 1].toInt() shl 8)).toShort().toInt()
+            val amplified = (sample * gain).toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            original[index] = (amplified and 0xff).toByte()
+            original[index + 1] = (amplified shr 8).toByte()
+            index += 2
+        }
+        return original
     }
 
     private data class MouthShape(val open: Float, val wide: Float, val round: Float)
@@ -912,7 +991,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         // 20 ms PCM frames: three consecutive frames keeps clicks out while
         // bringing barge-in onset below 100 ms after the echo settling window.
         const val REQUIRED_INTERRUPT_FRAMES = 3
-        const val LOCAL_SPEECH_END_FRAMES = 40 // 800 ms: keep natural pauses inside one utterance
+        const val LOCAL_SPEECH_END_FRAMES = 50 // 1 s: keep hesitant elderly speech in one utterance
         const val ECHO_WARMUP_MS = 160L
         const val OUTPUT_ECHO_MAX_AGE_MS = 180L
         const val MIN_OUTPUT_ECHO_RMS = 80.0
@@ -922,6 +1001,11 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val ECHO_REJECTION_MULTIPLIER = 1.75
         const val ECHO_REJECTION_MARGIN_RMS = 45.0
         const val MAX_ECHO_EXTRA_RMS = 180.0
+        const val MIN_NEAR_END_RESIDUAL_RMS = 70.0
+        const val MIN_NEAR_END_ZCR_DISTANCE = 0.018
+        const val FAST_CONFIRM_FRAMES = 3
+        const val ASR_GAIN_TARGET_RMS = 900.0
+        const val MAX_ASR_SOFTWARE_GAIN = 3.2
         const val CANDIDATE_RESUME_MS = 280L
         const val CANDIDATE_ACTIVE_RECHECK_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L

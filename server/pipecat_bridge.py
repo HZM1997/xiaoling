@@ -96,8 +96,8 @@ class _VendoredSileroAnalyzer:
             speaking = confidence >= _confidence() and volume >= 0.0015
             if speaking:
                 if self.state == "QUIET":
-                    self.state = "SPEAKING"
-                    self.start_count = 0
+                    self.state = "STARTING"
+                    self.start_count = 1
                 elif self.state == "STARTING":
                     self.start_count += 1
                     if self.start_count >= 2:
@@ -115,7 +115,7 @@ class _VendoredSileroAnalyzer:
                     self.stop_count = 1
                 elif self.state == "STOPPING":
                     self.stop_count += 1
-                    if self.stop_count >= 10:
+                    if self.stop_count >= 18:
                         self.state = "QUIET"
                         self.stop_count = 0
             if time.monotonic() - self.last_reset >= 5.0:
