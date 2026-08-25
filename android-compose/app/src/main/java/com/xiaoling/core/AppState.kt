@@ -1261,7 +1261,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
                     .put("prompt", normalized).put("capture", true))
                 return
             }
-            if (style != null && Regex("相机|拍照|照片|自拍|镜头|给我拍").containsMatchIn(normalized)) {
+            if (style != null && isCameraStyleRequest(normalized)) {
                 realtime.cancelResponse()
                 val action = JSONObject().put("type", "OPEN_CAMERA")
                     .put("lens", if (normalized.contains("前置")) "front" else "back")
@@ -1342,6 +1342,15 @@ class AppState(application: Application) : AndroidViewModel(application) {
     private fun isCameraExitCommand(text: String): Boolean =
         Regex("^(退出|返回|回去|关闭)(相机|摄像头|这个界面|应用相机)?(吧|一下|主界面)?$").matches(text) ||
             text in setOf("返回应用", "返回小灵", "退出相机界面", "回到主界面")
+
+    /** A spoken look request is itself enough to open the camera. Older builds
+     * required the user to also say 相机/拍照, so phrases like “给我清澈一点”
+     * were parsed but never applied. Keep this narrow to camera-only style
+     * vocabulary and avoid hijacking general brightness commands. */
+    private fun isCameraStyleRequest(text: String): Boolean =
+        Regex("滤镜|调色|美颜|美白|磨皮|祛痘|肤色|网红|小红书|清澈|清透|空气感|白月光|初恋感|" +
+            "复古|胶片|胶卷|港风|CCD|富士|古风|古装|赛博|霓虹|冷白皮|奶油感|柔雾|森系|青橙|" +
+            "拍(得|成|出|个|一张)|自拍|人像").containsMatchIn(text)
 
     private fun isCameraVisionQuestion(text: String): Boolean =
         Regex(
