@@ -438,7 +438,15 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeart(
 
 private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): String {
     if (state == MascotState.Alarm) return "warning"
-    val value = text.lowercase()
+    val fullText = text.lowercase()
+    // Streaming captions are cumulative. Emotion keywords from the first
+    // sentence must not freeze the face for the entire answer, so expressions
+    // follow the latest spoken clause while safety-critical warnings still
+    // inspect the complete response.
+    val value = fullText.split(Regex("[。！？!?；;，,]"))
+        .lastOrNull { it.isNotBlank() }
+        ?.takeLast(48)
+        ?: fullText.takeLast(48)
     // Realtime audio can arrive before a complete transcript. Let cadence
     // still produce visibly different reactions instead of leaving the avatar
     // in the same neutral loop for every answer.
@@ -452,7 +460,7 @@ private fun avatarEmotion(state: MascotState, text: String, emphasisTick: Int): 
         }
     }
     return when {
-        listOf("危险", "诈骗", "报警", "立即停止", "警告", "不要转账", "可疑链接").any(value::contains) -> "warning"
+        listOf("危险", "诈骗", "报警", "立即停止", "警告", "不要转账", "可疑链接").any(fullText.takeLast(80)::contains) -> "warning"
         listOf("生气", "愤怒", "太过分", "不可以", "必须注意", "严肃").any(value::contains) -> "serious"
         listOf("难过", "伤心", "想哭", "失去", "遗憾", "去世").any(value::contains) -> "sad"
         listOf("对不起", "很抱歉", "是我没做好", "让您久等", "给您添麻烦").any(value::contains) -> "apologetic"

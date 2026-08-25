@@ -110,7 +110,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
     @Volatile private var latestOutputRms = 0.0
     @Volatile private var latestOutputZeroCrossing = 0.0
     @Volatile private var latestOutputRmsAtMs = 0L
-    @Volatile private var estimatedEchoGain = INITIAL_ECHO_GAIN
+    @Volatile private var estimatedEchoGain = loadCalibration().first
+    @Volatile private var interruptSensitivityBias = loadCalibration().second
     private var weakNetworkReported = false
     private val candidateGeneration = AtomicLong(0)
 
@@ -357,6 +358,9 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             } else {
                 maxOf(LOCAL_MIN_SPEECH_RMS, noiseFloor * 2.15)
             }
+            if (interruptWindow && !manualHold) {
+                speechThreshold *= (1.0 + interruptSensitivityBias)
+            }
             // Predict the microphone echo from the PCM frame currently being
             // played. This reacts to a loud TTS syllable immediately, instead
             // of waiting for the slow noise floor to catch up and pausing the
@@ -397,14 +401,19 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     loudFrames = 0
                 }
             }
-            val strongSpeech = rms >= speechThreshold * 1.55
+            val peakSpeech = inputFeatures.peak >= maxOf(
+                MIN_SPEECH_PEAK,
+                noiseFloor * PEAK_TO_NOISE_MULTIPLIER,
+            ) && inputFeatures.zeroCrossing in SPEECH_ZCR_MIN..SPEECH_ZCR_MAX
+            val strongSpeech = rms >= speechThreshold * 1.55 ||
+                (rms >= speechThreshold * 0.72 && peakSpeech)
             val predictedEcho = if (outputRms >= MIN_OUTPUT_ECHO_RMS) {
                 outputRms * estimatedEchoGain
             } else 0.0
             val residualRms = (rms - predictedEcho).coerceAtLeast(0.0)
             val spectralDistance = abs(inputFeatures.zeroCrossing - latestOutputZeroCrossing)
             val nearEndSpeech = manualHold || !interruptWindow || (
-                rms >= speechThreshold &&
+                (rms >= speechThreshold || (rms >= speechThreshold * 0.72 && peakSpeech)) &&
                     residualRms >= maxOf(MIN_NEAR_END_RESIDUAL_RMS, noiseFloor * 0.72) &&
                     (spectralDistance >= MIN_NEAR_END_ZCR_DISTANCE || rms >= speechThreshold * 1.75)
                 )
@@ -578,6 +587,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     val echo = isLikelyPlaybackEcho(text)
                     if (inputSpeechCandidate && (localSpeechActive || interruptionCandidate) &&
                         !inputInterruptConfirmed && text.count { !it.isWhitespace() } >= 2 && !echo) {
+                        adaptInterruptSensitivity(realSpeech = true)
                         confirmInterruption()
                     }
                     if (!echo) post { listener.onInputTranscript(text, false) }
@@ -590,10 +600,12 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
                     val echo = isLikelyPlaybackEcho(text)
                     if (inputSpeechCandidate && (localSpeechActive || interruptionCandidate) &&
                         !inputInterruptConfirmed && !echo) {
+                        adaptInterruptSensitivity(realSpeech = true)
                         confirmInterruption()
                     }
                     inputSpeechCandidate = false
                     if (echo) {
+                        adaptInterruptSensitivity(realSpeech = false)
                         Log.i(TAG, "suppressed playback echo transcript")
                         resumeCandidateOutput()
                     } else {
@@ -768,7 +780,8 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         latestOutputRms = 0.0
         latestOutputZeroCrossing = 0.0
         latestOutputRmsAtMs = 0L
-        estimatedEchoGain = INITIAL_ECHO_GAIN
+        // Keep the bounded, device-specific echo estimate across turns. It is
+        // persisted on release and continues adapting during the next answer.
         post { listener.onOutputVisual(0f, 0f, 0f, false) }
         post { listener.onOutputDone(text) }
     }
@@ -827,6 +840,24 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         inputSpeechCandidate = false
         resumePlaybackTrack()
         Log.i(TAG, "barge-in candidate rejected; playback resumed")
+    }
+
+    private fun loadCalibration(): Pair<Double, Double> {
+        val prefs = app.getSharedPreferences(CALIBRATION_PREFS, Context.MODE_PRIVATE)
+        val echo = prefs.getFloat(KEY_ECHO_GAIN, INITIAL_ECHO_GAIN.toFloat()).toDouble()
+            .coerceIn(MIN_ECHO_GAIN, MAX_ECHO_GAIN)
+        val sensitivity = prefs.getFloat(KEY_INTERRUPT_BIAS, 0f).toDouble()
+            .coerceIn(MIN_INTERRUPT_BIAS, MAX_INTERRUPT_BIAS)
+        return echo to sensitivity
+    }
+
+    private fun adaptInterruptSensitivity(realSpeech: Boolean) {
+        val delta = if (realSpeech) -0.008 else 0.018
+        interruptSensitivityBias = (interruptSensitivityBias + delta)
+            .coerceIn(MIN_INTERRUPT_BIAS, MAX_INTERRUPT_BIAS)
+        app.getSharedPreferences(CALIBRATION_PREFS, Context.MODE_PRIVATE).edit()
+            .putFloat(KEY_INTERRUPT_BIAS, interruptSensitivityBias.toFloat())
+            .apply()
     }
 
     private fun isLikelyPlaybackEcho(text: String): Boolean {
@@ -901,32 +932,39 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         recorder = null
         track = null
         app.getSystemService(AudioManager::class.java)?.mode = AudioManager.MODE_NORMAL
+        app.getSharedPreferences(CALIBRATION_PREFS, Context.MODE_PRIVATE).edit()
+            .putFloat(KEY_ECHO_GAIN, estimatedEchoGain.toFloat())
+            .putFloat(KEY_INTERRUPT_BIAS, interruptSensitivityBias.toFloat())
+            .apply()
     }
 
     private fun pcmRms(bytes: ByteArray, count: Int): Double {
         return pcmFeatures(bytes, count).rms
     }
 
-    private data class PcmFeatures(val rms: Double, val zeroCrossing: Double)
+    private data class PcmFeatures(val rms: Double, val zeroCrossing: Double, val peak: Double)
 
     private fun pcmFeatures(bytes: ByteArray, count: Int): PcmFeatures {
         var sum = 0.0
         var samples = 0
         var crossings = 0
+        var peak = 0
         var previous = 0
         var index = 0
         while (index + 1 < count) {
             val sample = ((bytes[index].toInt() and 0xff) or (bytes[index + 1].toInt() shl 8)).toShort().toInt()
             sum += sample.toDouble() * sample.toDouble()
+            peak = maxOf(peak, kotlin.math.abs(sample))
             if (samples > 0 && (sample >= 0) != (previous >= 0)) crossings++
             previous = sample
             samples++
             index += 2
         }
-        if (samples == 0) return PcmFeatures(0.0, 0.0)
+        if (samples == 0) return PcmFeatures(0.0, 0.0, 0.0)
         return PcmFeatures(
             rms = sqrt(sum / samples),
             zeroCrossing = if (samples <= 1) 0.0 else crossings.toDouble() / (samples - 1),
+            peak = peak.toDouble(),
         )
     }
 
@@ -1005,16 +1043,25 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val MAX_ECHO_EXTRA_RMS = 180.0
         const val MIN_NEAR_END_RESIDUAL_RMS = 70.0
         const val MIN_NEAR_END_ZCR_DISTANCE = 0.018
+        const val MIN_SPEECH_PEAK = 520.0
+        const val PEAK_TO_NOISE_MULTIPLIER = 5.2
+        const val SPEECH_ZCR_MIN = 0.012
+        const val SPEECH_ZCR_MAX = 0.46
         const val FAST_CONFIRM_FRAMES = 3
         const val ASR_GAIN_TARGET_RMS = 900.0
         const val MAX_ASR_SOFTWARE_GAIN = 3.2
-        const val CANDIDATE_RESUME_MS = 280L
+        const val CANDIDATE_RESUME_MS = 520L
         const val CANDIDATE_ACTIVE_RECHECK_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L
         const val OUTPUT_ACTIVITY_INTERVAL_MS = 750L
         const val EMPHASIS_COOLDOWN_MS = 420L
         const val MAX_WEBSOCKET_QUEUE_BYTES = 512L * 1024L
         const val MAX_AUDIO_TRACK_RECOVERIES = 2
+        const val CALIBRATION_PREFS = "xiaoling_voice_calibration"
+        const val KEY_ECHO_GAIN = "echo_gain"
+        const val KEY_INTERRUPT_BIAS = "interrupt_bias"
+        const val MIN_INTERRUPT_BIAS = -0.10
+        const val MAX_INTERRUPT_BIAS = 0.22
         const val TAG = "XiaolingRealtime"
     }
 }

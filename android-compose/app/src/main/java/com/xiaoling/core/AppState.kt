@@ -848,7 +848,10 @@ class AppState(application: Application) : AndroidViewModel(application) {
                 return
             }
             val style = CameraFilter.parseVoice(spoken)
-            if (style != null) setCameraStyle(style, announce = !isCameraCaptureCommand(spoken))
+            if (style != null) setCameraStyle(
+                contextualCameraStyle(style, spoken),
+                announce = !isCameraCaptureCommand(spoken),
+            )
             if (isReferenceStyleCommand(spoken)) {
                 requestReferenceImage(captureAfter = isCameraCaptureCommand(spoken))
                 return
@@ -1283,7 +1286,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             style?.let {
                 // Update the preview immediately; the realtime model can still
                 // provide its natural spoken acknowledgement for the same turn.
-                setCameraStyle(it, announce = false)
+                setCameraStyle(contextualCameraStyle(it, normalized), announce = false)
             }
             if (isReferenceStyleCommand(normalized)) {
                 realtime.cancelResponse()
@@ -1351,6 +1354,24 @@ class AppState(application: Application) : AndroidViewModel(application) {
         Regex("滤镜|调色|美颜|美白|磨皮|祛痘|肤色|网红|小红书|清澈|清透|空气感|白月光|初恋感|" +
             "复古|胶片|胶卷|港风|CCD|富士|古风|古装|赛博|霓虹|冷白皮|奶油感|柔雾|森系|青橙|" +
             "拍(得|成|出|个|一张)|自拍|人像").containsMatchIn(text)
+
+    private fun contextualCameraStyle(style: CameraStyleIntent, spoken: String): CameraStyleIntent {
+        if (_state.value.screen != Screen.Camera ||
+            !Regex("再|更|继续|加强|加一点|减一点|降低|弱一点|淡一点").containsMatchIn(spoken)) return style
+        val current = _state.value
+        val down = Regex("减一点|降低|弱一点|淡一点|少一点").containsMatchIn(spoken)
+        val direction = if (down) -1f else 1f
+        return style.copy(
+            strength = if (Regex("滤镜|效果|风格|调色").containsMatchIn(spoken))
+                (current.cameraFilterStrength + direction * 0.14f).coerceIn(0.25f, 1f) else style.strength,
+            exposure = if (Regex("亮|曝光|暗").containsMatchIn(spoken))
+                (current.cameraExposure + direction * 0.08f).coerceIn(-0.35f, 0.35f) else style.exposure,
+            whitening = if (Regex("白|肤色|祛黄|去黄").containsMatchIn(spoken))
+                (current.cameraWhitening + direction * 0.12f).coerceIn(0f, 1f) else style.whitening,
+            smoothing = if (Regex("磨皮|光滑|细腻|祛痘").containsMatchIn(spoken))
+                (current.cameraSmoothing + direction * 0.12f).coerceIn(0f, 1f) else style.smoothing,
+        )
+    }
 
     private fun isCameraVisionQuestion(text: String): Boolean =
         Regex(
