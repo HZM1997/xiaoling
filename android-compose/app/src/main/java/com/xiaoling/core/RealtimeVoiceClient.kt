@@ -421,7 +421,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
             // speaker echo, notification click, or key tone from cancelling TTS.
             val requiredFrames = when {
                 manualHold && strongSpeech -> 2
-                interruptWindow && strongSpeech -> 3
+                interruptWindow && strongSpeech -> 2
                 interruptWindow -> 5
                 else -> REQUIRED_INTERRUPT_FRAMES
             }
@@ -1032,7 +1032,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         // bringing barge-in onset below 100 ms after the echo settling window.
         const val REQUIRED_INTERRUPT_FRAMES = 3
         const val LOCAL_SPEECH_END_FRAMES = 50 // 1 s: keep hesitant elderly speech in one utterance
-        const val ECHO_WARMUP_MS = 160L
+        const val ECHO_WARMUP_MS = 100L
         const val OUTPUT_ECHO_MAX_AGE_MS = 180L
         const val MIN_OUTPUT_ECHO_RMS = 80.0
         const val INITIAL_ECHO_GAIN = 0.06
@@ -1047,7 +1047,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val PEAK_TO_NOISE_MULTIPLIER = 5.2
         const val SPEECH_ZCR_MIN = 0.012
         const val SPEECH_ZCR_MAX = 0.46
-        const val FAST_CONFIRM_FRAMES = 3
+        const val FAST_CONFIRM_FRAMES = 2
         const val ASR_GAIN_TARGET_RMS = 900.0
         const val MAX_ASR_SOFTWARE_GAIN = 3.2
         const val CANDIDATE_RESUME_MS = 520L

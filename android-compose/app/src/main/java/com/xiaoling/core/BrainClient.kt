@@ -114,7 +114,7 @@ object BrainClient {
             val base = Settings.brainUrl(ctx).trim().trimEnd('/')
             if (base.isBlank()) return@withContext null
             val compressed = ByteArrayOutputStream().use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 72, out)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
                 out.toByteArray()
             }
             if (compressed.isEmpty() || compressed.size > 2_000_000) return@withContext null
@@ -130,7 +130,7 @@ object BrainClient {
                     requestMethod = "POST"
                     doOutput = true
                     connectTimeout = 1800
-                    readTimeout = 15000
+                    readTimeout = 7000
                     setRequestProperty("Content-Type", "application/json; charset=utf-8")
                     setRequestProperty("Accept", "application/json")
                     ClientSecurity.apply(this)

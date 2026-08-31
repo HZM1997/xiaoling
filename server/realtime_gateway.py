@@ -128,7 +128,7 @@ _REALTIME_TOOLS = [
     {
         "type": "function",
         "name": "ask_kimi",
-        "description": "Use Kimi K3 for every substantive open-ended answer, life question, anti-fraud explanation, reasoning request, or personalized conversation. Device commands use their dedicated tools instead.",
+        "description": "Use Kimi K3 only when the user explicitly asks for deeper reasoning or the question genuinely needs multi-step analysis. Answer ordinary companionship, life questions, translation, and short explanations directly in the realtime model to avoid latency.",
         "parameters": {
             "type": "object",
             "properties": {"question": {"type": "string"}},
@@ -237,10 +237,11 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
         + "自动识别用户说的语言。用户要求翻译或口译时直接使用目标语言回答，保留姓名和数字，不添加解释，也不要为了翻译调用后台复杂任务。"
         + "用户说得不完整时先结合最近上下文补全意图；仍有两个以上可能含义时，只追问一个最关键的问题。"
         + "打电话、提醒、播放和反诈研判必须调用对应工具；相机已经打开时，用户用任何自然语言描述想要的照片感觉、色调、美白或磨皮，立即理解审美意图并调用 set_camera_filter，不要让用户先打开或选择滤镜库，也不要要求用户说滤镜名称。"
-        + "普通陪伴、生活问答和翻译由你直接自然回答；需要长推理、专业解释或多轮复杂分析时优先调用 ask_kimi。"
+        + "普通陪伴、生活问答和翻译由你直接自然回答；短解释也不要调用工具，只有确实需要多步推理或专业分析时才调用 ask_kimi。"
         + "若 ask_kimi 暂不可用，基于已有上下文自行回答，不要重复任何固定的服务故障话术。"
         + "耗时研究、复杂比较或多步方案调用 delegate_complex_task；工具返回已受理后，简短告知后台正在处理，然后继续正常聊天。"
         + "按对话内容自然变化语气：事实问题直接、情绪话题温和、喜事轻快、风险场景坚定；"
+        + "声音保持温柔自然的年轻女性口吻，语速舒缓但不拖沓，避免播音腔和机械客服腔。"
         + "避免重复固定开场，允许简短的嗯、我在听等反馈，但不要抢话。"
         + "每轮先在内部判断用户真正想表达什么、上文指代什么、该直接回答还是调用工具；不要输出思维过程。"
         + "不要把每句陈述都变成反问。能推进话题时补充一个有用的新信息或自然回应。"
@@ -500,7 +501,7 @@ def _ask_kimi(question: str, context: dict) -> str:
     message = llm_gateway.chat(
         messages,
         max_tokens=1100,
-        timeout=15.0,
+        timeout=10.0 if effort == "high" else 7.0,
         model_override="kimi-k3",
         provider_override="kimi",
         reasoning_effort=effort,

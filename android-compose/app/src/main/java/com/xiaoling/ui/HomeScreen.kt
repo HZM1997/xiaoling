@@ -131,18 +131,27 @@ fun HomeScreen(vm: AppState) {
             ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Avatar3DView(
-                state = ui.mascot,
-                talking = ui.speaking,
-                voiceLevel = ui.voiceLevel,
-                mouthWide = ui.voiceMouthWide,
-                mouthRound = ui.voiceMouthRound,
-                emphasisTick = ui.voiceEmphasisTick,
-                caption = ui.caption,
-                modifier = Modifier.fillMaxWidth().weight(1f)
-            )
-
-            if (!inPip) {
+            if (inPip) {
+                // Android controls the PiP window position. Inside that window,
+                // keep only the voice surface: no avatar, captions, settings,
+                // exit affordance, or microphone controls.
+                VoiceActivityIndicator(
+                    listening = ui.listening,
+                    speaking = ui.speaking,
+                    thinking = ui.busy,
+                    pip = true,
+                )
+            } else {
+                Avatar3DView(
+                    state = ui.mascot,
+                    talking = ui.speaking,
+                    voiceLevel = ui.voiceLevel,
+                    mouthWide = ui.voiceMouthWide,
+                    mouthRound = ui.voiceMouthRound,
+                    emphasisTick = ui.voiceEmphasisTick,
+                    caption = ui.caption,
+                    modifier = Modifier.fillMaxWidth().weight(1f)
+                )
                 Spacer(Modifier.height(8.dp))
                 VoiceActivityIndicator(
                     listening = ui.listening,
@@ -185,6 +194,7 @@ private fun VoiceActivityIndicator(
     listening: Boolean,
     speaking: Boolean,
     thinking: Boolean,
+    pip: Boolean = false,
 ) {
     val transition = rememberInfiniteTransition(label = "voice-activity")
     val phase by transition.animateFloat(
@@ -193,10 +203,10 @@ private fun VoiceActivityIndicator(
         animationSpec = infiniteRepeatable(
             animation = tween(
                 durationMillis = when {
-                    listening -> 620
-                    speaking -> 760
-                    thinking -> 1050
-                    else -> 1500
+                    listening -> 520
+                    speaking -> 690
+                    thinking -> 1120
+                    else -> 1800
                 }
             ),
             repeatMode = RepeatMode.Restart,
@@ -209,27 +219,46 @@ private fun VoiceActivityIndicator(
         thinking -> 0.48f
         else -> 0.16f
     }
-    val color = when {
-        listening -> Color(0xFF27A66B)
-        speaking -> AccentBlue
-        thinking -> Color(0xFF7C8696)
-        else -> Color(0xFFB8C0CC)
-    }
+    // Reference treatment: a black voice surface with a blue/cyan electrical
+    // spectrum. State is conveyed by cadence and amplitude, not labels.
+    val pillWidth = if (pip) 218.dp else 164.dp
+    val pillHeight = if (pip) 46.dp else 38.dp
+    val waveWidth = if (pip) 174.dp else 132.dp
+    val waveHeight = if (pip) 32.dp else 27.dp
 
-    Canvas(Modifier.width(58.dp).height(25.dp)) {
-        val barWidth = size.width / 11f
-        val gap = barWidth * 1.45f
-        repeat(5) { index ->
-            val wave = ((sin((phase + index * 0.92f).toDouble()) + 1.0) * 0.5).toFloat()
-            val centerBias = 1f - kotlin.math.abs(index - 2) * 0.11f
-            val barHeight = size.height * (0.18f + energy * (0.34f + wave * 0.44f) * centerBias)
-            val left = (size.width - (barWidth * 5 + gap * 4)) / 2f + index * (barWidth + gap)
-            drawRoundRect(
-                color = color,
-                topLeft = Offset(left, (size.height - barHeight) / 2f),
-                size = Size(barWidth, barHeight),
-                cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
-            )
+    Box(
+        modifier = Modifier
+            .width(pillWidth)
+            .height(pillHeight)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(pillHeight / 2))
+            .background(Color.Black),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(Modifier.width(waveWidth).height(waveHeight)) {
+            val count = 17
+            val barWidth = size.width / 36f
+            val gap = barWidth * 1.18f
+            repeat(count) { index ->
+                val distance = kotlin.math.abs(index - (count - 1) / 2f) / ((count - 1) / 2f)
+                val envelope = (1f - distance * 0.82f).coerceAtLeast(0.18f)
+                val waveA = ((sin((phase * (1.04f + index % 3 * 0.08f) + index * 0.78f).toDouble()) + 1.0) * 0.5).toFloat()
+                val waveB = ((sin((phase * 0.63f - index * 0.47f).toDouble()) + 1.0) * 0.5).toFloat()
+                val activity = waveA * 0.72f + waveB * 0.28f
+                val minHeight = 0.10f + envelope * 0.08f
+                val barHeight = size.height * (minHeight + energy * envelope * (0.30f + activity * 0.62f))
+                val left = (size.width - (barWidth * count + gap * (count - 1))) / 2f + index * (barWidth + gap)
+                val color = when {
+                    distance < 0.28f -> Color(0xFFBDF9FF)
+                    distance < 0.58f -> Color(0xFF49CBFF)
+                    else -> Color(0xFF2359FF)
+                }.copy(alpha = (1f - distance * 0.28f).coerceIn(0.62f, 1f))
+                drawRoundRect(
+                    color = color,
+                    topLeft = Offset(left, (size.height - barHeight) / 2f),
+                    size = Size(barWidth, barHeight),
+                    cornerRadius = CornerRadius(barWidth / 2f, barWidth / 2f),
+                )
+            }
         }
     }
 }

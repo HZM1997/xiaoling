@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isFinishing || isDestroyed) return false
         return try {
             val params = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(1, 1))
+                .setAspectRatio(Rational(239, 100))
                 .apply {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) setSeamlessResizeEnabled(true)
                 }

@@ -30,10 +30,12 @@ object LocalVisionAnalyzer {
                     else -> ""
                 }
                 val askedForDetails = Regex("用途|怎么用|能不能吃|什么药|安全吗|真假").containsMatchIn(prompt)
+                val continuous = prompt.contains("持续观察")
                 continuation.resume(
                     if (names.isEmpty()) null
                     else buildString {
                         append("我在画面里看到了").append(subject).append("。")
+                        if (continuous) return@buildString
                         if (safety.isNotBlank()) append(safety)
                         if (askedForDetails && safety.isBlank()) append("仅凭当前画面不能可靠判断具体型号或真假。")
                         append("如果不对，请把目标放在画面中央并靠近一些。")

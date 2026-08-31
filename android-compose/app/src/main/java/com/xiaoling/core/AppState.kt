@@ -161,9 +161,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
     @Volatile private var cameraCaptureAfterReference = false
     @Volatile private var cameraProcessingRequestId = -1L
     @Volatile private var cameraObservationActive = false
+    @Volatile private var cameraContinuousVision = false
     private var cameraSceneCandidate = ""
     private var cameraSceneCandidateHits = 0
     private var cameraLastSceneCommitAt = 0L
+    private var cameraLastSpokenSceneAt = 0L
     private var pendingReminder = ""
     private var pendingCallTarget = ""
     private var pendingRemoteAudioUrl = ""
@@ -946,7 +948,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             // 本地快通道即时返回;需要大模型时给流畅对话留出合理窗口。连续失败会由客户端熔断,
             // 后续轮次直接走本地动态陪伴,避免每句话都等待不可达服务。
             val reply = if (NetworkStatus.isOnline(app)) {
-                withTimeoutOrNull(5500) {
+                withTimeoutOrNull(4400) {
                     try { BrainClient.ask(app, spoken) } catch (_: Exception) { null }
                 }
             } else null
@@ -1217,7 +1219,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         tts.stop()
         RemoteAudioPlayer.stop()
         speaking = false
-        TactileFeedback.emit(app, TactileFeedback.Signal.VoiceRecognized)
+        TactileFeedback.emit(app, TactileFeedback.Signal.VoiceListening)
         _state.update { it.copy(listening = true, speaking = false, voiceLevel = 0f,
             voiceMouthWide = 0f, voiceMouthRound = 0f, busy = false,
             caption = "在听…", mascot = MascotState.Listening) }
@@ -1234,6 +1236,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
             return
         }
         val normalized = LocalIntents.normalizeSpeech(text)
+        if (final) TactileFeedback.emit(app, TactileFeedback.Signal.VoiceRecognized)
         if (_state.value.screen == Screen.Camera && isCameraExitCommand(normalized)) {
             cameraExitPending = !final
             realtime.cancelResponse()
@@ -1325,7 +1328,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
         if (final) {
             realtimeResponseJob?.cancel()
             realtimeResponseJob = viewModelScope.launch {
-                delay(7_000L)
+                delay(4_200L)
                 if (realtimeActive && !speaking && _state.value.busy && _state.value.lastUser == text) {
                     // 上游漏掉 response.created 时不要永久停在“思考中”；退出坏会话并走稳定问答链。
                     realtimeActive = false
@@ -1573,9 +1576,11 @@ class AppState(application: Application) : AndroidViewModel(application) {
             if (newFilterRequested) 0f else _state.value.cameraSmoothing
         val styleDescription = actionStyle.description ?: voiceStyle?.description ?: requestedFilter.label
         cameraVisionPending = true
+        cameraContinuousVision = isCameraVisionQuestion(prompt)
         cameraSceneCandidate = ""
         cameraSceneCandidateHits = 0
         cameraLastSceneCommitAt = 0L
+        cameraLastSpokenSceneAt = 0L
         _state.update { it.copy(screen = Screen.Camera, cameraLens = lens, cameraFilter = requestedFilter.id,
             cameraFilterStrength = requestedStrength.coerceIn(0.25f, 1f),
             cameraExposure = requestedExposure.coerceIn(-0.35f, 0.35f),
@@ -1606,6 +1611,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
     fun exitCamera(keepListening: Boolean = false) {
         cameraExitPending = false
         cameraVisionPending = false
+        cameraContinuousVision = false
         cameraCaptureAfterReference = false
         cameraProcessingRequestId = -1L
         cameraSceneCandidate = ""
@@ -1888,6 +1894,7 @@ class AppState(application: Application) : AndroidViewModel(application) {
 
     private fun requestCameraRecognition(prompt: String) {
         cameraVisionPending = true
+        cameraContinuousVision = true
         val nextId = _state.value.cameraRequestId + 1
         _state.update { it.copy(
             cameraPrompt = prompt,
@@ -1990,6 +1997,17 @@ class AppState(application: Application) : AndroidViewModel(application) {
                         cameraSceneCandidateHits = 0
                         _state.update { it.copy(cameraSceneHint = hint) }
                         realtime.updateContext(cameraRealtimeContext(_state.value.cameraObservation, hint))
+                        val sceneChanged = current.isNotBlank() && current != hint
+                        if (sceneChanged && cameraContinuousVision && realtimeActive &&
+                            !speaking && !_state.value.busy && now - cameraLastSpokenSceneAt >= 5_000L) {
+                            cameraLastSpokenSceneAt = now
+                            if (realtime.sendConversationText(
+                                    "相机画面发生了变化。新的端侧观察是：$hint。" +
+                                        "请只说变化和当前最可能的物品；不确定时明确提醒用户靠近镜头。"
+                                )) {
+                                _state.update { it.copy(busy = true, mascot = MascotState.Thinking) }
+                            }
+                        }
                     }
                 }
             } finally {

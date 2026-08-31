@@ -8,6 +8,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -39,13 +40,28 @@ class Tts(
             if (status == TextToSpeech.SUCCESS) {
                 val r = tts?.setLanguage(Locale.CHINA) ?: TextToSpeech.LANG_NOT_SUPPORTED
                 ready = r != TextToSpeech.LANG_MISSING_DATA && r != TextToSpeech.LANG_NOT_SUPPORTED
+                // Prefer a locally installed Mandarin female voice. Engines
+                // expose different names, so use conservative name/locale
+                // hints and fall back to the engine default when unavailable.
+                val female = tts?.voices.orEmpty()
+                    .filter { it.locale.language == Locale.CHINA.language && !it.isNetworkConnectionRequired }
+                    .sortedWith(compareBy<Voice> {
+                        val n = it.name.lowercase(Locale.ROOT)
+                        if (listOf("female", "woman", "xiaoxiao", "xiaoyi", "女", "晓晓", "小艺").any(n::contains)) 0 else 1
+                    }.thenByDescending { it.quality })
+                    .firstOrNull()
+                if (female != null) tts?.voice = female
                 tts?.setAudioAttributes(
                     AudioAttributes.Builder()
                         .setUsage(AudioAttributes.USAGE_ASSISTANCE_ACCESSIBILITY)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                tts?.setSpeechRate(1.08f)   // 略快,老人也能听清,同时缩短播报时长
+                // Slightly slower and softer than the engine default. A small
+                // pitch lift reads as warm without producing a synthetic or
+                // child-like voice on common Xiaomi system engines.
+                tts?.setSpeechRate(0.98f)
+                tts?.setPitch(1.08f)
                 val cb = onDone   // 捕获,避免与 UtteranceProgressListener.onDone 同名方法递归
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) {

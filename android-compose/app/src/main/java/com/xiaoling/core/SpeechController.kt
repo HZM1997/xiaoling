@@ -207,9 +207,12 @@ class SpeechController(private val ctx: Context) {
                 // Older users often pause between subjects and verbs. Treat a
                 // short hesitation as part of the same sentence instead of
                 // asking MIUI to finalize a half-spoken command.
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1400)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 900)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 300)
+                // Older MIUI recognizers finalize after a short hesitation;
+                // leave enough tail room for elderly speakers while keeping
+                // the partial-result callback responsive.
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1900)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1250)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 450)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     putStringArrayListExtra(
                         RecognizerIntent.EXTRA_BIASING_STRINGS,
