@@ -206,6 +206,13 @@ fun CameraScreen(vm: AppState) {
             smoothing,
             isFrontCamera = ui.cameraLens == "front",
         )
+        VoiceActivityIndicator(
+            listening = ui.listening,
+            speaking = ui.speaking,
+            thinking = ui.busy,
+            pip = true,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 12.dp),
+        )
         if (filter != CameraFilter.Natural || whitening > 0.01f || smoothing > 0.01f) {
             CameraLookReference(
                 filter = filter,
