@@ -234,6 +234,8 @@ def _instructions(user_id: str, context: dict, latest_text: str = "") -> str:
         + "老人插话时立即停止当前回答并听新指令，不要抱怨被打断。"
         + "相机已经打开时，用户要求前置、后置或切换摄像头，必须调用 switch_camera，并保持当前语音会话。"
         + "回答先说结论，通常一到三句；用户持续讲述较长内容时，可偶尔用很短的‘嗯’或‘我在听’回应，但不要频繁打断。"
+        + "每轮都要结合最近对话、设备状态和当前场景重新判断，不得把上一轮答案换几个字重复。"
+        + "问题需要推理时，先在内部拆分事实、约束和下一步，再用自然口语给出有依据的结论；不要输出思维过程。"
         + "自动识别用户说的语言。用户要求翻译或口译时直接使用目标语言回答，保留姓名和数字，不添加解释，也不要为了翻译调用后台复杂任务。"
         + "用户说得不完整时先结合最近上下文补全意图；仍有两个以上可能含义时，只追问一个最关键的问题。"
         + "打电话、提醒、播放和反诈研判必须调用对应工具；相机已经打开时，用户用任何自然语言描述想要的照片感觉、色调、美白或磨皮，立即理解审美意图并调用 set_camera_filter，不要让用户先打开或选择滤镜库，也不要要求用户说滤镜名称。"
@@ -282,7 +284,7 @@ def _session_update(
                 # Keep normal breathing and hesitant speech in one turn. The
                 # Android client still confirms barge-in locally within about
                 # 60-100 ms, so this does not slow interruption onset.
-                "silence_duration_ms": 900,
+                "silence_duration_ms": 700,
                 "create_response": True,
                 # Qwen's server VAD also hears the phone speaker.  Xiaoling
                 # confirms barge-in with the Android local VAD before it

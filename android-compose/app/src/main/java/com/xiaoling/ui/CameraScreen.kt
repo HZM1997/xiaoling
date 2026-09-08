@@ -355,8 +355,10 @@ private class CameraFrameAnalyzer(
             val previous = lastSample
             val change = if (previous == null) Float.MAX_VALUE else
                 sample.indices.sumOf { kotlin.math.abs(sample[it] - previous[it]).toDouble() }.toFloat() / sample.size
-            val periodicRefresh = now - lastEmitAt >= 3_500L
-            val changedFrame = change >= 8.5f && now - lastEmitAt >= 900L
+            // Follow a moved object faster, with a local throttle to avoid
+            // flooding the vision pipeline with camera frames.
+            val periodicRefresh = now - lastEmitAt >= 2_200L
+            val changedFrame = change >= 7.0f && now - lastEmitAt >= 700L
             if (previous == null || changedFrame || periodicRefresh) {
                 lastSample = sample
                 imageProxyToBitmap(image)?.let { bitmap ->

@@ -221,10 +221,10 @@ fun VoiceActivityIndicator(
         else -> 0.16f
     }
     val color = Color(0xFFFFE34D)
-    val pillWidth = if (pip) 218.dp else 58.dp
-    val pillHeight = if (pip) 46.dp else 25.dp
-    val waveWidth = if (pip) 102.dp else 58.dp
-    val waveHeight = if (pip) 32.dp else 25.dp
+    val pillWidth = if (pip) 188.dp else 58.dp
+    val pillHeight = if (pip) 34.dp else 25.dp
+    val waveWidth = if (pip) 88.dp else 58.dp
+    val waveHeight = if (pip) 24.dp else 25.dp
     val bars = @Composable {
         Canvas(Modifier.width(waveWidth).height(waveHeight)) {
             val barWidth = size.width / 19f
