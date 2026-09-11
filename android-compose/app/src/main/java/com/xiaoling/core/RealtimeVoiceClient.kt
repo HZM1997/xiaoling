@@ -1050,7 +1050,7 @@ class RealtimeVoiceClient(private val ctx: Context, private val listener: Listen
         const val FAST_CONFIRM_FRAMES = 2
         const val ASR_GAIN_TARGET_RMS = 900.0
         const val MAX_ASR_SOFTWARE_GAIN = 3.2
-        const val CANDIDATE_RESUME_MS = 360L
+        const val CANDIDATE_RESUME_MS = 200L
         const val CANDIDATE_ACTIVE_RECHECK_MS = 100L
         const val OUTPUT_LEVEL_INTERVAL_MS = 40L
         const val OUTPUT_ACTIVITY_INTERVAL_MS = 750L

@@ -57,10 +57,8 @@ class Tts(
                         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                // Slightly slower and softer than the engine default. A small
-                // pitch lift reads as warm without producing a synthetic or
-                // child-like voice on common Xiaomi system engines.
-                // Keep the voice warm without sluggish pacing on Xiaomi engines.
+                // A small pitch lift reads as warm without producing a synthetic
+                // or child-like voice on common Xiaomi system engines.
                 tts?.setSpeechRate(1.02f)
                 tts?.setPitch(1.10f)
                 val cb = onDone   // 捕获,避免与 UtteranceProgressListener.onDone 同名方法递归

@@ -357,8 +357,8 @@ private class CameraFrameAnalyzer(
                 sample.indices.sumOf { kotlin.math.abs(sample[it] - previous[it]).toDouble() }.toFloat() / sample.size
             // Follow a moved object faster, with a local throttle to avoid
             // flooding the vision pipeline with camera frames.
-            val periodicRefresh = now - lastEmitAt >= 2_200L
-            val changedFrame = change >= 7.0f && now - lastEmitAt >= 700L
+            val periodicRefresh = now - lastEmitAt >= 1_000L
+            val changedFrame = change >= 6.5f && now - lastEmitAt >= 500L
             if (previous == null || changedFrame || periodicRefresh) {
                 lastSample = sample
                 imageProxyToBitmap(image)?.let { bitmap ->
