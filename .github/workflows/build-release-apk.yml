@@ -43,8 +43,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Verify runner Android SDK
+        run: |
+          test -n "$ANDROID_HOME"
+          command -v sdkmanager
 
       - name: Install SDK packages
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
