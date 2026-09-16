@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import logging
 import os
+import secrets
 import time
 from collections import defaultdict, deque
 from threading import Lock
@@ -53,10 +54,12 @@ class _Bucket:
 
 _global = _Bucket()
 _sensitive = _Bucket()
+_auth_failures = _Bucket()
 _realtime_handshakes = _Bucket()
 _realtime_active: dict[str, int] = defaultdict(int)
 _realtime_lock = Lock()
 _last_gc = 0.0
+_log_hash_salt = os.getenv("XL_LOG_HASH_SALT", "").strip() or secrets.token_hex(32)
 
 
 def production() -> bool:
@@ -88,8 +91,7 @@ def _peer_ip(request: Request) -> str:
 
 
 def anonymous_ip(ip: str) -> str:
-    salt = os.getenv("XL_LOG_HASH_SALT", "xiaoling-security-log")
-    return hashlib.sha256(f"{salt}:{ip}".encode()).hexdigest()[:12]
+    return hashlib.sha256(f"{_log_hash_salt}:{ip}".encode()).hexdigest()[:12]
 
 
 def token_valid(headers) -> bool:
@@ -155,12 +157,15 @@ class Firewall(BaseHTTPMiddleware):
         is_public = path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES)
         if not is_public and path != "/agent/admin/refresh" and not token_valid(request.headers):
             _blocked(ip, path, "client_auth")
+            if not _auth_failures.allow(ip, 12, 60, now):
+                return _rate_limited(60)
             return _error(401 if client_token() else 503, "unauthorized")
 
         if now - _last_gc > 300:
             _last_gc = now
             _global.gc(now, GLOBAL_RATE[1])
             _sensitive.gc(now, SENSITIVE_RATE[1])
+            _auth_failures.gc(now, 60)
             _realtime_handshakes.gc(now, 60)
 
         try:

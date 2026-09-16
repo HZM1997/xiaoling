@@ -25,3 +25,10 @@ def test_realtime_connection_limit(monkeypatch):
     assert firewall.acquire_realtime("192.0.2.10") is False
     firewall.release_realtime("192.0.2.10")
     assert firewall.acquire_realtime("192.0.2.10") is True
+
+
+def test_failed_auth_attempts_are_independently_rate_limited():
+    bucket = firewall._Bucket()
+    for _ in range(12):
+        assert bucket.allow("192.0.2.20", 12, 60, 100.0) is True
+    assert bucket.allow("192.0.2.20", 12, 60, 100.0) is False
